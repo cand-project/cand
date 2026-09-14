@@ -12,6 +12,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0004](ADR-0004-annotation-noninterference.md) | C& annotations do not alter production runtime semantics or ABI | Proposed |
 | [ADR-0005](ADR-0005-enforcement-modes-and-claim-lifecycle.md) | Observation, enforcement, and release evidence are separate modes/claims | Proposed |
 | [ADR-0006](ADR-0006-ownership-inference-and-trust.md) | Ownership facts have an explicit trust hierarchy; heuristic/AI inference is not proof | Proposed |
+| [ADR-0007](ADR-0007-source-annotation-encoding.md) | Common ownership effects use one canonical C-compatible annotation encoding | Proposed |
 
 ## Design chain
 
