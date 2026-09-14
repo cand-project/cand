@@ -9,7 +9,7 @@ python3 -m json.tool contracts/schema/cand-api-contract.schema.json >/dev/null
 
 echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \
-  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml
+  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/agent-policy.yaml
 
 echo "==> SVG syntax and canonical assets"
 python3 - <<'PY'
@@ -43,6 +43,19 @@ grep -q "no new compiler" README.md
 grep -q "MUST NOT become a compiler fork" README.md
 grep -q "Not a C Compiler" docs/adr/ADR-0001-pipeline-safety-layer.md
 grep -Fq 'does **not** claim that C&1' README.md
+grep -Fq 'LLMs synthesize. C& verifies.' README.md
+grep -Fq 'The LLM is **not** part of the trusted computing base.' README.md
+grep -Fq 'proof-policy change' README.md
+test -f docs/adr/ADR-0008-llm-first-synthesis-and-verification.md
+test -f docs/adr/ADR-0009-agent-proof-policy.md
+test -f docs/spec/SPEC-0004-machine-agent-protocol.md
+test -f contracts/agent-policy.yaml
+
+echo "==> Agent-policy baseline"
+grep -Fq 'new_unsafe_boundaries: 0' contracts/agent-policy.yaml
+grep -Fq 'new_suppressions: 0' contracts/agent-policy.yaml
+grep -Fq 'trusted_contract_promotion: forbidden' contracts/agent-policy.yaml
+grep -Fq 'llm_generated_safety_claims: no_proof_status' contracts/agent-policy.yaml
 
 echo "==> GCC ordinary-C compatibility"
 gcc -std=c11 -Wall -Wextra -Werror -Iinclude -fsyntax-only examples/ownership.c
