@@ -2,6 +2,20 @@
 
 All notable project changes are recorded here.
 
+## Unreleased
+
+### LLM-first architecture
+
+- made **“LLMs synthesize. C& verifies.”** a core project thesis rather than an optional integration;
+- added ADR-0008 defining coding agents as first-class untrusted synthesis engines;
+- added ADR-0009 defining proof-policy protection against agent reward-hacking/shortcutting;
+- added SPEC-0004 defining the deterministic machine-agent verification protocol;
+- added `contracts/agent-policy.yaml` with a strict generated-code safety budget;
+- made machine-readable ownership-state diagnostics, repair classes, policy deltas and evidence artifacts first-class design requirements;
+- added generated-code strict mode and autonomous repair-loop gates to the roadmap;
+- clarified that LLM-generated annotations are intent, candidate contracts are untrusted, and model-generated safety claims have no proof status;
+- shifted the intended human review surface toward unsafe boundaries, trusted contracts, suppressions, unsupported code and semantic policy changes.
+
 ## 0.1.0 — 2026-09-14
 
 First public architecture and compatibility baseline for C&.
