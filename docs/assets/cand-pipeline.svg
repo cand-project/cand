@@ -1,105 +1,76 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
-<title id="title">How C&amp; works</title>
-<desc id="desc">C&amp; analyzes ownership and borrowing before the ordinary C build pipeline. Passing code continues to clang or gcc and the normal C ABI; failures produce diagnostics.</desc>
-<defs>
-  <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#0b3157"/><stop offset="1" stop-color="#0aa0a4"/></linearGradient>
-  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#0b3157" flood-opacity=".08"/></filter>
-  <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#287a94"/></marker>
-  <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#38a64a"/></marker>
-  <marker id="redArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#dd4747"/></marker>
-  <style>
-    .t{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#17212b}
-    .s{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#536574}
-    .box{fill:#fbfdfe;stroke:#b8d1df;stroke-width:2}
-    .blue{fill:#f3fbfc;stroke:#0a87a0;stroke-width:2.5}
-    .small{font-size:24px}
-  </style>
-</defs>
-<rect width="1600" height="1000" fill="#fff"/>
-<g transform="translate(560 35) scale(.42)">
-  <path d="M230 45a135 135 0 1 0 2 190l-53-49a62 62 0 1 1 0-91z" fill="url(#g)"/>
-  <rect x="102" y="126" width="128" height="22" rx="11" fill="#0b6077"/>
-  <rect x="102" y="161" width="128" height="22" rx="11" fill="#0aa0a4"/>
-  <circle cx="242" cy="154.5" r="38" fill="#0aa0a4"/><circle cx="242" cy="154.5" r="21" fill="#fff"/>
-  <text x="350" y="195" class="t" font-size="164" font-weight="750">C&amp;</text>
-</g>
-<text x="800" y="205" class="t" text-anchor="middle" font-size="72" font-weight="760">How C&amp; works</text>
-<text x="800" y="254" class="s" text-anchor="middle" font-size="31" letter-spacing="3">A SAFETY LAYER IN THE C BUILD PIPELINE</text>
-<g>
-  <rect x="40" y="345" width="190" height="250" rx="18" class="box"/>
-  <text x="135" y="405" class="t" text-anchor="middle" font-size="26" font-weight="700">Existing C</text>
-  <text x="135" y="438" class="t" text-anchor="middle" font-size="26" font-weight="700">source tree</text>
-  <path d="M85 485h32l13 14h55v58H85z" fill="none" stroke="#287a94" stroke-width="5" stroke-linejoin="round"/>
-  <text x="135" y="630" class="s" text-anchor="middle" font-size="20">Your project's C code</text>
-  <text x="135" y="657" class="s" text-anchor="middle" font-size="20">(as is)</text>
-</g>
-<line x1="232" y1="470" x2="277" y2="470" stroke="#287a94" stroke-width="5" marker-end="url(#arrow)"/>
-<g>
-  <rect x="280" y="345" width="220" height="250" rx="18" class="box"/>
-  <text x="390" y="405" class="t" text-anchor="middle" font-size="25" font-weight="700">Build discovery</text>
-  <text x="390" y="442" class="s" text-anchor="middle" font-size="20" font-family="monospace">compile_commands.json</text>
-  <path d="M350 485h80v70h-80z M370 505l-12 15 12 15 M410 505l12 15-12 15" fill="none" stroke="#287a94" stroke-width="4"/>
-  <text x="390" y="630" class="s" text-anchor="middle" font-size="19">Understand the existing</text>
-  <text x="390" y="656" class="s" text-anchor="middle" font-size="19">build automatically</text>
-</g>
-<line x1="502" y1="470" x2="545" y2="470" stroke="#287a94" stroke-width="5" marker-end="url(#arrow)"/>
-<g>
-  <rect x="550" y="310" width="360" height="330" rx="20" class="blue"/>
-  <text x="730" y="365" class="t" text-anchor="middle" font-size="30" font-weight="750">C&amp; analysis / contract stage</text>
-  <g transform="translate(600 410)">
-    <circle cx="22" cy="8" r="18" fill="#dff4f6"/><path d="M14 2l8-5 8 5v8c0 8-8 12-8 12s-8-4-8-12z" fill="none" stroke="#17637b" stroke-width="2.5"/>
-    <text x="56" y="16" class="t small">Ownership analysis</text>
-    <circle cx="22" cy="66" r="18" fill="#dff4f6"/><path d="M10 66h24 M16 55l-8 11 8 11 M28 55l8 11-8 11" fill="none" stroke="#17637b" stroke-width="2.5"/>
-    <text x="56" y="74" class="t small">Borrow &amp; lifetime analysis</text>
-    <circle cx="22" cy="124" r="18" fill="#dff4f6"/><path d="M14 114h16v20H14z M18 119h8 M18 124h8 M18 129h6" fill="none" stroke="#17637b" stroke-width="2.5"/>
-    <text x="56" y="132" class="t small">External API contracts</text>
-    <circle cx="22" cy="182" r="18" fill="#dff4f6"/><path d="M22 169l13 24H9z M22 177v7 M22 188v2" fill="none" stroke="#17637b" stroke-width="2.5"/>
-    <text x="56" y="190" class="t small">Diagnostics / SARIF</text>
+  <title id="title">How C&amp; works</title>
+  <desc id="desc">C&amp; checks ownership and borrowing before the ordinary C build pipeline. Passing code continues to the project's existing compiler; failures produce diagnostics.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#0b3157"/><stop offset="1" stop-color="#0aa0a4"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#287a94"/></marker>
+    <marker id="greenArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#38a64a"/></marker>
+    <marker id="redArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#dd4747"/></marker>
+    <style>
+      .t{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#17212b}
+      .s{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#536574}
+      .box{fill:#fbfdfe;stroke:#b8d1df;stroke-width:2}
+      .blue{fill:#f3fbfc;stroke:#0a87a0;stroke-width:2.5}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#fff"/>
+  <g transform="translate(675 24) scale(.26)">
+    <path d="M230 45a135 135 0 1 0 2 190l-53-49a62 62 0 1 1 0-91z" fill="url(#g)"/>
+    <rect x="102" y="126" width="128" height="22" rx="11" fill="#0b6077"/><rect x="102" y="161" width="128" height="22" rx="11" fill="#0aa0a4"/>
+    <circle cx="242" cy="154.5" r="38" fill="#0aa0a4"/><circle cx="242" cy="154.5" r="21" fill="#fff"/>
+    <text x="370" y="195" class="t" font-size="164" font-weight="750">&amp;</text>
   </g>
-</g>
-<path d="M910 410h75v45h55" fill="none" stroke="#38a64a" stroke-width="5" marker-end="url(#greenArrow)"/>
-<rect x="945" y="383" width="74" height="38" rx="10" fill="#38a64a"/><text x="982" y="410" font-family="Inter,Arial" font-size="23" font-weight="800" text-anchor="middle" fill="#fff">PASS</text>
-<g>
-  <rect x="1050" y="350" width="190" height="215" rx="18" class="box"/>
-  <text x="1145" y="420" class="t" text-anchor="middle" font-size="25" font-weight="700">Ordinary build</text>
-  <text x="1145" y="452" class="t" text-anchor="middle" font-size="25" font-weight="700">pipeline</text>
-  <circle cx="1145" cy="492" r="22" fill="#e9f4f8"/><path d="M1145 475v34 M1128 492h34" stroke="#287a94" stroke-width="4"/>
-  <text x="1145" y="535" class="s" text-anchor="middle" font-size="18">Use existing tools</text>
-</g>
-<line x1="1242" y1="430" x2="1285" y2="430" stroke="#287a94" stroke-width="4" marker-end="url(#arrow)"/>
-<g>
-  <rect x="1290" y="350" width="120" height="80" rx="14" class="box"/><text x="1350" y="399" class="t" text-anchor="middle" font-size="28" font-weight="700">clang</text>
-  <rect x="1290" y="455" width="120" height="80" rx="14" class="box"/><text x="1350" y="504" class="t" text-anchor="middle" font-size="28" font-weight="700">gcc</text>
-</g>
-<line x1="1412" y1="442" x2="1446" y2="442" stroke="#287a94" stroke-width="4"/>
-<line x1="1412" y1="495" x2="1446" y2="495" stroke="#287a94" stroke-width="4"/>
-<line x1="1446" y1="442" x2="1446" y2="495" stroke="#287a94" stroke-width="4"/>
-<line x1="1446" y1="468" x2="1480" y2="468" stroke="#287a94" stroke-width="4" marker-end="url(#arrow)"/>
-<g>
-  <rect x="1480" y="365" width="100" height="200" rx="16" class="box"/>
-  <text x="1530" y="420" class="t" text-anchor="middle" font-size="21" font-weight="700">Normal</text>
-  <text x="1530" y="448" class="t" text-anchor="middle" font-size="21" font-weight="700">binary</text>
-  <text x="1530" y="476" class="t" text-anchor="middle" font-size="21" font-weight="700">+ C ABI</text>
-  <path d="M1506 506l24-14 24 14v28l-24 14-24-14z M1530 492v56 M1506 506l24 14 24-14" fill="none" stroke="#287a94" stroke-width="3"/>
-</g>
-<path d="M910 540h62v100h70" fill="none" stroke="#dd4747" stroke-width="5" marker-end="url(#redArrow)"/>
-<rect x="936" y="565" width="68" height="38" rx="10" fill="#dd4747"/><text x="970" y="592" font-family="Inter,Arial" font-size="22" font-weight="800" text-anchor="middle" fill="#fff">FAIL</text>
-<g>
- <rect x="1050" y="605" width="360" height="125" rx="18" fill="#fff8f8" stroke="#eb8a8a" stroke-width="2"/>
- <path d="M1095 632l25 45h-50z M1095 645v13 M1095 664v3" fill="none" stroke="#dd4747" stroke-width="4"/>
- <text x="1150" y="654" class="t" font-size="26" font-weight="700">Diagnostics / CI failure</text>
- <text x="1150" y="690" class="s" font-size="20">Actionable reports: SARIF, console, CI</text>
-</g>
-<line x1="60" y1="790" x2="1540" y2="790" stroke="#d7e5eb" stroke-width="2"/>
-<g>
- <rect x="95" y="825" width="420" height="105" rx="40" fill="#f3f8fb"/>
- <circle cx="150" cy="878" r="30" fill="#dceef4"/><path d="M132 885l28-28 M144 858l16-4 5 5-4 16" fill="none" stroke="#17637b" stroke-width="4"/>
- <text x="205" y="865" class="t" font-size="25" font-weight="700">No compiler fork</text><text x="205" y="899" class="s" font-size="19">Works with your existing toolchain</text>
- <rect x="590" y="825" width="350" height="105" rx="40" fill="#f3f8fb"/>
- <circle cx="645" cy="878" r="30" fill="#dceef4"/><path d="M627 865l18-9 18 9-18 9z M627 879l18 9 18-9 M627 892l18 9 18-9" fill="none" stroke="#17637b" stroke-width="3"/>
- <text x="700" y="865" class="t" font-size="25" font-weight="700">No new ABI</text><text x="700" y="899" class="s" font-size="19">Normal C binaries</text>
- <rect x="1015" y="825" width="480" height="105" rx="40" fill="#f3f8fb"/>
- <circle cx="1070" cy="878" r="30" fill="#dceef4"/><rect x="1054" y="882" width="7" height="12" fill="#17637b"/><rect x="1066" y="873" width="7" height="21" fill="#17637b"/><rect x="1078" y="862" width="7" height="32" fill="#17637b"/>
- <text x="1125" y="865" class="t" font-size="25" font-weight="700">Incremental adoption</text><text x="1125" y="899" class="s" font-size="19">Adopt file by file, module by module</text>
-</g>
+  <text x="800" y="174" class="t" text-anchor="middle" font-size="66" font-weight="760">How C&amp; works</text>
+  <text x="800" y="220" class="s" text-anchor="middle" font-size="28" letter-spacing="3">OWNERSHIP CHECKS IN THE EXISTING C BUILD PIPELINE</text>
+
+  <rect x="35" y="335" width="185" height="245" rx="18" class="box"/>
+  <text x="127" y="395" class="t" text-anchor="middle" font-size="24" font-weight="700">Existing C</text><text x="127" y="426" class="t" text-anchor="middle" font-size="24" font-weight="700">source tree</text>
+  <path d="M82 472h32l13 14h55v56H82z" fill="none" stroke="#287a94" stroke-width="5" stroke-linejoin="round"/>
+  <text x="127" y="610" class="s" text-anchor="middle" font-size="17">C code + optional</text><text x="127" y="633" class="s" text-anchor="middle" font-size="17">C&amp; annotations</text>
+  <line x1="222" y1="455" x2="252" y2="455" stroke="#287a94" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="260" y="335" width="220" height="245" rx="18" class="box"/>
+  <text x="370" y="395" class="t" text-anchor="middle" font-size="24" font-weight="700">Build discovery</text>
+  <text x="370" y="430" class="s" text-anchor="middle" font-size="17" font-family="monospace">compile_commands.json</text>
+  <path d="M330 472h80v65h-80z M350 489l-12 15 12 15 M390 489l12 15-12 15" fill="none" stroke="#287a94" stroke-width="4"/>
+  <text x="370" y="610" class="s" text-anchor="middle" font-size="17">Reuse the real build</text><text x="370" y="633" class="s" text-anchor="middle" font-size="17">configuration</text>
+  <line x1="482" y1="455" x2="512" y2="455" stroke="#287a94" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <rect x="520" y="300" width="410" height="330" rx="20" class="blue"/>
+  <text x="725" y="350" class="t" text-anchor="middle" font-size="27" font-weight="750">C&amp; analysis / contract stage</text>
+  <g transform="translate(575 397)">
+    <circle cx="22" cy="8" r="18" fill="#dff4f6"/><path d="M14 2l8-5 8 5v8c0 8-8 12-8 12s-8-4-8-12z" fill="none" stroke="#17637b" stroke-width="2.5"/><text x="58" y="16" class="t" font-size="22">Ownership analysis</text>
+    <circle cx="22" cy="66" r="18" fill="#dff4f6"/><path d="M10 66h24 M16 55l-8 11 8 11 M28 55l8 11-8 11" fill="none" stroke="#17637b" stroke-width="2.5"/><text x="58" y="74" class="t" font-size="22">Borrow / lifetime analysis</text>
+    <circle cx="22" cy="124" r="18" fill="#dff4f6"/><path d="M14 114h16v20H14z M18 119h8 M18 124h8 M18 129h6" fill="none" stroke="#17637b" stroke-width="2.5"/><text x="58" y="132" class="t" font-size="22">External API contracts</text>
+    <circle cx="22" cy="182" r="18" fill="#dff4f6"/><path d="M22 169l13 24H9z M22 177v7 M22 188v2" fill="none" stroke="#17637b" stroke-width="2.5"/><text x="58" y="190" class="t" font-size="22">Diagnostics / SARIF</text>
+  </g>
+
+  <path d="M930 395h42v45h40" fill="none" stroke="#38a64a" stroke-width="5" marker-end="url(#greenArrow)"/>
+  <rect x="938" y="362" width="72" height="38" rx="10" fill="#38a64a"/><text x="974" y="389" font-family="Inter,Arial,sans-serif" font-size="22" font-weight="800" text-anchor="middle" fill="#fff">PASS</text>
+
+  <rect x="1020" y="335" width="180" height="220" rx="18" class="box"/>
+  <text x="1110" y="402" class="t" text-anchor="middle" font-size="23" font-weight="700">Ordinary build</text><text x="1110" y="432" class="t" text-anchor="middle" font-size="23" font-weight="700">pipeline</text>
+  <circle cx="1110" cy="477" r="22" fill="#e9f4f8"/><path d="M1110 460v34 M1093 477h34" stroke="#287a94" stroke-width="4"/>
+  <text x="1110" y="525" class="s" text-anchor="middle" font-size="16">Existing build remains</text><text x="1110" y="546" class="s" text-anchor="middle" font-size="16">authoritative</text>
+  <line x1="1202" y1="430" x2="1230" y2="430" stroke="#287a94" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="1240" y="340" width="115" height="75" rx="14" class="box"/><text x="1297" y="387" class="t" text-anchor="middle" font-size="26" font-weight="700">clang</text>
+  <rect x="1240" y="455" width="115" height="75" rx="14" class="box"/><text x="1297" y="502" class="t" text-anchor="middle" font-size="26" font-weight="700">gcc</text>
+  <line x1="1357" y1="377" x2="1387" y2="377" stroke="#287a94" stroke-width="4"/><line x1="1357" y1="492" x2="1387" y2="492" stroke="#287a94" stroke-width="4"/><line x1="1387" y1="377" x2="1387" y2="492" stroke="#287a94" stroke-width="4"/><line x1="1387" y1="435" x2="1418" y2="435" stroke="#287a94" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="1425" y="335" width="140" height="220" rx="16" class="box"/>
+  <text x="1495" y="395" class="t" text-anchor="middle" font-size="21" font-weight="700">Normal binary</text><text x="1495" y="425" class="t" text-anchor="middle" font-size="21" font-weight="700">+ C ABI</text>
+  <path d="M1465 468l30-17 30 17v34l-30 17-30-17z M1495 451v68 M1465 468l30 17 30-17" fill="none" stroke="#287a94" stroke-width="3"/>
+
+  <path d="M930 535h42v90h40" fill="none" stroke="#dd4747" stroke-width="5" marker-end="url(#redArrow)"/>
+  <rect x="935" y="558" width="68" height="38" rx="10" fill="#dd4747"/><text x="969" y="585" font-family="Inter,Arial,sans-serif" font-size="21" font-weight="800" text-anchor="middle" fill="#fff">FAIL</text>
+  <rect x="1020" y="595" width="390" height="125" rx="18" fill="#fff8f8" stroke="#eb8a8a" stroke-width="2"/>
+  <path d="M1062 622l25 45h-50z M1062 635v13 M1062 654v3" fill="none" stroke="#dd4747" stroke-width="4"/>
+  <text x="1110" y="646" class="t" font-size="24" font-weight="700">Diagnostics / CI failure</text>
+  <text x="1110" y="682" class="s" font-size="18">SARIF, console, and CI reports</text>
+
+  <line x1="60" y1="790" x2="1540" y2="790" stroke="#d7e5eb" stroke-width="2"/>
+  <rect x="85" y="825" width="430" height="105" rx="40" fill="#f3f8fb"/><circle cx="140" cy="878" r="30" fill="#dceef4"/><path d="M122 885l28-28 M134 858l16-4 5 5-4 16" fill="none" stroke="#17637b" stroke-width="4"/><text x="195" y="865" class="t" font-size="24" font-weight="700">No compiler fork</text><text x="195" y="899" class="s" font-size="18">Analysis only; compiler unchanged</text>
+  <rect x="590" y="825" width="350" height="105" rx="40" fill="#f3f8fb"/><circle cx="645" cy="878" r="30" fill="#dceef4"/><path d="M627 865l18-9 18 9-18 9z M627 879l18 9 18-9 M627 892l18 9 18-9" fill="none" stroke="#17637b" stroke-width="3"/><text x="700" y="865" class="t" font-size="24" font-weight="700">No new ABI</text><text x="700" y="899" class="s" font-size="18">Ordinary C binaries</text>
+  <rect x="1015" y="825" width="500" height="105" rx="40" fill="#f3f8fb"/><circle cx="1070" cy="878" r="30" fill="#dceef4"/><rect x="1054" y="882" width="7" height="12" fill="#17637b"/><rect x="1066" y="873" width="7" height="21" fill="#17637b"/><rect x="1078" y="862" width="7" height="32" fill="#17637b"/><text x="1125" y="865" class="t" font-size="24" font-weight="700">Incremental adoption</text><text x="1125" y="899" class="s" font-size="18">Adopt by function, file, or module</text>
 </svg>
