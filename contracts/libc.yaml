@@ -1,0 +1,37 @@
+schema: cand.api-contract/v1
+name: cand-libc-core
+version: "0.1.0"
+platform:
+  os: [linux, macos, freebsd]
+symbols:
+  - symbol: malloc
+    kind: function
+    returns:
+      ownership: owned
+      allocation_family: c-heap
+      nullable: true
+  - symbol: calloc
+    kind: function
+    returns:
+      ownership: owned
+      allocation_family: c-heap
+      nullable: true
+  - symbol: free
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+        allocation_family: c-heap
+  - symbol: realloc
+    kind: function
+    params:
+      - index: 0
+        effect: consumes
+        allocation_family: c-heap
+    returns:
+      ownership: owned
+      allocation_family: c-heap
+      nullable: true
+    notes: >-
+      realloc has path-sensitive ownership semantics. This entry is intentionally
+      incomplete for strict C&1 until SPEC-0003 conditional effects are implemented.
