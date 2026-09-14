@@ -20,10 +20,10 @@ add_executable(cand
     src/cand.cpp
 )
 
-# Use the distribution's monolithic Clang shared library. Linking individual
-# static Clang/LLVM component libraries on Ubuntu can duplicate LLVM global
-# command-line registries inside the process.
-target_link_libraries(cand PRIVATE clang-cpp)
+# Use the distribution's monolithic shared Clang and LLVM libraries. This keeps
+# one LLVM runtime/command-line registry in the process and avoids duplicate
+# global option registration from split static component libraries.
+target_link_libraries(cand PRIVATE clang-cpp LLVM)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(cand PRIVATE -Wall -Wextra -Wpedantic -Werror)
