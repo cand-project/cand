@@ -42,7 +42,7 @@ echo "==> Required architecture invariants"
 grep -q "no new compiler" README.md
 grep -q "MUST NOT become a compiler fork" README.md
 grep -q "Not a C Compiler" docs/adr/ADR-0001-pipeline-safety-layer.md
-grep -q "does not.*claim.*C&1" README.md
+grep -Fq 'does **not** claim that C&1' README.md
 
 echo "==> GCC ordinary-C compatibility"
 gcc -std=c11 -Wall -Wextra -Werror -Iinclude -fsyntax-only examples/ownership.c
