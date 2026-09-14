@@ -1,0 +1,26 @@
+name: Design proposal
+description: Propose an architecture or safety-semantics change
+title: "design: "
+labels: [design]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete problem or limitation needs to be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed design
+      description: Explain the semantics, pipeline impact, and compatibility boundary.
+    validations:
+      required: true
+  - type: textarea
+    id: soundness
+    attributes:
+      label: Safety / soundness considerations
+      description: Identify false-negative risks, unsupported cases, and required evidence.
+    validations:
+      required: true
