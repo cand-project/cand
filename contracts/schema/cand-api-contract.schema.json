@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cand-project.github.io/cand/schema/cand-api-contract-v1.json",
+  "title": "C& API Contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "version", "symbols"],
+  "properties": {
+    "schema": {"const": "cand.api-contract/v1"},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "libc": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "provenance": {"type": "object"},
+    "symbols": {"type": "array", "items": {"$ref": "#/$defs/symbol"}}
+  },
+  "$defs": {
+    "ownership": {"enum": ["none", "owned", "borrowed", "unknown"]},
+    "paramEffect": {
+      "enum": [
+        "borrow_shared", "borrow_mut", "consumes", "destroys",
+        "retains_borrow", "retains_ownership", "produces_out_owner",
+        "no_ownership_effect", "unknown"
+      ]
+    },
+    "returns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ownership"],
+      "properties": {
+        "ownership": {"$ref": "#/$defs/ownership"},
+        "allocation_family": {"type": "string"},
+        "nullable": {"type": "boolean"},
+        "lifetime": {"type": "object"}
+      }
+    },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "effect"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "effect": {"$ref": "#/$defs/paramEffect"},
+        "allocation_family": {"type": "string"}
+      }
+    },
+    "symbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "kind"],
+      "properties": {
+        "symbol": {"type": "string", "minLength": 1},
+        "kind": {"const": "function"},
+        "returns": {"$ref": "#/$defs/returns"},
+        "params": {"type": "array", "items": {"$ref": "#/$defs/param"}},
+        "conditional_effects": {"type": "array"},
+        "callbacks": {"type": "array"},
+        "notes": {"type": "string"}
+      }
+    }
+  }
+}
