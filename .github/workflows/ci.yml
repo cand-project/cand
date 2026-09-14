@@ -15,6 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang gcc ruby python3
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          clang gcc ruby python3 cmake ninja-build llvm-dev libclang-dev
       - name: Validate project baseline
         run: bash scripts/check.sh
+      - name: Configure P0 analyzer
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++
+      - name: Build P0 analyzer
+        run: cmake --build build
+      - name: Run P0 analyzer tests
+        run: ctest --test-dir build --output-on-failure
