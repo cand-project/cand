@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cand-project.dev/schema/cand-check-v1.json",
+  "title": "C& check result v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "cand_version",
+    "result",
+    "safety_level",
+    "profile",
+    "findings",
+    "unsupported",
+    "coverage"
+  ],
+  "properties": {
+    "schema": { "const": "cand.check/v1" },
+    "cand_version": { "type": "string" },
+    "result": { "enum": ["pass", "fail", "incomplete"] },
+    "safety_level": { "type": "string" },
+    "profile": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "rule_id",
+          "severity",
+          "safety_level",
+          "message_key",
+          "message",
+          "repair_class",
+          "object_id",
+          "primary_location",
+          "state_trace"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^CAND-[A-Z][0-9]{3}$" },
+          "rule_id": { "type": "string" },
+          "severity": { "enum": ["error", "warning", "note"] },
+          "safety_level": { "type": "string" },
+          "message_key": { "type": "string" },
+          "message": { "type": "string" },
+          "repair_class": {
+            "enum": [
+              "ANNOTATION_ONLY",
+              "SEMANTICS_PRESERVING_REFACTOR",
+              "SEMANTIC_REPAIR",
+              "CONTRACT_REQUIRED",
+              "UNSAFE_OR_UNSUPPORTED",
+              "POLICY_CHANGE_REQUIRED"
+            ]
+          },
+          "object_id": { "type": "string" },
+          "primary_location": { "$ref": "#/$defs/location" },
+          "state_trace": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["event", "state", "location"],
+              "properties": {
+                "event": { "type": "string" },
+                "state": { "type": "string" },
+                "location": { "$ref": "#/$defs/location" }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unsupported": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "primary_location"],
+        "properties": {
+          "id": { "const": "CAND-U001" },
+          "kind": { "type": "string" },
+          "primary_location": { "$ref": "#/$defs/location" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["functions_analyzed"],
+      "properties": {
+        "functions_analyzed": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "required": ["file", "line", "column"],
+      "properties": {
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 },
+        "column": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
