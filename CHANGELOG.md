@@ -4,6 +4,20 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### P0.1 — Trustworthy PASS / fail-closed heap semantics
+
+- added ADR-0010 defining the PASS-completeness invariant: PASS requires zero unresolved ownership/lifetime operations in checked scope; false INCOMPLETE is acceptable, false PASS is not;
+- fixed three ASan-confirmed false negatives (struct member, array element, wrapper-return use-after-free) that previously returned PASS;
+- `free()` is now fail-closed: `free(NULL)` is known safe; untracked pointer variables and non-variable expressions produce INCOMPLETE (`free-untracked-pointer`, `free-untracked-expression`) instead of being silently ignored;
+- allocation into unmodelled storage (struct member, array element, pointee) produces INCOMPLETE (`allocation-to-untracked-storage`);
+- pointer values from unmodelled pointer-returning calls produce INCOMPLETE (`unknown-pointer-return-ownership`) at initializers, assignments, call arguments and dereference sites;
+- returning pointers to automatic storage (stack escapes) and inline asm / GNU statement expressions produce INCOMPLETE (`stack-pointer-return`, `inline-asm`, `statement-expression`) instead of passing silently;
+- file-scope pointer initializers are classified defensively (ISO C constant initializers are known safe; non-constant initializers are rejected by the frontend with exit 2);
+- frontend/input failures now return exit code 2, distinct from FAIL (1);
+- coverage summary now reports `tracked_heap_objects` and `unsupported_ownership_operations`;
+- added `tests/failclosed/` regression suite and `tests/differential/` ASan oracle suite (wired into CTest) that reject any `ASan violation + cand PASS` pair;
+- extended `contracts/schema/cand-check.schema.json` with the new coverage fields and optional unsupported `symbol`.
+
 ### LLM-first architecture
 
 - made **“LLMs synthesize. C& verifies.”** a core project thesis rather than an optional integration;

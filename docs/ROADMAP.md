@@ -44,6 +44,38 @@ Exit gate:
 - a model-neutral script/agent can invoke C&, parse JSON and distinguish `pass`, implementation failure, policy failure and unsupported scope;
 - an attempted unapproved proof weakening is distinguishable from a code repair.
 
+### P0.1 — Trustworthy PASS / fail-closed heap semantics (done)
+
+Goal: eliminate false-PASS holes before any broader safety claim. An
+independent evaluation found three ASan-confirmed heap use-after-free
+programs (struct member, array element, wrapper-return) that P0 passed
+silently. P0.1 makes every heap-relevant operation classify as SUPPORTED,
+KNOWN SAFE, KNOWN VIOLATION or UNSUPPORTED/INCOMPLETE — there is no
+"unknown but PASS" (see [ADR-0010](docs/adr/ADR-0010-trustworthy-pass.md)).
+
+Delivered:
+
+- `free()` is fail-closed: tracked objects transition; `free(NULL)` is
+  known safe; untracked variables and other expressions are INCOMPLETE
+  (`free-untracked-pointer`, `free-untracked-expression`);
+- allocation into unmodelled storage is INCOMPLETE
+  (`allocation-to-untracked-storage`);
+- pointer values from unmodelled pointer-returning calls are INCOMPLETE
+  (`unknown-pointer-return-ownership`);
+- exit code 2 is reserved for tool/input errors, distinct from FAIL(1);
+- coverage summary reports `functions_analyzed`, `tracked_heap_objects`
+  and `unsupported_ownership_operations`;
+- `tests/failclosed/` regression suite and `tests/differential/` ASan
+  oracle suite run in CI and reject any `ASan violation + cand PASS` pair.
+
+Known unsupported semantics (honest list): aliases, flow-sensitive control
+flow (loops/branches beyond simple null guards), struct members, array
+elements, interprocedural ownership, `realloc`, callbacks, inline asm, GNU
+statement expressions, stack pointers carried through returned structs, and
+any external call lacking a trusted contract. These produce INCOMPLETE, not
+PASS, and are the P1+ roadmap inputs. The verifier must evolve toward real C;
+application code must not be contorted into a C& dialect to obtain PASS.
+
 ## P1 — C&1 unique ownership + first autonomous repair loop
 
 Deliver:
