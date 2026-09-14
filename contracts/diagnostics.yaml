@@ -1,0 +1,32 @@
+schema: cand.diagnostics/v1
+diagnostics:
+  - id: CAND-T001
+    name: use-after-move
+    severity: error
+  - id: CAND-T002
+    name: use-after-destroy
+    severity: error
+  - id: CAND-T003
+    name: double-destroy
+    severity: error
+  - id: CAND-T004
+    name: destroy-non-owner
+    severity: error
+  - id: CAND-T005
+    name: owner-destroyed-with-live-borrow
+    severity: error
+  - id: CAND-T006
+    name: owner-lost
+    severity: error
+  - id: CAND-T007
+    name: borrow-escapes-owner
+    severity: error
+  - id: CAND-T008
+    name: conflicting-mutable-borrow
+    severity: error
+  - id: CAND-T009
+    name: unknown-ownership-boundary
+    severity: error
+  - id: CAND-U001
+    name: unsupported-construct
+    severity: error
