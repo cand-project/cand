@@ -1,0 +1,50 @@
+schema: cand.agent-policy/v1
+profile: generated-strict
+safety_level: cand1
+
+# C& treats the coding agent as an untrusted synthesis engine.
+# This policy describes the default proof budget for new machine-authored code.
+
+base_comparison:
+  required: true
+  default_ref: origin/main
+
+proof_budget:
+  new_unsafe_boundaries: 0
+  new_suppressions: 0
+  safety_level_reductions: 0
+  checked_scope_decrease: false
+  unsupported_scope_increase: false
+
+review_required:
+  trusted_contract_changes: true
+  contract_trust_promotions: true
+  mandatory_proof_fixture_changes: true
+  ci_verifier_gate_changes: true
+  policy_changes: true
+  semantic_fix_application: true
+
+agent_permissions:
+  implementation_edits: allowed
+  annotation_only_edits: allowed
+  semantics_preserving_fixits: allowed_when_proved
+  semantic_repairs: propose_only
+  candidate_contract_generation: allowed
+  unsafe_boundary_insertion: propose_only
+  suppression_insertion: propose_only
+  safety_level_change: propose_only
+  checked_scope_change: propose_only
+  trusted_contract_promotion: forbidden
+
+evidence:
+  require_policy_delta: true
+  require_contract_digests: true
+  require_checked_scope: true
+  require_unsafe_scope: true
+  require_unsupported_scope: true
+
+trust:
+  llm_generated_annotations: intent_only
+  llm_generated_candidate_contracts: untrusted
+  llm_generated_safety_claims: no_proof_status
+  verifier_result: authoritative_for_declared_scope
