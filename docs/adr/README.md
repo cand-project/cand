@@ -13,11 +13,13 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0005](ADR-0005-enforcement-modes-and-claim-lifecycle.md) | Observation, enforcement, and release evidence are separate modes/claims | Proposed |
 | [ADR-0006](ADR-0006-ownership-inference-and-trust.md) | Ownership facts have an explicit trust hierarchy; heuristic/AI inference is not proof | Proposed |
 | [ADR-0007](ADR-0007-source-annotation-encoding.md) | Common ownership effects use one canonical C-compatible annotation encoding | Proposed |
+| [ADR-0008](ADR-0008-llm-first-synthesis-and-verification.md) | LLMs/coding agents are first-class synthesis engines; C& is the deterministic verifier | Proposed |
+| [ADR-0009](ADR-0009-agent-proof-policy.md) | Agents may repair implementation but must not silently weaken proof policy | Proposed |
 
 ## Design chain
 
 Together the ADRs define the project in one sentence:
 
-> C& analyzes ordinary C before the existing compiler, derives or consumes reviewed ownership contracts, rejects invalid ownership/lifetime states in checked scope, explains and suggests repairs without silently changing semantics, and proves its claims with paired unsafe/safe evidence.
+> C& analyzes ordinary C before the existing compiler, treats LLMs and humans as untrusted code producers, derives or consumes reviewed ownership contracts, rejects invalid ownership/lifetime states in checked scope, gives machines structured proof obligations and humans focused trust-boundary review, prevents agents from silently weakening the safety claim, and proves its claims with paired unsafe/safe evidence.
 
-The implementation specifications under `../spec/` define the lower-level semantic contracts.
+The implementation specifications under `../spec/` define the lower-level semantic contracts, including [SPEC-0004 — Machine-Agent Verification Protocol](../spec/SPEC-0004-machine-agent-protocol.md).
