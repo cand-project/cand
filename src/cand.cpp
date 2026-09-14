@@ -358,7 +358,7 @@ private:
         }
 
         for (const Stmt *child : expr->children()) {
-            if (const auto *child_expr = dyn_cast_or_null<Expr>(child)) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
                 scanExpr(child_expr);
             }
         }
