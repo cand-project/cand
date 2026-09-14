@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+<title id="title">C&amp; — C with Ownership</title>
+<desc id="desc">C&amp; logo. Keep C. Add ownership.</desc>
+<defs>
+  <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+    <stop offset="0" stop-color="#0b3157"/>
+    <stop offset="1" stop-color="#0aa0a4"/>
+  </linearGradient>
+  <style>
+    .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#17212b}
+    .sub{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#445261;letter-spacing:6px}
+  </style>
+</defs>
+<rect width="1200" height="420" rx="28" fill="#ffffff"/>
+<g transform="translate(90 54)">
+  <path d="M230 45a135 135 0 1 0 2 190l-53-49a62 62 0 1 1 0-91z" fill="url(#g)"/>
+  <rect x="102" y="126" width="128" height="22" rx="11" fill="#0b6077"/>
+  <rect x="102" y="161" width="128" height="22" rx="11" fill="#0aa0a4"/>
+  <circle cx="242" cy="154.5" r="38" fill="#0aa0a4"/>
+  <circle cx="242" cy="154.5" r="21" fill="#fff"/>
+</g>
+<text x="430" y="195" class="text" font-size="164" font-weight="750">C&amp;</text>
+<text x="438" y="255" class="sub" font-size="33">C WITH OWNERSHIP</text>
+<line x1="438" y1="290" x2="1045" y2="290" stroke="#9fc6cf" stroke-width="3"/>
+<text x="438" y="349" class="text" font-size="34" letter-spacing="4">Keep C. Add ownership.</text>
+</svg>
