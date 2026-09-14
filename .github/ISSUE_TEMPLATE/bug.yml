@@ -1,0 +1,30 @@
+name: Bug report
+description: Report an analyzer/tooling defect or false positive
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Include C source, command line, contracts, and C& version where possible.
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Safety impact
+      options:
+        - False positive / usability
+        - Unsupported construct
+        - Possible false negative / soundness concern (avoid exploitable details publicly)
+        - Unknown
+    validations:
+      required: true
