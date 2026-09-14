@@ -31,5 +31,5 @@ Keep PRs focused. Include tests/fixtures for semantic changes and explain which 
 Run the repository checks before opening a PR:
 
 ```bash
-./scripts/check.sh
+bash scripts/check.sh
 ```
