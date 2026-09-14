@@ -1,72 +1,81 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
-<title id="title">Why C&amp; exists</title>
-<desc id="desc">C&amp; brings ownership and borrowing checks to existing C while keeping the C toolchain and ABI.</desc>
-<defs>
- <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#0b3157"/><stop offset="1" stop-color="#0aa0a4"/></linearGradient>
- <marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L0 6L9 3z" fill="#3d8796"/></marker>
- <style>
-  .t{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#17212b}
-  .s{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#536574}
-  .h{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#0a6d78;font-weight:700}
-  .card{fill:#fbfdfe;stroke:#c2d6e0;stroke-width:2}
-  .line{stroke:#dce8ed;stroke-width:1.5}
- </style>
-</defs>
-<rect width="1600" height="1000" fill="#fff"/>
-<g transform="translate(585 25) scale(.34)">
- <path d="M230 45a135 135 0 1 0 2 190l-53-49a62 62 0 1 1 0-91z" fill="url(#g)"/>
- <rect x="102" y="126" width="128" height="22" rx="11" fill="#0b6077"/>
- <rect x="102" y="161" width="128" height="22" rx="11" fill="#0aa0a4"/>
- <circle cx="242" cy="154.5" r="38" fill="#0aa0a4"/><circle cx="242" cy="154.5" r="21" fill="#fff"/>
- <text x="350" y="195" class="t" font-size="164" font-weight="750">C&amp;</text>
-</g>
-<text x="800" y="185" class="t" text-anchor="middle" font-size="70" font-weight="760">Why C&amp; exists</text>
-<text x="800" y="232" class="s" text-anchor="middle" font-size="30" letter-spacing="3">BRING OWNERSHIP THINKING TO ORIGINAL C</text>
-<rect x="55" y="300" width="420" height="470" rx="20" class="card"/>
-<rect x="590" y="300" width="420" height="470" rx="20" fill="#f7fcfc" stroke="#74c7cf" stroke-width="2"/>
-<rect x="1125" y="300" width="420" height="470" rx="20" class="card"/>
-<rect x="55" y="300" width="420" height="76" rx="20" fill="#eef3f6"/><rect x="55" y="350" width="420" height="26" fill="#eef3f6"/>
-<rect x="590" y="300" width="420" height="76" rx="20" fill="#eaf8f8"/><rect x="590" y="350" width="420" height="26" fill="#eaf8f8"/>
-<rect x="1125" y="300" width="420" height="76" rx="20" fill="#eef3f6"/><rect x="1125" y="350" width="420" height="26" fill="#eef3f6"/>
-<text x="265" y="348" class="t" text-anchor="middle" font-size="31" font-weight="750">Problems in mature C</text>
-<text x="800" y="348" class="h" text-anchor="middle" font-size="31">What C&amp; adds</text>
-<text x="1335" y="348" class="t" text-anchor="middle" font-size="31" font-weight="750">What stays the same</text>
-<line x1="487" y1="540" x2="565" y2="540" stroke="#3d8796" stroke-width="6" marker-end="url(#a)"/>
-<line x1="1022" y1="540" x2="1100" y2="540" stroke="#3d8796" stroke-width="6" marker-end="url(#a)"/>
-<circle cx="100" cy="425" r="10" fill="#d8e8ef"/><text x="130" y="433" class="t" font-size="25" font-weight="700">Implicit ownership</text>
-<text x="130" y="461" class="s" font-size="18">Ownership lives in developer knowledge.</text>
-<line x1="85" y1="490" x2="445" y2="490" class="line"/>
-<circle cx="100" cy="530" r="10" fill="#d8e8ef"/><text x="130" y="538" class="t" font-size="25" font-weight="700">Temporal memory bugs</text>
-<text x="130" y="566" class="s" font-size="18">Use-after-free and double-free remain common.</text>
-<line x1="85" y1="595" x2="445" y2="595" class="line"/>
-<circle cx="100" cy="635" r="10" fill="#d8e8ef"/><text x="130" y="643" class="t" font-size="25" font-weight="700">Opaque API behavior</text>
-<text x="130" y="671" class="s" font-size="18">Libraries may retain, consume, or alias.</text>
-<line x1="85" y1="700" x2="445" y2="700" class="line"/>
-<circle cx="100" cy="735" r="10" fill="#d8e8ef"/><text x="130" y="743" class="t" font-size="25" font-weight="700">Rewrites are expensive</text>
-<circle cx="635" cy="425" r="10" fill="#bce8e9"/><text x="665" y="433" class="t" font-size="25" font-weight="700">Ownership annotations</text>
-<text x="665" y="461" class="s" font-size="18">Owners and consumers become explicit.</text>
-<line x1="620" y1="490" x2="980" y2="490" class="line"/>
-<circle cx="635" cy="530" r="10" fill="#bce8e9"/><text x="665" y="538" class="t" font-size="25" font-weight="700">Borrow relationships</text>
-<text x="665" y="566" class="s" font-size="18">Borrow validity follows owner lifetimes.</text>
-<line x1="620" y1="595" x2="980" y2="595" class="line"/>
-<circle cx="635" cy="635" r="10" fill="#bce8e9"/><text x="665" y="643" class="t" font-size="25" font-weight="700">Moves + API contracts</text>
-<text x="665" y="671" class="s" font-size="18">Transfer and external ownership are modeled.</text>
-<line x1="620" y1="700" x2="980" y2="700" class="line"/>
-<circle cx="635" cy="735" r="10" fill="#bce8e9"/><text x="665" y="743" class="t" font-size="25" font-weight="700">Explicit unsafe boundaries</text>
-<circle cx="1170" cy="425" r="10" fill="#d8e8ef"/><text x="1200" y="433" class="t" font-size="25" font-weight="700">C source files</text>
-<text x="1200" y="461" class="s" font-size="18">Ordinary C with optional annotations.</text>
-<line x1="1155" y1="490" x2="1515" y2="490" class="line"/>
-<circle cx="1170" cy="530" r="10" fill="#d8e8ef"/><text x="1200" y="538" class="t" font-size="25" font-weight="700">clang / gcc</text>
-<text x="1200" y="566" class="s" font-size="18">Use existing compiler toolchains.</text>
-<line x1="1155" y1="595" x2="1515" y2="595" class="line"/>
-<circle cx="1170" cy="635" r="10" fill="#d8e8ef"/><text x="1200" y="643" class="t" font-size="25" font-weight="700">C ABI + libraries</text>
-<text x="1200" y="671" class="s" font-size="18">ABI and library ecosystem stay intact.</text>
-<line x1="1155" y1="700" x2="1515" y2="700" class="line"/>
-<circle cx="1170" cy="735" r="10" fill="#d8e8ef"/><text x="1200" y="743" class="t" font-size="25" font-weight="700">Incremental adoption</text>
-<rect x="55" y="825" width="1490" height="115" rx="20" fill="#f5fbfb" stroke="#a8d7da" stroke-width="2"/>
-<text x="800" y="860" class="h" text-anchor="middle" font-size="28">Result</text>
-<text x="260" y="908" class="t" text-anchor="middle" font-size="23" font-weight="700">Safer C code</text>
-<text x="620" y="908" class="t" text-anchor="middle" font-size="23" font-weight="700">Machine-checkable intent</text>
-<text x="990" y="908" class="t" text-anchor="middle" font-size="23" font-weight="700">CI-enforced ownership</text>
-<text x="1350" y="908" class="t" text-anchor="middle" font-size="23" font-weight="700">No need to replace C</text>
+  <title id="title">Why C&amp; exists</title>
+  <desc id="desc">C&amp; makes ownership intent machine-checkable in existing C while preserving source language, compiler toolchain, ABI, and libraries.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#0b3157"/><stop offset="1" stop-color="#0aa0a4"/></linearGradient>
+    <marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0L0 6L9 3z" fill="#3d8796"/></marker>
+    <style>
+      .t{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#17212b}
+      .s{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#536574}
+      .h{font-family:Inter,"Segoe UI",Arial,sans-serif;fill:#0a6d78;font-weight:700}
+      .card{fill:#fbfdfe;stroke:#c2d6e0;stroke-width:2}
+      .line{stroke:#dce8ed;stroke-width:1.5}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#fff"/>
+  <g transform="translate(675 24) scale(.26)">
+    <path d="M230 45a135 135 0 1 0 2 190l-53-49a62 62 0 1 1 0-91z" fill="url(#g)"/>
+    <rect x="102" y="126" width="128" height="22" rx="11" fill="#0b6077"/>
+    <rect x="102" y="161" width="128" height="22" rx="11" fill="#0aa0a4"/>
+    <circle cx="242" cy="154.5" r="38" fill="#0aa0a4"/><circle cx="242" cy="154.5" r="21" fill="#fff"/>
+    <text x="370" y="195" class="t" font-size="164" font-weight="750">&amp;</text>
+  </g>
+  <text x="800" y="174" class="t" text-anchor="middle" font-size="66" font-weight="760">Why C&amp; exists</text>
+  <text x="800" y="220" class="s" text-anchor="middle" font-size="28" letter-spacing="3">BRING OWNERSHIP CHECKS TO EXISTING C</text>
+
+  <rect x="50" y="285" width="440" height="510" rx="20" class="card"/>
+  <rect x="580" y="285" width="440" height="510" rx="20" fill="#f7fcfc" stroke="#74c7cf" stroke-width="2"/>
+  <rect x="1110" y="285" width="440" height="510" rx="20" class="card"/>
+  <rect x="50" y="285" width="440" height="80" rx="20" fill="#eef3f6"/><rect x="50" y="340" width="440" height="25" fill="#eef3f6"/>
+  <rect x="580" y="285" width="440" height="80" rx="20" fill="#eaf8f8"/><rect x="580" y="340" width="440" height="25" fill="#eaf8f8"/>
+  <rect x="1110" y="285" width="440" height="80" rx="20" fill="#eef3f6"/><rect x="1110" y="340" width="440" height="25" fill="#eef3f6"/>
+  <text x="270" y="336" class="t" text-anchor="middle" font-size="31" font-weight="750">Problems in mature C</text>
+  <text x="800" y="336" class="h" text-anchor="middle" font-size="31">What C&amp; adds</text>
+  <text x="1330" y="336" class="t" text-anchor="middle" font-size="31" font-weight="750">What stays the same</text>
+
+  <line x1="500" y1="540" x2="558" y2="540" stroke="#3d8796" stroke-width="6" marker-end="url(#a)"/>
+  <line x1="1030" y1="540" x2="1088" y2="540" stroke="#3d8796" stroke-width="6" marker-end="url(#a)"/>
+
+  <circle cx="92" cy="415" r="10" fill="#d8e8ef"/><text x="122" y="423" class="t" font-size="24" font-weight="700">Implicit ownership</text>
+  <text x="122" y="451" class="s" font-size="17">Ownership rules live in developer knowledge.</text>
+  <line x1="82" y1="478" x2="458" y2="478" class="line"/>
+  <circle cx="92" cy="515" r="10" fill="#d8e8ef"/><text x="122" y="523" class="t" font-size="24" font-weight="700">Temporal memory bugs</text>
+  <text x="122" y="551" class="s" font-size="17">Use-after-free and double-free are difficult</text><text x="122" y="573" class="s" font-size="17">to prove absent across large codebases.</text>
+  <line x1="82" y1="600" x2="458" y2="600" class="line"/>
+  <circle cx="92" cy="637" r="10" fill="#d8e8ef"/><text x="122" y="645" class="t" font-size="24" font-weight="700">Opaque API ownership</text>
+  <text x="122" y="673" class="s" font-size="17">Libraries may retain, consume, or alias pointers.</text>
+  <line x1="82" y1="700" x2="458" y2="700" class="line"/>
+  <circle cx="92" cy="737" r="10" fill="#d8e8ef"/><text x="122" y="745" class="t" font-size="24" font-weight="700">Whole rewrites are costly</text>
+  <text x="122" y="773" class="s" font-size="17">Mature C systems need incremental migration.</text>
+
+  <circle cx="622" cy="415" r="10" fill="#bce8e9"/><text x="652" y="423" class="t" font-size="24" font-weight="700">Ownership annotations</text>
+  <text x="652" y="451" class="s" font-size="17">Owners and consuming operations become explicit.</text>
+  <line x1="612" y1="478" x2="988" y2="478" class="line"/>
+  <circle cx="622" cy="515" r="10" fill="#bce8e9"/><text x="652" y="523" class="t" font-size="24" font-weight="700">Borrow relationships</text>
+  <text x="652" y="551" class="s" font-size="17">Borrow validity is checked against owner lifetimes.</text>
+  <line x1="612" y1="578" x2="988" y2="578" class="line"/>
+  <circle cx="622" cy="615" r="10" fill="#bce8e9"/><text x="652" y="623" class="t" font-size="24" font-weight="700">Moves + API contracts</text>
+  <text x="652" y="651" class="s" font-size="17">Transfers and external ownership effects are modeled.</text>
+  <line x1="612" y1="678" x2="988" y2="678" class="line"/>
+  <circle cx="622" cy="715" r="10" fill="#bce8e9"/><text x="652" y="723" class="t" font-size="24" font-weight="700">Explicit unsafe boundaries</text>
+  <text x="652" y="751" class="s" font-size="17">Unsupported behavior remains visible and isolated.</text>
+
+  <circle cx="1152" cy="415" r="10" fill="#d8e8ef"/><text x="1182" y="423" class="t" font-size="24" font-weight="700">C source files</text>
+  <text x="1182" y="451" class="s" font-size="17">Ordinary C with optional C&amp; annotations.</text>
+  <line x1="1142" y1="478" x2="1518" y2="478" class="line"/>
+  <circle cx="1152" cy="515" r="10" fill="#d8e8ef"/><text x="1182" y="523" class="t" font-size="24" font-weight="700">clang / gcc</text>
+  <text x="1182" y="551" class="s" font-size="17">Existing compiler toolchains stay in place.</text>
+  <line x1="1142" y1="578" x2="1518" y2="578" class="line"/>
+  <circle cx="1152" cy="615" r="10" fill="#d8e8ef"/><text x="1182" y="623" class="t" font-size="24" font-weight="700">C ABI + libraries</text>
+  <text x="1182" y="651" class="s" font-size="17">Binary interfaces and libraries remain compatible.</text>
+  <line x1="1142" y1="678" x2="1518" y2="678" class="line"/>
+  <circle cx="1152" cy="715" r="10" fill="#d8e8ef"/><text x="1182" y="723" class="t" font-size="24" font-weight="700">Incremental adoption</text>
+  <text x="1182" y="751" class="s" font-size="17">Adopt by function, file, or module.</text>
+
+  <rect x="50" y="835" width="1500" height="110" rx="20" fill="#f5fbfb" stroke="#a8d7da" stroke-width="2"/>
+  <text x="800" y="870" class="h" text-anchor="middle" font-size="27">Intended result</text>
+  <text x="245" y="915" class="t" text-anchor="middle" font-size="22" font-weight="700">Checked ownership rules</text>
+  <text x="615" y="915" class="t" text-anchor="middle" font-size="22" font-weight="700">Machine-checkable intent</text>
+  <text x="985" y="915" class="t" text-anchor="middle" font-size="22" font-weight="700">CI-enforced contracts</text>
+  <text x="1355" y="915" class="t" text-anchor="middle" font-size="22" font-weight="700">No need to replace C</text>
 </svg>
