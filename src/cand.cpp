@@ -25,11 +25,13 @@ namespace {
 
 using clang::ASTConsumer;
 using clang::ASTContext;
+using clang::ArraySubscriptExpr;
 using clang::BinaryOperator;
 using clang::CallExpr;
 using clang::CompoundStmt;
 using clang::DeclRefExpr;
 using clang::DeclStmt;
+using clang::DoStmt;
 using clang::Expr;
 using clang::ForStmt;
 using clang::FunctionDecl;
@@ -42,11 +44,10 @@ using clang::SourceLocation;
 using clang::SourceManager;
 using clang::Stmt;
 using clang::SwitchStmt;
+using clang::UnaryExprOrTypeTraitExpr;
 using clang::UnaryOperator;
 using clang::VarDecl;
 using clang::WhileStmt;
-using clang::DoStmt;
-using clang::ArraySubscriptExpr;
 using clang::dyn_cast;
 using clang::isa;
 
@@ -87,22 +88,36 @@ struct Unsupported {
 class Collector {
 public:
     void addFinding(Finding finding) { findings_.push_back(std::move(finding)); }
+
     void addUnsupported(Unsupported unsupported) {
         unsupported_.push_back(std::move(unsupported));
     }
+
     void noteFunction() { ++functions_analyzed_; }
 
+    unsigned nextObjectId() { return next_object_id_++; }
+
     void sort() {
-        auto byLocation = [](const auto &a, const auto &b) {
+        const auto by_location = [](const auto &a, const auto &b) {
             return std::tie(a.primary.file, a.primary.line, a.primary.column) <
                    std::tie(b.primary.file, b.primary.line, b.primary.column);
         };
-        std::sort(findings_.begin(), findings_.end(), byLocation);
-        std::sort(unsupported_.begin(), unsupported_.end(), byLocation);
+        std::sort(findings_.begin(), findings_.end(), by_location);
+        std::sort(unsupported_.begin(), unsupported_.end(), by_location);
     }
 
     bool hasFindings() const { return !findings_.empty(); }
     bool hasUnsupported() const { return !unsupported_.empty(); }
+
+    int exitCode() const {
+        if (hasFindings()) {
+            return 1;
+        }
+        if (hasUnsupported()) {
+            return 3;
+        }
+        return 0;
+    }
 
     void printHuman() const {
         for (const auto &finding : findings_) {
@@ -128,7 +143,7 @@ public:
         root["schema"] = "cand.check/v1";
         root["cand_version"] = "0.1.0-dev";
         root["result"] = hasFindings() ? "fail" : (hasUnsupported() ? "incomplete" : "pass");
-        root["safety_level"] = "cand1-prototype";
+        root["safety_level"] = "p0-temporal-lifecycle";
         root["profile"] = "p0-semantic-core";
 
         llvm::json::Array findings;
@@ -186,6 +201,7 @@ private:
     std::vector<Finding> findings_;
     std::vector<Unsupported> unsupported_;
     unsigned functions_analyzed_ = 0;
+    unsigned next_object_id_ = 1;
 };
 
 enum class ObjectState { Owned, Dead };
@@ -235,8 +251,7 @@ private:
         if (expr == nullptr) {
             return nullptr;
         }
-        expr = expr->IgnoreParenImpCasts();
-        return dyn_cast<CallExpr>(expr);
+        return dyn_cast<CallExpr>(expr->IgnoreParenImpCasts());
     }
 
     bool isNamedCall(const CallExpr &call, llvm::StringRef name) const {
@@ -284,7 +299,7 @@ private:
     }
 
     void bindAllocation(const VarDecl &var, SourceLocation loc) {
-        const unsigned id = next_object_id_++;
+        const unsigned id = collector_.nextObjectId();
         objects_[id] = ObjectInfo{id, ObjectState::Owned, loc, SourceLocation()};
         bindings_[&var] = id;
     }
@@ -299,6 +314,38 @@ private:
         }
         const auto object = objects_.find(binding->second);
         return object == objects_.end() ? nullptr : &object->second;
+    }
+
+    const ObjectInfo *objectForVar(const VarDecl *var) const {
+        if (var == nullptr) {
+            return nullptr;
+        }
+        const auto binding = bindings_.find(var);
+        if (binding == bindings_.end()) {
+            return nullptr;
+        }
+        const auto object = objects_.find(binding->second);
+        return object == objects_.end() ? nullptr : &object->second;
+    }
+
+    bool containsTrackedVar(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenImpCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                return objectForVar(var) != nullptr;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsTrackedVar(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     std::string objectName(unsigned id) const {
@@ -340,8 +387,70 @@ private:
         }
     }
 
+    void markUnsupported(const Stmt &stmt, llvm::StringRef kind) {
+        collector_.addUnsupported({kind.str(), location(stmt.getBeginLoc())});
+    }
+
+    void analyzeCall(const CallExpr &call) {
+        if (isNamedCall(call, "free") && call.getNumArgs() == 1) {
+            const Expr *arg = call.getArg(0);
+            const VarDecl *var = resolveVar(arg);
+            if (var == nullptr) {
+                if (containsTrackedVar(arg)) {
+                    markUnsupported(call, "nontrivial-free-argument");
+                }
+                return;
+            }
+
+            ObjectInfo *object = objectForVar(var);
+            if (object == nullptr) {
+                return;
+            }
+            if (object->state == ObjectState::Dead) {
+                reportDoubleDestroy(*object, call.getExprLoc());
+                return;
+            }
+            object->state = ObjectState::Dead;
+            object->destruction = call.getExprLoc();
+            return;
+        }
+
+        if (isNamedCall(call, "malloc") || isNamedCall(call, "calloc")) {
+            for (const Expr *arg : call.arguments()) {
+                scanExpr(arg);
+            }
+            return;
+        }
+
+        bool tracked_argument = false;
+        for (const Expr *arg : call.arguments()) {
+            scanExpr(arg);
+            tracked_argument = tracked_argument || containsTrackedVar(arg);
+        }
+
+        if (tracked_argument) {
+            std::string kind = "unknown-call-with-tracked-pointer";
+            if (const FunctionDecl *callee = call.getDirectCallee()) {
+                kind += ":" + callee->getNameAsString();
+            } else {
+                kind += ":indirect";
+            }
+            markUnsupported(call, kind);
+        }
+    }
+
     void scanExpr(const Expr *expr) {
         if (expr == nullptr) {
+            return;
+        }
+        expr = expr->IgnoreParenImpCasts();
+
+        if (isa<UnaryExprOrTypeTraitExpr>(expr)) {
+            return;
+        }
+
+        if (const auto *call = dyn_cast<CallExpr>(expr)) {
+            analyzeCall(*call);
             return;
         }
 
@@ -364,30 +473,6 @@ private:
         }
     }
 
-    void analyzeCall(const CallExpr &call) {
-        if (isNamedCall(call, "free") && call.getNumArgs() == 1) {
-            ObjectInfo *object = objectForVar(resolveVar(call.getArg(0)));
-            if (object == nullptr) {
-                return;
-            }
-            if (object->state == ObjectState::Dead) {
-                reportDoubleDestroy(*object, call.getExprLoc());
-                return;
-            }
-            object->state = ObjectState::Dead;
-            object->destruction = call.getExprLoc();
-            return;
-        }
-
-        for (const Expr *arg : call.arguments()) {
-            scanExpr(arg);
-        }
-    }
-
-    void markUnsupported(const Stmt &stmt, llvm::StringRef kind) {
-        collector_.addUnsupported({kind.str(), location(stmt.getBeginLoc())});
-    }
-
     void analyzeStmt(const Stmt *stmt) {
         if (stmt == nullptr) {
             return;
@@ -406,9 +491,17 @@ private:
                 if (var == nullptr || var->getInit() == nullptr) {
                     continue;
                 }
-                scanExpr(var->getInit());
-                if (var->getType()->isPointerType() && isAllocation(var->getInit())) {
-                    bindAllocation(*var, var->getInit()->getExprLoc());
+
+                const Expr *init = var->getInit();
+                scanExpr(init);
+                if (!var->getType()->isPointerType()) {
+                    continue;
+                }
+
+                if (isAllocation(init)) {
+                    bindAllocation(*var, init->getExprLoc());
+                } else if (containsTrackedVar(init)) {
+                    markUnsupported(*decl_stmt, "pointer-alias-initialization");
                 }
             }
             return;
@@ -426,9 +519,22 @@ private:
             scanExpr(binary->getRHS());
             if (binary->isAssignmentOp()) {
                 const VarDecl *lhs = resolveVar(binary->getLHS());
-                if (lhs != nullptr && lhs->getType()->isPointerType() &&
-                    isAllocation(binary->getRHS())) {
-                    bindAllocation(*lhs, binary->getRHS()->getExprLoc());
+                if (lhs != nullptr && lhs->getType()->isPointerType()) {
+                    const bool lhs_tracked = objectForVar(lhs) != nullptr;
+                    if (isAllocation(binary->getRHS())) {
+                        if (lhs_tracked) {
+                            markUnsupported(*binary, "tracked-owner-overwrite");
+                        }
+                        bindAllocation(*lhs, binary->getRHS()->getExprLoc());
+                    } else {
+                        if (lhs_tracked) {
+                            markUnsupported(*binary, "tracked-pointer-reassignment");
+                        }
+                        if (containsTrackedVar(binary->getRHS())) {
+                            markUnsupported(*binary, "pointer-alias-assignment");
+                        }
+                        scanExpr(binary->getLHS());
+                    }
                 } else {
                     scanExpr(binary->getLHS());
                 }
@@ -444,7 +550,11 @@ private:
         }
 
         if (const auto *return_stmt = dyn_cast<ReturnStmt>(stmt)) {
-            scanExpr(return_stmt->getRetValue());
+            const Expr *ret = return_stmt->getRetValue();
+            scanExpr(ret);
+            if (ret != nullptr && ret->getType()->isPointerType() && containsTrackedVar(ret)) {
+                markUnsupported(*return_stmt, "tracked-pointer-return");
+            }
             return;
         }
 
@@ -482,7 +592,6 @@ private:
     ASTContext &context_;
     SourceManager &source_manager_;
     Collector &collector_;
-    unsigned next_object_id_ = 1;
     std::map<const VarDecl *, unsigned> bindings_;
     std::map<unsigned, ObjectInfo> objects_;
 };
@@ -600,5 +709,5 @@ int main(int argc, const char **argv) {
         collector.printHuman();
     }
 
-    return collector.hasFindings() ? 1 : 0;
+    return collector.exitCode();
 }
