@@ -1,0 +1,29 @@
+schema: cand.safety-levels/v1
+levels:
+  - id: cand0
+    name: Observe
+    claim: none
+    description: Analysis/reporting only. No memory-safety claim.
+  - id: cand1
+    name: Temporal Ownership Safety
+    claim: temporal-ownership
+    requires:
+      - unique ownership
+      - explicit/inferred moves
+      - destruction tracking
+      - borrow lifetime tracking
+      - fail-closed unknown ownership boundaries
+    excludes:
+      - general array bounds safety
+      - general pointer arithmetic safety
+      - data-race freedom
+      - integer arithmetic safety
+      - arbitrary pointer/integer provenance
+  - id: cand2
+    name: Spatial Safety
+    claim: reserved
+    description: Reserved until a spatial-safety SPEC is accepted and implemented.
+  - id: cand3
+    name: Concurrency Safety
+    claim: reserved
+    description: Reserved until a concurrency-safety SPEC is accepted and implemented.
