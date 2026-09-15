@@ -784,6 +784,30 @@ private:
         return false;
     }
 
+    bool typeMayContainPointer(clang::QualType type) const {
+        if (type.isNull()) return false;
+        type = type.getCanonicalType();
+        if (type->isPointerType()) return true;
+        if (const auto *array = context_.getAsArrayType(type))
+            return typeMayContainPointer(array->getElementType());
+        if (const auto *record = type->getAs<clang::RecordType>()) {
+            for (const clang::FieldDecl *field : record->getDecl()->fields())
+                if (typeMayContainPointer(field->getType())) return true;
+        }
+        return false;
+    }
+
+    bool mayWritePointerStorage(const Expr *arg) const {
+        if (arg == nullptr) return false;
+        const Expr *stripped = arg->IgnoreParenCasts();
+        if (const auto *unary = dyn_cast<UnaryOperator>(stripped)) {
+            if (unary->getOpcode() == clang::UO_AddrOf)
+                return typeMayContainPointer(unary->getSubExpr()->getType());
+        }
+        return arg->getType()->isPointerType() &&
+               typeMayContainPointer(arg->getType()->getPointeeType());
+    }
+
     std::optional<StorageId> storageFor(const Expr *expr) const {
         if (expr == nullptr) return std::nullopt;
         expr = expr->IgnoreParenCasts();
@@ -1233,15 +1257,23 @@ private:
         }
         bool tracked_argument = false;
         bool global_argument = false;
+        bool pointer_output_argument = false;
         for (const Expr *arg : call.arguments()) {
             tracked_argument = tracked_argument || containsTrackedStorage(arg, state);
             global_argument = global_argument || containsGlobalStorage(arg);
+            pointer_output_argument = pointer_output_argument || mayWritePointerStorage(arg);
             if (asUnknownPointerCall(arg) != nullptr) {
                 noteUnknownPointerCallIn(arg);
             }
         }
         if (global_argument) {
             markUnsupported(call, "global-or-static-pointer-storage");
+        }
+        if (pointer_output_argument) {
+            markUnsupported(call, "unknown-call-with-pointer-output");
+        }
+        if (!call.getType()->isPointerType() && typeMayContainPointer(call.getType())) {
+            markUnsupported(call, "unknown-aggregate-return-ownership");
         }
         if (tracked_argument) {
             std::string kind = "unknown-call-with-tracked-pointer";
