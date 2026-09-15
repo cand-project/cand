@@ -469,6 +469,81 @@ private:
         collector_.noteTrackedHeapObject();
     }
 
+    /*
+     * True when the expression can produce a pointer to automatic storage:
+     * address of a local variable or local member, decay of a local array,
+     * or a block-scope compound literal — including when wrapped in a
+     * conditional, cast or comma expression. Storing that into a local
+     * pointer variable and returning it is the stack-escape bug that
+     * involves no heap object.
+     */
+    bool isLocalStackOrigin(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (const auto *addr = dyn_cast<UnaryOperator>(expr)) {
+            if (addr->getOpcode() == clang::UO_AddrOf) {
+                const Expr *target = addr->getSubExpr()->IgnoreParenCasts();
+                const VarDecl *var = resolveVar(target);
+                if (var == nullptr) {
+                    // Address of a member of a local object: &s.field
+                    if (const auto *member = dyn_cast<MemberExpr>(target)) {
+                        var = resolveVar(member->getBase());
+                    }
+                }
+                if (var != nullptr && var->hasLocalStorage() &&
+                    !isa<clang::ParmVarDecl>(var)) {
+                    return true;
+                }
+            }
+        }
+        if (const VarDecl *var = resolveVar(expr)) {
+            if (var->hasLocalStorage() && !isa<clang::ParmVarDecl>(var) &&
+                var->getType()->isArrayType()) {
+                return true;
+            }
+        }
+        if (const auto *literal = dyn_cast<clang::CompoundLiteralExpr>(expr)) {
+            if (!literal->isFileScope()) {
+                return true;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (isLocalStackOrigin(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /*
+     * True when an aggregate/other initializer contains a heap allocation
+     * store C& cannot model (`struct S s = { .p = malloc(...) }`), or a
+     * pointer value of unknown ownership.
+     */
+    bool containsAllocationCall(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (const auto *call = dyn_cast<CallExpr>(expr)) {
+            if (isAllocatorCall(*call)) {
+                return true;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsAllocationCall(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     ObjectInfo *objectForVar(const VarDecl *var) {
         if (var == nullptr) {
             return nullptr;
@@ -777,6 +852,17 @@ private:
                 const Expr *init = var->getInit();
                 if (!var->getType()->isPointerType()) {
                     scanExpr(init);
+                    // Aggregates can carry pointers too. A heap allocation or
+                    // an unmodelled pointer value stored into a struct/array
+                    // initializer is an unmodelled storage location, exactly
+                    // like the assignment form `s.p = malloc(...)`.
+                    if (containsAllocationCall(init)) {
+                        collector_.addUnsupported(
+                            {"allocation-to-untracked-storage:initializer", "",
+                             location(decl_stmt->getBeginLoc())});
+                    } else if (containsUnknownPointerCall(init)) {
+                        checkPointerValueSource(init);
+                    }
                     continue;
                 }
 
@@ -788,6 +874,9 @@ private:
                 } else if (isNullConstant(init)) {
                     /* KNOWN SAFE: null pointer initialization */
                 } else {
+                    if (isLocalStackOrigin(init)) {
+                        stack_pointers_.insert(var);
+                    }
                     checkPointerValueSource(init);
                 }
             }
@@ -821,6 +910,9 @@ private:
                         if (containsTrackedVar(binary->getRHS())) {
                             markUnsupported(*binary, "pointer-alias-assignment");
                         } else if (!isNullConstant(binary->getRHS())) {
+                            if (isLocalStackOrigin(binary->getRHS())) {
+                                stack_pointers_.insert(lhs);
+                            }
                             checkPointerValueSource(binary->getRHS());
                         }
                         scanExpr(binary->getLHS());
@@ -841,6 +933,15 @@ private:
                     }
                     scanExpr(binary->getLHS());
                 } else {
+                    // Non-pointer destination (e.g. aggregate assignment from
+                    // a compound literal): still an unmodelled storage site
+                    // when it carries a heap allocation.
+                    if (!containsTrackedVar(binary->getRHS()) &&
+                        containsAllocationCall(binary->getRHS())) {
+                        collector_.addUnsupported(
+                            {"allocation-to-untracked-storage:initializer", "",
+                             location(binary->getExprLoc())});
+                    }
                     scanExpr(binary->getLHS());
                 }
             } else {
@@ -866,20 +967,17 @@ private:
                 // tracked heap object, so without this check it would pass
                 // silently. Statics, globals and parameters are excluded.
                 const Expr *stripped = ret->IgnoreParenCasts();
+                bool stack_escape = false;
                 if (const VarDecl *var = resolveVar(stripped)) {
-                    if (var->hasLocalStorage() && !isa<clang::ParmVarDecl>(var) &&
-                        var->getType()->isArrayType()) {
-                        markUnsupported(*return_stmt, "stack-pointer-return");
-                    }
-                } else if (const auto *addr =
-                               dyn_cast<UnaryOperator>(stripped)) {
-                    if (addr->getOpcode() == clang::UO_AddrOf) {
-                        const VarDecl *var = resolveVar(addr->getSubExpr());
-                        if (var != nullptr && var->hasLocalStorage() &&
-                            !isa<clang::ParmVarDecl>(var)) {
-                            markUnsupported(*return_stmt, "stack-pointer-return");
-                        }
-                    }
+                    stack_escape =
+                        (var->hasLocalStorage() && !isa<clang::ParmVarDecl>(var) &&
+                         var->getType()->isArrayType()) ||
+                        stack_pointers_.count(var) != 0;
+                } else {
+                    stack_escape = isLocalStackOrigin(stripped);
+                }
+                if (stack_escape) {
+                    markUnsupported(*return_stmt, "stack-pointer-return");
                 }
             }
             return;
@@ -919,6 +1017,10 @@ private:
             markUnsupported(*stmt, "goto-control-flow");
             return;
         }
+        if (isa<clang::IndirectGotoStmt>(stmt)) {
+            markUnsupported(*stmt, "indirect-goto");
+            return;
+        }
 
         if (const auto *expr = dyn_cast<Expr>(stmt)) {
             scanExpr(expr);
@@ -935,6 +1037,7 @@ private:
     Collector &collector_;
     std::map<const VarDecl *, unsigned> bindings_;
     std::map<unsigned, ObjectInfo> objects_;
+    std::set<const VarDecl *> stack_pointers_;
 };
 
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {

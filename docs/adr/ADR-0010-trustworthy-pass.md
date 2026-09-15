@@ -74,10 +74,18 @@ Concretely, in P0.1:
   (`unknown-pointer-return-ownership`);
 - allocation results escaping as arguments into unknown calls, and
   dereferences of unknown pointer-returning call results, are INCOMPLETE;
-- returning a pointer to automatic storage (`&local`, array decay of a
-  local; `static`/globals/parameters excluded) is INCOMPLETE
-  (`stack-pointer-return`) — a lifetime bug that involves no tracked heap
-  object and would otherwise pass silently;
+- returning a pointer to automatic storage (`&local`, `&local.member`, a
+  local pointer variable holding such an address, array decay of a local,
+  or a block-scope compound literal; `static`/globals/parameters excluded)
+  is INCOMPLETE (`stack-pointer-return`) — a lifetime bug that involves no
+  tracked heap object and would otherwise pass silently;
+- aggregate initializers that store heap allocations or unmodelled pointer
+  values (`struct S s = { .p = malloc(...) }`) are INCOMPLETE
+  (`allocation-to-untracked-storage:initializer`,
+  `unknown-pointer-return-ownership`) — the initializer spelling of an
+  unmodelled storage location must not be silently accepted while the
+  assignment spelling is rejected;
+- computed `goto` is INCOMPLETE (`indirect-goto`);
 - inline assembly (`AsmStmt`) and GNU statement expressions (`StmtExpr`,
   including at expression positions) are INCOMPLETE (`inline-asm`,
   `statement-expression`) because the linear analyzer cannot model them;

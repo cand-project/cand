@@ -86,6 +86,11 @@ expect_incomplete tests/failclosed/wrapper_return_uaf.c \
 
 expect_incomplete tests/failclosed/pointer_param_free.c free-untracked-pointer
 expect_incomplete tests/failclosed/stack_pointer_return.c stack-pointer-return
+expect_incomplete tests/failclosed/stack_pointer_variable_return.c stack-pointer-return
+expect_incomplete tests/failclosed/aggregate_initializer.c \
+    allocation-to-untracked-storage
+expect_incomplete tests/failclosed/aggregate_initializer_unknown.c \
+    unknown-pointer-return-ownership
 expect_incomplete tests/failclosed/statement_expression.c statement-expression
 expect_incomplete tests/failclosed/conditional_ownership.c conditional-expression
 expect_incomplete tests/failclosed/short_circuit_ownership.c short-circuit-expression
@@ -98,5 +103,6 @@ expect_incomplete tests/p0/unknown_call_unsupported.c \
 
 expect_pass tests/failclosed/free_null_safe.c
 expect_pass tests/failclosed/conditional_known_safe.c
+expect_pass tests/failclosed/static_pointer_return_known_safe.c
 
 echo "C& P0.1 fail-closed tests passed."

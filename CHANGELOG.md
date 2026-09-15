@@ -11,7 +11,8 @@ All notable project changes are recorded here.
 - `free()` is now fail-closed: `free(NULL)` is known safe; untracked pointer variables and non-variable expressions produce INCOMPLETE (`free-untracked-pointer`, `free-untracked-expression`) instead of being silently ignored;
 - allocation into unmodelled storage (struct member, array element, pointee) produces INCOMPLETE (`allocation-to-untracked-storage`);
 - pointer values from unmodelled pointer-returning calls produce INCOMPLETE (`unknown-pointer-return-ownership`) at initializers, assignments, call arguments and dereference sites;
-- returning pointers to automatic storage (stack escapes) and inline asm / GNU statement expressions produce INCOMPLETE (`stack-pointer-return`, `inline-asm`, `statement-expression`) instead of passing silently;
+- returning pointers to automatic storage (stack escapes, including through local pointer variables and members of locals) and inline asm / GNU statement expressions produce INCOMPLETE (`stack-pointer-return`, `inline-asm`, `statement-expression`) instead of passing silently;
+- aggregate initializers carrying heap allocations or unmodelled pointer values are INCOMPLETE (`allocation-to-untracked-storage:initializer`, `unknown-pointer-return-ownership`); computed `goto` is INCOMPLETE (`indirect-goto`);
 - ownership operations in conditionally evaluated positions (`?:` branches, short-circuited `&&`/`||` operands) produce INCOMPLETE (`conditional-expression`, `short-circuit-expression`) and no longer generate spurious `CAND-T003` findings;
 - file-scope pointer initializers are classified defensively (ISO C constant initializers are known safe; non-constant initializers are rejected by the frontend with exit 2);
 - frontend/input failures now return exit code 2, distinct from FAIL (1);

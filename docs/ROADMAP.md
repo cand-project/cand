@@ -71,8 +71,9 @@ Delivered:
 Known unsupported semantics (honest list): aliases, flow-sensitive control
 flow (loops/branches beyond simple null guards), struct members, array
 elements, interprocedural ownership, `realloc`, callbacks, inline asm, GNU
-statement expressions, ownership operations in conditionally evaluated
-positions, stack pointers carried through returned structs, and any external
+statement expressions, computed `goto`, ownership operations in
+conditionally evaluated positions, aggregate initializers carrying pointers,
+stack pointers carried through returned structs, and any external
 call lacking a trusted contract. These produce INCOMPLETE, not
 PASS, and are the P1+ roadmap inputs. The verifier must evolve toward real C;
 application code must not be contorted into a C& dialect to obtain PASS.
