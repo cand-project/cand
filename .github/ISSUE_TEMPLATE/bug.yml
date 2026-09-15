@@ -1,30 +1,99 @@
 name: Bug report
-description: Report an analyzer/tooling defect or false positive
+description: Report an analyzer/tooling defect, false FAIL, INCOMPLETE gap, or non-sensitive soundness concern
 title: "bug: "
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        C& is verifier/security tooling. If you believe you found a soundness flaw that could make unsafe code satisfy a published safety claim, avoid posting exploitable details publicly and follow `SECURITY.md`.
+
+  - type: input
+    id: commit
+    attributes:
+      label: Exact C& commit SHA
+      description: The exact commit/ref used for the result.
+      placeholder: 40-character SHA preferred
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and toolchain
+      description: OS, Clang/LLVM version, GCC version if relevant, C standard/target, and important build flags.
+      placeholder: |
+        OS:
+        clang/LLVM:
+        gcc:
+        target:
+        compile flags:
+    validations:
+      required: true
+
   - type: textarea
     id: description
     attributes:
       label: Description
-      description: What happened and what did you expect?
+      description: What happened, what result did C& produce, and what did you expect?
     validations:
       required: true
+
+  - type: dropdown
+    id: classification
+    attributes:
+      label: Observed classification
+      options:
+        - Possible false PASS / soundness concern
+        - False FAIL
+        - Unexpected INCOMPLETE / coverage gap
+        - Tool crash or frontend/input error
+        - Non-deterministic output
+        - Schema / documentation mismatch
+        - Usability / diagnostic issue
+        - Other / unknown
+    validations:
+      required: true
+
   - type: textarea
     id: repro
     attributes:
       label: Minimal reproduction
-      description: Include C source, command line, contracts, and C& version where possible.
+      description: Include the smallest C source, exact `cand` command, contracts/configuration, exit code, and JSON output where possible.
+      render: c
     validations:
       required: true
+
+  - type: textarea
+    id: oracles
+    attributes:
+      label: Independent evidence
+      description: Ordinary compiler, ASan/UBSan, Clang Static Analyzer, fuzzing, or manual reasoning results. State the actual diagnostic category; a nonzero sanitizer exit alone is not enough.
+      placeholder: |
+        clang/gcc:
+        ASan/UBSan:
+        CSA/other:
+        expected C& result:
+
   - type: dropdown
     id: impact
     attributes:
       label: Safety impact
       options:
-        - False positive / usability
-        - Unsupported construct
-        - Possible false negative / soundness concern (avoid exploitable details publicly)
+        - Possible false safety claim (use SECURITY.md for sensitive details)
+        - Incorrect violation report / false FAIL
+        - Unsupported construct / expected INCOMPLETE gap
+        - Tooling only
         - Unknown
     validations:
       required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Reporter checks
+      options:
+        - label: I checked the current `REVIEWING.md` and `docs/SAFETY_CLAIMS.md` so I am not treating an explicit non-claim as a false PASS.
+          required: true
+        - label: I have not intentionally weakened safety policy, checked scope, trusted contracts, or expected test outputs to produce this report.
+          required: true
