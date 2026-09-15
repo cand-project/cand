@@ -39,6 +39,8 @@
           "id": { "type": "string", "pattern": "^CAND-[A-Z][0-9]{3}$" },
           "rule_id": { "type": "string" },
           "severity": { "enum": ["error", "warning", "note"] },
+          "certainty": { "enum": ["definite", "possible"] },
+          "state_before_access": { "type": "string" },
           "safety_level": { "type": "string" },
           "message_key": { "type": "string" },
           "message": { "type": "string" },

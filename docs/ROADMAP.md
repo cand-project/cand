@@ -78,6 +78,41 @@ call lacking a trusted contract. These produce INCOMPLETE, not
 PASS, and are the P1+ roadmap inputs. The verifier must evolve toward real C;
 application code must not be contorted into a C& dialect to obtain PASS.
 
+## P0.2 — CFG-based flow-sensitive ownership (done)
+
+Goal: replace the source-order ownership walk with a conservative
+control-flow-aware model so ordinary C control flow (if/else, early return,
+cleanup, simple loops) can be analyzed without forcing generated code into
+unnatural straight-line form — while preserving ADR-0010.
+
+Architecture: `clang::CFG` (upstream, no fork) drives a worklist dataflow
+analysis over a five-state lattice (`Untracked`, `Owned`, `Dead`,
+`MaybeDead`, `Unknown`) with documented, deterministic joins. See
+[ADR-0011](adr/ADR-0011-cfg-flow-sensitive-ownership.md).
+
+Delivered:
+
+- per-block ownership state with join/merge at control-flow joins;
+- path-dependent `CAND-T002`/`CAND-T003` with `certainty`
+  (`definite`/`possible`) and flow evidence (`state_before_access`,
+  `state_trace`); diagnostics are emitted from the converged fixed point;
+- `p = NULL` is modeled (`Null` state): a later `free(p)` is a defined
+  no-op rather than an unresolved obligation;
+- `if`/`else`, nested branches, early returns, multiple returns,
+  `goto`/labels (including cleanup patterns), `switch`, `break`,
+  `continue`, `?:`, `&&`/`||`, and loops via fixed point;
+- `tests/cfg/` corpus with ASan cross-checks (safe fixtures must be
+  ASan-clean and PASS; negative fixtures must be ASan-violating and FAIL);
+- `tests/failclosed/conditional_ownership.c` and
+  `short_circuit_ownership.c` improved from INCOMPLETE to PASS / FAIL
+  because those semantics are now modeled (ADR-0011 acceptance).
+
+Still INCOMPLETE (unchanged by design): aliases, struct members, array
+elements, pointee stores, interprocedural ownership, callbacks, `realloc`,
+inline asm, statement expressions, computed `goto`, unknown pointer-return
+ownership and unknown calls with tracked pointers. These are the P0.3/P0.4
+inputs.
+
 ## P1 — C&1 unique ownership + first autonomous repair loop
 
 Deliver:
