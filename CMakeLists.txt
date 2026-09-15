@@ -50,3 +50,7 @@ add_test(
     NAME cand-differential-asan
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/differential/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand-p0-3-storage
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/storage/run.sh $<TARGET_FILE:cand>
+)

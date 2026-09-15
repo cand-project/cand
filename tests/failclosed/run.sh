@@ -6,9 +6,8 @@
 #
 #   False INCOMPLETE is temporarily acceptable. False PASS is not.
 #
-# Every fixture here encodes a required cand result. In particular, the three
-# BLOCKER false negatives (struct member, array element, wrapper return) must
-# never return PASS again.
+# Every fixture here encodes a required cand result. Unsupported ownership
+# must remain incomplete; P0.3 promotes local members/elements to findings.
 set -euo pipefail
 
 cand="${1:?path to cand binary required}"
@@ -113,10 +112,8 @@ PY
 
 # --- BLOCKER regressions: must be INCOMPLETE, never PASS ---------------------
 
-expect_incomplete tests/failclosed/struct_member_uaf.c \
-    allocation-to-untracked-storage
-expect_incomplete tests/failclosed/array_element_uaf.c \
-    allocation-to-untracked-storage
+expect_fail tests/failclosed/struct_member_uaf.c CAND-T002
+expect_fail tests/failclosed/array_element_uaf.c CAND-T002
 expect_incomplete tests/failclosed/wrapper_return_uaf.c \
     unknown-pointer-return-ownership
 
@@ -131,7 +128,7 @@ expect_incomplete tests/failclosed/aggregate_initializer_unknown.c \
     unknown-pointer-return-ownership
 expect_incomplete tests/failclosed/statement_expression.c statement-expression
 expect_incomplete tests/failclosed/inline_asm.c inline-asm
-expect_incomplete tests/p0/alias_unsupported.c pointer-alias-initialization
+expect_pass tests/p0/alias_unsupported.c
 expect_incomplete tests/p0/unknown_call_unsupported.c \
     unknown-call-with-tracked-pointer
 
