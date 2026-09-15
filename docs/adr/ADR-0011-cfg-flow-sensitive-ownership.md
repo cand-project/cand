@@ -85,7 +85,7 @@ of that storage is INCOMPLETE.
 ### Join rules (deterministic)
 
 ```text
-join(x, x)                 = x                     for x in {Untracked, Owned, Dead, Unknown}
+join(x, x)                 = x                     for x in {Untracked, Null, Owned, Dead, MaybeDead, Unknown}
 join(Owned, Dead)          = MaybeDead
 join(Dead, Owned)          = MaybeDead
 join(MaybeDead, Owned)     = MaybeDead
@@ -122,11 +122,12 @@ free(p) with Null    defined no-op (KNOWN SAFE)
 
 ### Loop convergence
 
-The lattice is finite (five states per storage, finite storage set), and the
-transfer function is monotone, so the worklist reaches a fixed point. Loop
-bodies that do not change ownership state converge to `Owned`; bodies that
-destroy execute again with the join of the back edge, which surfaces
-possible double destruction rather than assuming a single iteration.
+The state domain is finite (six states per storage, finite storage set), and
+the transfer function is monotone over the analysis ordering, so the
+worklist reaches a fixed point. Loop bodies that do not change ownership
+state converge to `Owned`; bodies that destroy execute again with the join
+of the back edge, which surfaces possible double destruction rather than
+assuming a single iteration.
 
 ### What remains unsupported (deliberately)
 
@@ -193,8 +194,8 @@ label. This is adequate for the P0.2 scope and is documented as a limit.
   by the differential ASan corpus and the CFG adversarial corpus;
 - conservative joins produce INCOMPLETE for variables whose ownership
   differs across paths;
-- findings must be deduplicated across worklist iterations, and the last
-  (most conservative) classification for a program point wins.
+- findings must be deduplicated across worklist iterations, and the final
+  post-convergence classification for a program point is authoritative.
 
 ## Access bases and unevaluated operands
 
