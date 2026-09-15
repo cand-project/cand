@@ -11,6 +11,7 @@ All notable project changes are recorded here.
 - `if`/`else`, nested branches, early returns, multiple returns, cleanup `goto`/labels, `switch`, `break`, `continue`, `?:`, `&&`/`||` and simple loops are now analyzed instead of being rejected as unsupported;
 - path-dependent use-after-destroy and double destruction now produce `CAND-T002`/`CAND-T003` with `certainty` (`definite`/`possible`) and flow evidence (`state_before_access`, `state_trace` events including `conditional_destruction`);
 - added a `Null` storage state: `p = NULL` is a modeled release, so a later `free(p)` is a defined no-op while a later access is a null-dereference issue outside P0's claim;
+- a translation unit that produced any error-level diagnostic (including driver-level option errors that still allow a recovered AST) now returns exit 2 instead of a verdict, so C& never reports PASS/FAIL on code that did not compile;
 - diagnostics are emitted in a post-convergence pass, so intermediate worklist iterations cannot leave stale findings or obligations behind;
 - fixed-point loop analysis surfaces possible double destruction (`while (cond) { free(p); }` is FAIL, not a single-iteration assumption), while loops that do not change ownership state are provable;
 - unreachable CFG blocks are not analyzed and cannot invent obligations;

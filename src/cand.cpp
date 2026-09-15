@@ -25,6 +25,9 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendActions.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
@@ -154,6 +157,11 @@ public:
     }
 
     void noteFunction() { ++functions_analyzed_; }
+
+    // A translation unit that produced compilation errors must never receive
+    // a C& verdict: the analysis ran on a recovered (not real) AST.
+    void noteFrontendError() { frontend_error_ = true; }
+    bool hasFrontendError() const { return frontend_error_; }
 
     void noteTrackedHeapObjects(std::size_t count) {
         tracked_heap_objects_ += static_cast<unsigned>(count);
@@ -286,6 +294,7 @@ private:
     std::vector<Unsupported> unsupported_;
     std::set<std::tuple<std::string, std::string, unsigned, unsigned>>
         seen_unsupported_;
+    bool frontend_error_ = false;
     unsigned functions_analyzed_ = 0;
     unsigned tracked_heap_objects_ = 0;
     unsigned next_object_id_ = 1;
@@ -1353,14 +1362,18 @@ private:
 class CandConsumer : public ASTConsumer {
 public:
     CandConsumer(ASTContext &context, Collector &collector)
-        : visitor_(context, collector) {}
+        : visitor_(context, collector), collector_(collector) {}
 
     void HandleTranslationUnit(ASTContext &context) override {
+        if (context.getDiagnostics().hasErrorOccurred()) {
+            collector_.noteFrontendError();
+        }
         visitor_.TraverseDecl(context.getTranslationUnitDecl());
     }
 
 private:
     TranslationUnitVisitor visitor_;
+    Collector &collector_;
 };
 
 class CandAction : public clang::ASTFrontendAction {
@@ -1386,6 +1399,42 @@ public:
 
 private:
     Collector &collector_;
+};
+
+// Any error-level diagnostic (including driver-level option errors that
+// still let Clang build a recovered AST) means the translation unit did not
+// compile: C& must report a tool error, never a verdict. The flag lives in
+// shared storage because the tool may take ownership of the consumer.
+struct FrontendErrors {
+    bool saw_error = false;
+};
+
+class FrontendErrorTracker : public clang::DiagnosticConsumer {
+public:
+    FrontendErrorTracker(llvm::raw_ostream &os, clang::DiagnosticOptions *options,
+                         std::shared_ptr<FrontendErrors> errors)
+        : printer_(os, options), errors_(std::move(errors)) {}
+
+    void BeginSourceFile(const clang::LangOptions &options,
+                         const clang::Preprocessor *pp) override {
+        printer_.BeginSourceFile(options, pp);
+    }
+
+    void EndSourceFile() override { printer_.EndSourceFile(); }
+
+    void finish() override { printer_.finish(); }
+
+    void HandleDiagnostic(clang::DiagnosticsEngine::Level level,
+                          const clang::Diagnostic &info) override {
+        if (level >= clang::DiagnosticsEngine::Error) {
+            errors_->saw_error = true;
+        }
+        printer_.HandleDiagnostic(level, info);
+    }
+
+private:
+    clang::TextDiagnosticPrinter printer_;
+    std::shared_ptr<FrontendErrors> errors_;
 };
 
 void printUsage(llvm::StringRef program) {
@@ -1425,6 +1474,11 @@ int main(int argc, const char **argv) {
     clang::tooling::ClangTool tool(options_parser.getCompilations(),
                                    options_parser.getSourcePathList());
 
+    auto diagnostic_options = new clang::DiagnosticOptions();
+    auto frontend_errors = std::make_shared<FrontendErrors>();
+    tool.setDiagnosticConsumer(
+        new FrontendErrorTracker(llvm::errs(), diagnostic_options, frontend_errors));
+
     Collector collector;
     CandActionFactory factory(collector);
     const int tool_result = tool.run(&factory);
@@ -1433,6 +1487,13 @@ int main(int argc, const char **argv) {
         //   0 = PASS, 1 = FAIL (findings), 2 = tool/input error,
         //   3 = INCOMPLETE.
         llvm::errs() << "cand: analysis frontend failed (input or compiler error)\n";
+        return 2;
+    }
+
+    if (tool_result != 0 || frontend_errors->saw_error ||
+        collector.hasFrontendError()) {
+        llvm::errs() << "cand: translation unit did not compile; no verdict is "
+                        "reported (input or compiler error)\n";
         return 2;
     }
 
