@@ -55,6 +55,8 @@
             ]
           },
           "object_id": { "type": "string" },
+          "access_storage": { "type": "string" },
+          "destroy_storage": { "type": "string" },
           "primary_location": { "$ref": "#/$defs/location" },
           "state_trace": {
             "type": "array",

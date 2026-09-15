@@ -17,6 +17,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0009](ADR-0009-agent-proof-policy.md) | Agents may repair implementation but must not silently weaken proof policy | Proposed |
 | [ADR-0010](ADR-0010-trustworthy-pass.md) | Trustworthy PASS: no unresolved ownership operation may be silently accepted | Proposed |
 | [ADR-0011](ADR-0011-cfg-flow-sensitive-ownership.md) | Ownership state is attached to CFG program points with a finite lattice and deterministic joins | Proposed |
+| [ADR-0012](ADR-0012-storage-identity-and-alias-model.md) | Object lifetime is separate from pointer storage and alias relationships | Accepted (P0.3) |
 
 ## Design chain
 

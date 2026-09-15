@@ -113,6 +113,30 @@ inline asm, statement expressions, computed `goto`, unknown pointer-return
 ownership and unknown calls with tracked pointers. These are the P0.3/P0.4
 inputs.
 
+## P0.3 — Storage identity and alias relationships (in progress)
+
+Goal: separate heap-object lifetime from pointer storage so local aliases,
+common struct members, and constant-index pointer arrays are analyzed without
+introducing borrowing semantics. See [ADR-0012](adr/ADR-0012-storage-identity-and-alias-model.md).
+
+Deliver:
+
+- explicit `ObjectId`, `StorageId`, `ObjectInfo`, `StorageBinding`, and
+  `PointerRelation` concepts;
+- local aliases and reassignment with object-wide destruction state;
+- deterministic local member and constant-index array storage paths;
+- conservative CFG alias joins and structured object/storage diagnostics;
+- storage corpus with ordinary compiler and ASan differential checks.
+
+Still incomplete by design: dynamic indexes, unresolved pointee storage,
+ambiguous alias targets, unknown calls, pointer-return wrappers, leaks, moves,
+and all Rust-like borrow rules.
+
+## P0.4 — Interprocedural Ownership Summaries and Contracts (planned)
+
+Function summaries and reviewed ownership contracts follow the storage/alias
+foundation. P1 unique ownership and P2 borrowing/lifetimes remain later phases.
+
 ## P1 — C&1 unique ownership + first autonomous repair loop
 
 Deliver:

@@ -1,4 +1,4 @@
-// C& — P0.2 CFG-based flow-sensitive ownership analysis.
+// C& — P0.3 storage-identity and alias-aware temporal analysis.
 //
 // Design: ownership state is attached to program points (CFG basic blocks)
 // rather than to source-order statements. A standard worklist computes the
@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
@@ -124,6 +126,8 @@ struct Finding {
     std::string certainty = "definite";
     std::string state_before;
     std::string object_id;
+    std::string access_storage;
+    std::string destroy_storage;
     Location primary;
     std::vector<TraceEvent> trace;
 };
@@ -136,9 +140,8 @@ struct Unsupported {
 
 class Collector {
 public:
-    // Findings are emitted during every worklist pass; the last emission for
-    // a given site wins (states only move up the lattice, so "last" is the
-    // most conservative and deterministic result for that program point).
+    // Findings are collected only during the post-convergence emission pass.
+    // The map de-duplicates any repeated observation of the same program point.
     void addFinding(Finding finding) {
         const std::tuple<std::string, std::string, unsigned, unsigned, std::string>
             key{finding.id, finding.primary.file, finding.primary.line,
@@ -236,6 +239,12 @@ public:
             obj["message"] = finding.message;
             obj["repair_class"] = finding.repair_class;
             obj["object_id"] = finding.object_id;
+            if (!finding.access_storage.empty()) {
+                obj["access_storage"] = finding.access_storage;
+            }
+            if (!finding.destroy_storage.empty()) {
+                obj["destroy_storage"] = finding.destroy_storage;
+            }
             if (!finding.state_before.empty()) {
                 obj["state_before_access"] = finding.state_before;
             }
@@ -315,6 +324,67 @@ private:
 
 enum class ObjectState { Untracked, Null, Owned, Dead, MaybeDead, Unknown };
 
+enum class StorageKind { LocalVariable, StructMember, ArrayElement, DereferenceSlot,
+                         GlobalVariable };
+
+struct StorageId {
+    StorageKind kind = StorageKind::LocalVariable;
+    const VarDecl *root = nullptr;
+    std::string path;
+    int index = -1;
+
+    bool operator<(const StorageId &other) const {
+        if (kind != other.kind) return kind < other.kind;
+        const unsigned this_loc = root ? root->getLocation().getRawEncoding() : 0;
+        const unsigned other_loc = other.root ? other.root->getLocation().getRawEncoding() : 0;
+        if (this_loc != other_loc) return this_loc < other_loc;
+        const std::string this_name = root ? root->getNameAsString() : std::string{};
+        const std::string other_name = other.root ? other.root->getNameAsString() : std::string{};
+        if (this_name != other_name) return this_name < other_name;
+        if (path != other.path) return path < other.path;
+        if (index != other.index) return index < other.index;
+        // Pathological declarations at the same source position still need a
+        // strict in-process order. This fallback is not observable for normal
+        // source declarations and keeps std::map semantics valid.
+        return std::less<const VarDecl *>{}(root, other.root);
+    }
+    bool operator==(const StorageId &other) const {
+        return kind == other.kind && root == other.root && path == other.path &&
+               index == other.index;
+    }
+};
+
+enum class PointerRelation { Owner, Alias, Null, MaybeNull, Unknown };
+
+constexpr unsigned kNullObjectId = 0;
+constexpr unsigned kUnknownObjectId = std::numeric_limits<unsigned>::max();
+
+struct ObjectInfo {
+    ObjectState state = ObjectState::Untracked;
+    Location allocation;
+    Location destruction;
+    bool destruction_known = false;
+    std::string destruction_storage;
+    bool operator==(const ObjectInfo &other) const {
+        return state == other.state && destruction_known == other.destruction_known &&
+               sameLocation(allocation, other.allocation) &&
+               sameLocation(destruction, other.destruction) &&
+               destruction_storage == other.destruction_storage;
+    }
+};
+
+struct StorageBinding {
+    // 0 is an explicit, definitely-null storage value. UINT_MAX is an
+    // unresolved/ambiguous target and must never be interpreted as NULL.
+    unsigned object_id = kUnknownObjectId;
+    PointerRelation relation = PointerRelation::Unknown;
+    Location relation_location;
+    bool operator==(const StorageBinding &other) const {
+        return object_id == other.object_id && relation == other.relation &&
+               sameLocation(relation_location, other.relation_location);
+    }
+};
+
 const char *stateName(ObjectState state) {
     switch (state) {
     case ObjectState::Untracked:
@@ -363,64 +433,92 @@ ObjectState joinState(ObjectState a, ObjectState b) {
     return ObjectState::MaybeDead;
 }
 
-struct Binding {
-    unsigned object_id = 0;
-    ObjectState state = ObjectState::Untracked;
-    Location allocation;
-    Location destruction;
-    bool destruction_known = false;
+std::string storageName(const StorageId &storage) {
+    const char *prefix = storage.kind == StorageKind::StructMember ? "field:" :
+                         storage.kind == StorageKind::ArrayElement ? "array:" :
+                         storage.kind == StorageKind::DereferenceSlot ? "deref:" :
+                         storage.kind == StorageKind::GlobalVariable ? "global:" : "local:";
+    std::string name = prefix + (storage.root ? storage.root->getNameAsString() : "?");
+    if (!storage.path.empty()) name += storage.path;
+    if (storage.index >= 0) name += "[" + std::to_string(storage.index) + "]";
+    return name;
+}
 
-    bool operator==(const Binding &other) const {
-        return object_id == other.object_id && state == other.state &&
-               destruction_known == other.destruction_known &&
-               sameLocation(allocation, other.allocation) &&
-               sameLocation(destruction, other.destruction);
-    }
-};
+StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
+    const auto unknown = [](const StorageBinding &binding) {
+        return binding.object_id == kUnknownObjectId ||
+               (binding.object_id == kNullObjectId &&
+                binding.relation == PointerRelation::Unknown);
+    };
+    const auto known_null = [](const StorageBinding &binding) {
+        return binding.object_id == kNullObjectId &&
+               binding.relation == PointerRelation::Null;
+    };
+    const Location relation_location =
+        minLocation(a.relation_location, b.relation_location);
 
-Binding joinBinding(const Binding &a, const Binding &b) {
-    Binding result;
-    if (a.state == ObjectState::Untracked) {
-        result.object_id = b.object_id;
-    } else if (b.state == ObjectState::Untracked) {
-        result.object_id = a.object_id;
-    } else {
-        result.object_id = std::min(a.object_id, b.object_id);
+    if (a.object_id == b.object_id) {
+        if (a.relation == b.relation) {
+            return {a.object_id, a.relation, relation_location};
+        }
+        if (a.relation == PointerRelation::MaybeNull ||
+            b.relation == PointerRelation::MaybeNull) {
+            return {a.object_id, PointerRelation::MaybeNull, relation_location};
+        }
+        return {a.object_id, PointerRelation::Unknown, relation_location};
     }
-    result.state = joinState(a.state, b.state);
-    result.allocation = minLocation(a.allocation, b.allocation);
-    result.destruction_known = a.destruction_known || b.destruction_known;
-    if (a.destruction_known && b.destruction_known) {
-        result.destruction = minLocation(a.destruction, b.destruction);
-    } else if (a.destruction_known) {
-        result.destruction = a.destruction;
-    } else {
-        result.destruction = b.destruction;
+    if (unknown(a) || unknown(b)) {
+        return {kUnknownObjectId, PointerRelation::Unknown, relation_location};
     }
-    return result;
+    // Null on one path and one known object on the other still has one heap
+    // target for temporal purposes. Null-dereference safety is outside P0.
+    if (known_null(a) && b.object_id != kNullObjectId) {
+        return {b.object_id, PointerRelation::MaybeNull, relation_location};
+    }
+    if (known_null(b) && a.object_id != kNullObjectId) {
+        return {a.object_id, PointerRelation::MaybeNull, relation_location};
+    }
+    // Two different non-null objects are an unresolved alias target, never NULL.
+    return {kUnknownObjectId, PointerRelation::Unknown, relation_location};
 }
 
 struct FlowState {
-    // StorageId -> Binding. P0.2 fully supports local variable storage only;
-    // member/array/pointee storage is reported as unsupported, never guessed.
-    std::map<const VarDecl *, Binding> storages;
+    std::map<StorageId, StorageBinding> storages;
+    std::map<unsigned, ObjectInfo> objects;
 
     bool operator==(const FlowState &other) const {
-        return storages == other.storages;
+        return storages == other.storages && objects == other.objects;
     }
 };
 
 FlowState joinFlow(const FlowState &a, const FlowState &b) {
     FlowState result;
+    result.objects = a.objects;
+    for (const auto &entry : b.objects) {
+        auto it = result.objects.find(entry.first);
+        if (it == result.objects.end()) {
+            result.objects[entry.first] = entry.second;
+        } else {
+            it->second.state = joinState(it->second.state, entry.second.state);
+            it->second.allocation = minLocation(it->second.allocation, entry.second.allocation);
+            it->second.destruction_known = it->second.destruction_known || entry.second.destruction_known;
+            if (entry.second.destruction_known)
+                it->second.destruction = minLocation(it->second.destruction, entry.second.destruction);
+            if (entry.second.destruction_known &&
+                (it->second.destruction_storage.empty() ||
+                 entry.second.destruction_storage < it->second.destruction_storage))
+                it->second.destruction_storage = entry.second.destruction_storage;
+        }
+    }
     for (const auto &entry : a.storages) {
         const auto it = b.storages.find(entry.first);
         result.storages[entry.first] =
-            it == b.storages.end() ? joinBinding(entry.second, Binding{})
+            it == b.storages.end() ? joinBinding(entry.second, StorageBinding{})
                                    : joinBinding(entry.second, it->second);
     }
     for (const auto &entry : b.storages) {
         if (a.storages.find(entry.first) == a.storages.end()) {
-            result.storages[entry.first] = joinBinding(Binding{}, entry.second);
+            result.storages[entry.first] = joinBinding(StorageBinding{}, entry.second);
         }
     }
     return result;
@@ -443,6 +541,7 @@ public:
         }
         collector_.noteFunction();
         collectAllocationSites(body);
+        collectLoopAllocations(body, false);
         collectUnevaluated(body);
 
         std::unique_ptr<CFG> cfg =
@@ -476,8 +575,6 @@ public:
     }
 
 private:
-    using StorageId = const VarDecl *;
-
     // ---- locations and predicates -------------------------------------
 
     Location location(SourceLocation loc) const {
@@ -658,12 +755,128 @@ private:
         return false;
     }
 
-    const Binding *bindingFor(const VarDecl *var, const FlowState &state) const {
-        if (var == nullptr) {
+    bool containsPointerToIntegerCast(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        if (const auto *cast = dyn_cast<clang::CastExpr>(expr)) {
+            if (cast->getCastKind() == clang::CK_PointerToIntegral) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsPointerToIntegerCast(child_expr)) return true;
+            }
+        }
+        return false;
+    }
+
+    bool containsGlobalStorage(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        expr = expr->IgnoreParenCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                if (var->hasGlobalStorage()) return true;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsGlobalStorage(child_expr)) return true;
+            }
+        }
+        return false;
+    }
+
+    bool containsParameterStorage(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        expr = expr->IgnoreParenCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (isa<ParmVarDecl>(ref->getDecl())) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsParameterStorage(child_expr)) return true;
+            }
+        }
+        return false;
+    }
+
+    bool typeMayContainPointer(clang::QualType type) const {
+        if (type.isNull()) return false;
+        type = type.getCanonicalType();
+        if (type->isPointerType()) return true;
+        if (const auto *array = context_.getAsArrayType(type))
+            return typeMayContainPointer(array->getElementType());
+        if (const auto *record = type->getAs<clang::RecordType>()) {
+            for (const clang::FieldDecl *field : record->getDecl()->fields())
+                if (typeMayContainPointer(field->getType())) return true;
+        }
+        return false;
+    }
+
+    bool mayWritePointerStorage(const Expr *arg) const {
+        if (arg == nullptr) return false;
+        const Expr *stripped = arg->IgnoreParenCasts();
+        if (const auto *unary = dyn_cast<UnaryOperator>(stripped)) {
+            if (unary->getOpcode() == clang::UO_AddrOf)
+                return typeMayContainPointer(unary->getSubExpr()->getType());
+        }
+        return arg->getType()->isPointerType() &&
+               typeMayContainPointer(arg->getType()->getPointeeType());
+    }
+
+    std::optional<StorageId> storageFor(const Expr *expr) const {
+        if (expr == nullptr) return std::nullopt;
+        expr = expr->IgnoreParenCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                // File-scope and static-local storage outlives one invocation;
+                // P0.3's per-function state cannot model it soundly.
+                if (var->hasGlobalStorage()) return std::nullopt;
+                return StorageId{StorageKind::LocalVariable, var, {}, -1};
+            }
+            return std::nullopt;
+        }
+        if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+            if (member->isArrow()) return std::nullopt;
+            if (const auto *field = dyn_cast<clang::FieldDecl>(member->getMemberDecl())) {
+                if (field->getParent() != nullptr && field->getParent()->isUnion()) {
+                    return std::nullopt;
+                }
+            }
+            auto base = storageFor(member->getBase());
+            if (!base) return std::nullopt;
+            StorageId result = *base;
+            result.kind = StorageKind::StructMember;
+            result.path += "." + member->getMemberDecl()->getNameAsString();
+            return result;
+        }
+        if (const auto *subscript = dyn_cast<ArraySubscriptExpr>(expr)) {
+            auto base = storageFor(subscript->getBase());
+            if (!base) return std::nullopt;
+            const auto *literal = dyn_cast<clang::IntegerLiteral>(
+                subscript->getIdx()->IgnoreParenCasts());
+            if (!literal) return std::nullopt;
+            StorageId result = *base;
+            result.kind = StorageKind::ArrayElement;
+            result.path += "[" + std::to_string(literal->getValue().getSExtValue()) + "]";
+            result.index = -1;
+            return result;
+        }
+        return std::nullopt;
+    }
+
+    const StorageBinding *bindingFor(const Expr *expr, const FlowState &state) const {
+        const auto storage = storageFor(expr);
+        if (!storage) return nullptr;
+        const auto it = state.storages.find(*storage);
+        return it == state.storages.end() ? nullptr : &it->second;
+    }
+
+    const ObjectInfo *objectFor(const StorageBinding *binding, const FlowState &state) const {
+        if (binding == nullptr || binding->object_id == kNullObjectId ||
+            binding->object_id == kUnknownObjectId) {
             return nullptr;
         }
-        const auto it = state.storages.find(var);
-        return it == state.storages.end() ? nullptr : &it->second;
+        const auto it = state.objects.find(binding->object_id);
+        return it == state.objects.end() ? nullptr : &it->second;
     }
 
     // Find the tracked storage referenced anywhere inside an expression, so
@@ -672,14 +885,13 @@ private:
     // checked against the object it ultimately refers to. The lowest object
     // id wins so the choice is deterministic.
     void collectTrackedBindings(const Expr *expr, const FlowState &state,
-                                const Binding *&best) const {
+                                const StorageBinding *&best) const {
         if (expr == nullptr) {
             return;
         }
         expr = expr->IgnoreParenCasts();
         if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
-            const Binding *binding =
-                bindingFor(dyn_cast<VarDecl>(ref->getDecl()), state);
+            const StorageBinding *binding = bindingFor(expr, state);
             if (binding != nullptr &&
                 (best == nullptr || binding->object_id < best->object_id)) {
                 best = binding;
@@ -692,11 +904,25 @@ private:
         }
     }
 
-    const Binding *findTrackedBinding(const Expr *expr,
+    const StorageBinding *findTrackedBinding(const Expr *expr,
                                       const FlowState &state) const {
-        const Binding *best = nullptr;
+        const StorageBinding *best = nullptr;
         collectTrackedBindings(expr, state, best);
         return best;
+    }
+
+    std::optional<StorageId> findTrackedStorage(const Expr *expr,
+                                                const FlowState &state) const {
+        if (expr == nullptr) return std::nullopt;
+        expr = expr->IgnoreParenCasts();
+        if (storageFor(expr) && state.storages.find(*storageFor(expr)) != state.storages.end())
+            return storageFor(expr);
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (auto found = findTrackedStorage(child_expr, state)) return found;
+            }
+        }
+        return std::nullopt;
     }
 
     bool containsTrackedStorage(const Expr *expr, const FlowState &state) const {
@@ -705,9 +931,25 @@ private:
         }
         expr = expr->IgnoreParenCasts();
         if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
-            const auto *var = dyn_cast<VarDecl>(ref->getDecl());
-            return bindingFor(var, state) != nullptr;
+            if (const StorageBinding *binding = bindingFor(expr, state)) {
+                return !(binding->object_id == kNullObjectId &&
+                         binding->relation == PointerRelation::Null);
+            }
+            // Aggregate expressions such as `s`, `&s`, or a by-value struct
+            // argument may carry tracked pointer fields even though the root
+            // aggregate itself has no pointer binding.
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                for (const auto &entry : state.storages) {
+                    if (entry.first.root == var &&
+                        !(entry.second.object_id == kNullObjectId &&
+                          entry.second.relation == PointerRelation::Null)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
+        if (storageFor(expr)) return state.storages.find(*storageFor(expr)) != state.storages.end();
         for (const Stmt *child : expr->children()) {
             if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
                 if (containsTrackedStorage(child_expr, state)) {
@@ -727,15 +969,22 @@ private:
 
     std::string untrackedStorageKind(const Expr *lhs) const {
         const Expr *expr = lhs->IgnoreParenCasts();
-        if (isa<MemberExpr>(expr)) {
+        if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+            if (const auto *field = dyn_cast<clang::FieldDecl>(member->getMemberDecl())) {
+                if (field->getParent() != nullptr && field->getParent()->isUnion()) {
+                    return "union-member-storage";
+                }
+            }
             return "struct-member";
         }
         if (isa<ArraySubscriptExpr>(expr)) {
-            return "array-element";
+            const auto *subscript = dyn_cast<ArraySubscriptExpr>(expr);
+            return isa<clang::IntegerLiteral>(subscript->getIdx()->IgnoreParenCasts())
+                       ? "array-element" : "dynamic-array-storage";
         }
         if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
             if (unary->getOpcode() == clang::UO_Deref) {
-                return "pointee";
+                return "unresolved-pointee-storage";
             }
         }
         return "unknown";
@@ -795,8 +1044,10 @@ private:
         return "obj:" + std::to_string(id);
     }
 
-    void reportUseAfterDestroy(const Binding &binding, SourceLocation use_loc) {
-        const bool definite = binding.state == ObjectState::Dead;
+    void reportUseAfterDestroy(const StorageBinding &binding, const ObjectInfo &object,
+                               const StorageId &access, SourceLocation use_loc,
+                               const FlowState &state, bool nullable) {
+        const bool definite = object.state == ObjectState::Dead && !nullable;
         Finding finding;
         finding.id = "CAND-T002";
         finding.rule_id = "cand1.no-use-after-death";
@@ -804,21 +1055,33 @@ private:
                                    : "possible use after object destruction";
         finding.repair_class = "SEMANTIC_REPAIR";
         finding.certainty = definite ? "definite" : "possible";
-        finding.state_before = stateName(binding.state);
+        finding.state_before = stateName(object.state);
         finding.object_id = objectName(binding.object_id);
+        finding.access_storage = storageName(access);
+        if (object.destruction_known) finding.destroy_storage = object.destruction_storage;
         finding.primary = location(use_loc);
-        finding.trace.push_back({"allocation", "Owned", binding.allocation});
-        if (binding.destruction_known) {
+        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        for (const auto &entry : state.storages) {
+            if (entry.second.object_id == binding.object_id &&
+                entry.second.relation == PointerRelation::Alias) {
+                const Location alias_location = entry.second.relation_location.file.empty()
+                                                    ? object.allocation
+                                                    : entry.second.relation_location;
+                finding.trace.push_back({"alias_created", "Alias", alias_location});
+            }
+        }
+        if (object.destruction_known) {
             finding.trace.push_back({definite ? "destruction" : "conditional_destruction",
                                      definite ? "Dead" : "MaybeDead",
-                                     binding.destruction});
+                                     object.destruction});
         }
         finding.trace.push_back(
-            {"access", stateName(binding.state), location(use_loc)});
+            {"access", stateName(object.state), location(use_loc)});
         emitFinding(std::move(finding));
     }
 
-    void reportDoubleDestroy(const Binding &binding, SourceLocation destroy_loc,
+    void reportDoubleDestroy(const StorageBinding &binding, const ObjectInfo &object,
+                             const StorageId &destroy, SourceLocation destroy_loc,
                              bool definite) {
         Finding finding;
         finding.id = "CAND-T003";
@@ -827,18 +1090,19 @@ private:
                                    : "possible double destruction on some path";
         finding.repair_class = "SEMANTIC_REPAIR";
         finding.certainty = definite ? "definite" : "possible";
-        finding.state_before = stateName(binding.state);
+        finding.state_before = stateName(object.state);
         finding.object_id = objectName(binding.object_id);
+        finding.destroy_storage = storageName(destroy);
         finding.primary = location(destroy_loc);
-        finding.trace.push_back({"allocation", "Owned", binding.allocation});
-        if (binding.destruction_known) {
+        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        if (object.destruction_known) {
             finding.trace.push_back({definite ? "first_destruction"
                                               : "conditional_destruction",
                                      definite ? "Dead" : "MaybeDead",
-                                     binding.destruction});
+                                     object.destruction});
         }
         finding.trace.push_back(
-            {"repeated_destruction", stateName(binding.state), location(destroy_loc)});
+            {"repeated_destruction", stateName(object.state), location(destroy_loc)});
         emitFinding(std::move(finding));
     }
 
@@ -846,28 +1110,58 @@ private:
 
     void checkAccess(const Expr *pointer_expr, SourceLocation access_loc,
                      const FlowState &state) {
+        if (containsGlobalStorage(pointer_expr)) {
+            emitUnsupported({"global-or-static-pointer-storage", "", location(access_loc)});
+            return;
+        }
         if (asUnknownPointerCall(pointer_expr) != nullptr) {
             noteUnknownPointerCallIn(pointer_expr);
             return;
         }
-        const Binding *binding = bindingFor(resolveVar(pointer_expr), state);
+        auto access_storage = storageFor(pointer_expr);
+        const StorageBinding *binding = bindingFor(pointer_expr, state);
         if (binding == nullptr) {
             // The base is not a bare variable: it may be pointer arithmetic
             // or another computed form that still refers to a tracked object.
             binding = findTrackedBinding(pointer_expr, state);
         }
+        if (!access_storage) access_storage = findTrackedStorage(pointer_expr, state);
         if (binding == nullptr) {
-            return; // untracked storage: not an additional obligation here
+            if (containsParameterStorage(pointer_expr)) {
+                emitUnsupported({"unmodelled-pointer-parameter", "",
+                                 location(access_loc)});
+                return;
+            }
+            return; // genuinely untracked storage: outside the current P0 heap scope
         }
-        if (binding->state == ObjectState::Dead ||
-            binding->state == ObjectState::MaybeDead) {
-            reportUseAfterDestroy(*binding, access_loc);
-        } else if (binding->state == ObjectState::Null) {
+        if (binding->object_id == kUnknownObjectId ||
+            (binding->object_id == kNullObjectId &&
+             binding->relation == PointerRelation::Unknown)) {
+            emitUnsupported({"ambiguous-alias-target", "", location(access_loc)});
+            return;
+        }
+        if (binding->object_id == kNullObjectId &&
+            binding->relation == PointerRelation::Null) {
+            return; // null dereference is outside the P0 temporal claim
+        }
+        const ObjectInfo *object = objectFor(binding, state);
+        if (object == nullptr) {
+            emitUnsupported({"access-unknown-ownership-state", "", location(access_loc)});
+            return;
+        }
+        if (object->state == ObjectState::Dead || object->state == ObjectState::MaybeDead) {
+            if (access_storage) {
+                reportUseAfterDestroy(*binding, *object, *access_storage, access_loc, state,
+                                      binding->relation == PointerRelation::MaybeNull);
+            } else {
+                emitUnsupported({"unresolved-access-storage", "", location(access_loc)});
+            }
+        } else if (object->state == ObjectState::Null) {
             // A null dereference is a spatial/null-safety issue, which P0
             // does not claim to model; it is neither a lifetime violation
             // nor an unresolved ownership obligation.
             return;
-        } else if (binding->state == ObjectState::Unknown) {
+        } else if (object->state == ObjectState::Unknown) {
             emitUnsupported(
                 {"access-unknown-ownership-state", "",
                  location(access_loc)});
@@ -876,36 +1170,81 @@ private:
 
     void handleFree(const CallExpr &call, FlowState &state) {
         const Expr *arg = call.getArg(0);
+        if (containsGlobalStorage(arg)) {
+            emitUnsupported({"global-or-static-pointer-storage", "", location(call.getExprLoc())});
+            return;
+        }
         if (isNullConstant(arg)) {
             return; // KNOWN SAFE: free(NULL)
         }
-        const VarDecl *var = resolveVar(arg);
-        if (var == nullptr) {
+        const auto destroy_storage = storageFor(arg);
+        if (!destroy_storage) {
+            const Expr *base = arg->IgnoreParenCasts();
+            if (isa<ArraySubscriptExpr>(base)) {
+                emitUnsupported({untrackedStorageKind(base), "", location(call.getExprLoc())});
+                return;
+            }
+            if (const auto *unary = dyn_cast<UnaryOperator>(base)) {
+                if (unary->getOpcode() == clang::UO_Deref) {
+                    emitUnsupported({"unresolved-pointee-storage", "", location(call.getExprLoc())});
+                    return;
+                }
+            }
             emitUnsupported(
                 {"free-untracked-expression", "", location(call.getExprLoc())});
             return;
         }
-        auto it = state.storages.find(var);
+        auto it = state.storages.find(*destroy_storage);
         if (it == state.storages.end()) {
             emitUnsupported(
                 {"free-untracked-pointer", "", location(call.getExprLoc())});
             return;
         }
-        Binding &binding = it->second;
-        switch (binding.state) {
+        StorageBinding &binding = it->second;
+        if (binding.object_id == kNullObjectId &&
+            binding.relation == PointerRelation::Null) {
+            return; // definitely NULL storage
+        }
+        if (binding.object_id == kUnknownObjectId ||
+            binding.object_id == kNullObjectId) {
+            emitUnsupported({"ambiguous-alias-target", "", location(call.getExprLoc())});
+            return;
+        }
+        const auto object_it = state.objects.find(binding.object_id);
+        if (object_it == state.objects.end()) {
+            emitUnsupported({"free-unknown-ownership-state", "", location(call.getExprLoc())});
+            return;
+        }
+        ObjectInfo *object = &object_it->second;
+        if (binding.relation == PointerRelation::MaybeNull) {
+            if (object->state == ObjectState::Owned) {
+                object->state = ObjectState::MaybeDead;
+                object->destruction = location(call.getExprLoc());
+                object->destruction_known = true;
+                object->destruction_storage = storageName(*destroy_storage);
+                return;
+            }
+            if (object->state == ObjectState::Dead ||
+                object->state == ObjectState::MaybeDead) {
+                reportDoubleDestroy(binding, *object, *destroy_storage, call.getExprLoc(), false);
+                return;
+            }
+        }
+        switch (object->state) {
         case ObjectState::Null:
             // free(NULL) is defined as a no-op by ISO C.
             return;
         case ObjectState::Owned:
-            binding.state = ObjectState::Dead;
-            binding.destruction = location(call.getExprLoc());
-            binding.destruction_known = true;
+            object->state = ObjectState::Dead;
+            object->destruction = location(call.getExprLoc());
+            object->destruction_known = true;
+            object->destruction_storage = storageName(*destroy_storage);
             return;
         case ObjectState::Dead:
-            reportDoubleDestroy(binding, call.getExprLoc(), /*definite=*/true);
+            reportDoubleDestroy(binding, *object, *destroy_storage, call.getExprLoc(), true);
             return;
         case ObjectState::MaybeDead:
-            reportDoubleDestroy(binding, call.getExprLoc(), /*definite=*/false);
+            reportDoubleDestroy(binding, *object, *destroy_storage, call.getExprLoc(), false);
             return;
         case ObjectState::Unknown:
         case ObjectState::Untracked:
@@ -916,6 +1255,19 @@ private:
     }
 
     void handleCall(const CallExpr &call, const FlowState &state) {
+        const auto is_nonlocal_control = [this, &call]() {
+            static const char *names[] = {"setjmp", "_setjmp", "sigsetjmp",
+                                           "__sigsetjmp", "longjmp", "_longjmp",
+                                           "siglongjmp"};
+            for (const char *name : names) {
+                if (isNamedCall(call, name)) return true;
+            }
+            return false;
+        };
+        if (is_nonlocal_control()) {
+            markUnsupported(call, "nonlocal-control-flow");
+            return;
+        }
         if (isNamedCall(call, "free") && call.getNumArgs() == 1) {
             return; // handled by the caller with mutable state
         }
@@ -923,11 +1275,24 @@ private:
             return;
         }
         bool tracked_argument = false;
+        bool global_argument = false;
+        bool pointer_output_argument = false;
         for (const Expr *arg : call.arguments()) {
             tracked_argument = tracked_argument || containsTrackedStorage(arg, state);
+            global_argument = global_argument || containsGlobalStorage(arg);
+            pointer_output_argument = pointer_output_argument || mayWritePointerStorage(arg);
             if (asUnknownPointerCall(arg) != nullptr) {
                 noteUnknownPointerCallIn(arg);
             }
+        }
+        if (global_argument) {
+            markUnsupported(call, "global-or-static-pointer-storage");
+        }
+        if (pointer_output_argument) {
+            markUnsupported(call, "unknown-call-with-pointer-output");
+        }
+        if (!call.getType()->isPointerType() && typeMayContainPointer(call.getType())) {
+            markUnsupported(call, "unknown-aggregate-return-ownership");
         }
         if (tracked_argument) {
             std::string kind = "unknown-call-with-tracked-pointer";
@@ -940,13 +1305,30 @@ private:
         }
     }
 
-    void bindAllocation(StorageId var, const Expr *init, FlowState &state) {
-        Binding binding;
-        binding.object_id = objectIdForAllocation(init);
-        binding.state = ObjectState::Owned;
-        binding.allocation = location(init->getExprLoc());
-        state.storages[var] = binding;
-        bound_objects_.insert(binding.object_id);
+    bool containsLoopAllocation(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        if (const auto *call = asCall(expr)) {
+            if (loop_allocation_sites_.count(call) != 0) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsLoopAllocation(child_expr)) return true;
+            }
+        }
+        return false;
+    }
+
+    void bindAllocation(StorageId storage, const Expr *init, FlowState &state) {
+        if (containsLoopAllocation(init)) {
+            markUnsupported(*init, "loop-allocation-site");
+        }
+        const unsigned object_id = objectIdForAllocation(init);
+        state.storages[storage] =
+            {object_id, PointerRelation::Owner, location(init->getExprLoc())};
+        auto &object = state.objects[object_id];
+        object.state = ObjectState::Owned;
+        object.allocation = location(init->getExprLoc());
+        bound_objects_.insert(object_id);
     }
 
     unsigned objectIdForAllocation(const Expr *init) {
@@ -955,12 +1337,14 @@ private:
         if (it != allocation_sites_.end()) {
             return it->second;
         }
-        // Defensive: an allocation site the pre-pass did not see gets a
-        // stable id at the end of the range.
+        // Composite allocation expressions (e.g. `cond ? malloc() : NULL`)
+        // need a stable synthetic id across worklist iterations as well.
+        const Expr *key = init ? init->IgnoreParenCasts() : init;
+        const auto synthetic = synthetic_allocation_sites_.find(key);
+        if (synthetic != synthetic_allocation_sites_.end()) return synthetic->second;
         const unsigned id = next_fallback_id_++;
-        if (call != nullptr) {
-            allocation_sites_[call] = id;
-        }
+        if (call != nullptr) allocation_sites_[call] = id;
+        if (key != nullptr) synthetic_allocation_sites_[key] = id;
         return id;
     }
 
@@ -971,25 +1355,56 @@ private:
                 continue;
             }
             const Expr *init = var->getInit();
+            if (var->hasGlobalStorage() &&
+                (var->getType()->isPointerType() || var->getType()->isAtomicType() ||
+                 containsAllocationCall(init) || containsTrackedStorage(init, state) ||
+                 containsUnknownPointerCall(init))) {
+                markUnsupported(decl_stmt, "global-or-static-pointer-storage");
+                continue;
+            }
             if (!var->getType()->isPointerType()) {
                 if (containsAllocationCall(init)) {
                     emitUnsupported(
                         {"allocation-to-untracked-storage:initializer", "",
                          location(decl_stmt.getBeginLoc())});
+                } else if (containsPointerToIntegerCast(init) &&
+                           containsTrackedStorage(init, state)) {
+                    markUnsupported(decl_stmt, "pointer-integer-provenance");
+                } else if (var->getType()->isAtomicType() &&
+                           containsTrackedStorage(init, state)) {
+                    markUnsupported(decl_stmt, "atomic-pointer-storage");
+                } else if (var->getType()->isRecordType() &&
+                           containsTrackedStorage(init, state)) {
+                    markUnsupported(decl_stmt, "aggregate-copy-with-tracked-pointer");
                 } else if (containsUnknownPointerCall(init)) {
                     checkPointerValueSource(init);
                 }
                 continue;
             }
+            const StorageId storage{StorageKind::LocalVariable, var, {}, -1};
             if (isNullConstant(init)) {
-                Binding null_binding;
-                null_binding.state = ObjectState::Null;
-                state.storages[var] = null_binding;
+                state.storages[storage] =
+                    {kNullObjectId, PointerRelation::Null, location(init->getExprLoc())};
             } else if (isAllocationOrNull(init)) {
                 // A declaration introduces a fresh object on every execution.
-                bindAllocation(var, init, state);
+                bindAllocation(storage, init, state);
+            } else if (const auto source = storageFor(init)) {
+                const auto it = state.storages.find(*source);
+                if (it == state.storages.end() ||
+                    it->second.object_id == kUnknownObjectId ||
+                    (it->second.object_id == kNullObjectId &&
+                     it->second.relation == PointerRelation::Unknown)) {
+                    markUnsupported(decl_stmt, "ambiguous-alias-target");
+                } else if (it->second.object_id == kNullObjectId) {
+                    state.storages[storage] =
+                        {kNullObjectId, PointerRelation::Null, location(init->getExprLoc())};
+                } else {
+                    state.storages[storage] =
+                        {it->second.object_id, PointerRelation::Alias,
+                         location(init->getExprLoc())};
+                }
             } else if (containsTrackedStorage(init, state)) {
-                markUnsupported(decl_stmt, "pointer-alias-initialization");
+                markUnsupported(decl_stmt, "ambiguous-alias-target");
             } else {
                 if (isLocalStackOrigin(init)) {
                     stack_pointers_.insert(var);
@@ -1002,36 +1417,67 @@ private:
     void handleAssignment(const BinaryOperator &binary, FlowState &state) {
         const Expr *lhs = binary.getLHS();
         const Expr *rhs = binary.getRHS();
+        const auto lhs_storage = storageFor(lhs);
         const VarDecl *var = resolveVar(lhs);
         const bool lhs_is_pointer =
             lhs->getType()->isPointerType() ||
             (var != nullptr && var->getType()->isPointerType());
 
+        if (containsGlobalStorage(lhs) &&
+            (lhs_is_pointer || containsAllocationCall(rhs) ||
+             containsTrackedStorage(rhs, state) || containsPointerToIntegerCast(rhs))) {
+            markUnsupported(binary, "global-or-static-pointer-storage");
+            return;
+        }
+
+        if (binary.isCompoundAssignmentOp() && lhs_is_pointer) {
+            markUnsupported(binary, "pointer-arithmetic-reassignment");
+            if (lhs_storage) {
+                state.storages[*lhs_storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown,
+                     location(binary.getExprLoc())};
+            }
+            return;
+        }
+
         if (var != nullptr && var->getType()->isPointerType()) {
-            auto it = state.storages.find(var);
+            auto it = lhs_storage ? state.storages.find(*lhs_storage) : state.storages.end();
             if (isNullConstant(rhs)) {
                 // Releasing an owned pointer into NULL: the object may leak
                 // (not modeled in P0.2) but no lifetime bug is introduced,
                 // and a later free(NULL) is a defined no-op.
-                Binding null_binding;
-                null_binding.state = ObjectState::Null;
-                state.storages[var] = null_binding;
+                if (lhs_storage) {
+                    state.storages[*lhs_storage] =
+                        {kNullObjectId, PointerRelation::Null, location(binary.getExprLoc())};
+                }
             } else if (isAllocationOrNull(rhs)) {
-                if (it != state.storages.end() &&
-                    (it->second.state == ObjectState::Owned ||
-                     it->second.state == ObjectState::MaybeDead ||
-                     it->second.state == ObjectState::Unknown)) {
+                const ObjectInfo *old = it == state.storages.end() ? nullptr :
+                    objectFor(&it->second, state);
+                if (old != nullptr && (old->state == ObjectState::Owned ||
+                     old->state == ObjectState::MaybeDead || old->state == ObjectState::Unknown)) {
                     markUnsupported(binary, "tracked-owner-overwrite");
                 }
-                bindAllocation(var, rhs, state);
+                if (lhs_storage) bindAllocation(*lhs_storage, rhs, state);
             } else {
-                if (it != state.storages.end() &&
-                    it->second.state != ObjectState::Untracked) {
-                    markUnsupported(binary, "tracked-pointer-reassignment");
-                    state.storages.erase(var);
-                }
-                if (containsTrackedStorage(rhs, state)) {
-                    markUnsupported(binary, "pointer-alias-assignment");
+                if (const auto source = storageFor(rhs)) {
+                    const auto source_it = state.storages.find(*source);
+                    if (source_it == state.storages.end() ||
+                        source_it->second.object_id == kUnknownObjectId ||
+                        (source_it->second.object_id == kNullObjectId &&
+                         source_it->second.relation == PointerRelation::Unknown)) {
+                        markUnsupported(binary, "ambiguous-alias-target");
+                    } else if (lhs_storage &&
+                               source_it->second.object_id == kNullObjectId) {
+                        state.storages[*lhs_storage] =
+                            {kNullObjectId, PointerRelation::Null,
+                             location(binary.getExprLoc())};
+                    } else if (lhs_storage) {
+                        state.storages[*lhs_storage] =
+                            {source_it->second.object_id, PointerRelation::Alias,
+                             location(binary.getExprLoc())};
+                    }
+                } else if (containsTrackedStorage(rhs, state)) {
+                    markUnsupported(binary, "ambiguous-alias-target");
                 } else {
                     if (isLocalStackOrigin(rhs)) {
                         stack_pointers_.insert(var);
@@ -1043,28 +1489,91 @@ private:
         }
 
         if (lhs_is_pointer) {
-            // Assignment into storage C& cannot model yet.
-            if (isAllocation(rhs)) {
+            if (lhs_storage && isAllocationOrNull(rhs)) {
+                if (isNullConstant(rhs)) {
+                    state.storages[*lhs_storage] =
+                        {kNullObjectId, PointerRelation::Null,
+                         location(binary.getExprLoc())};
+                } else {
+                    bindAllocation(*lhs_storage, rhs, state);
+                }
+            } else if (lhs_storage && storageFor(rhs)) {
+                const auto source = storageFor(rhs);
+                const auto source_it = state.storages.find(*source);
+                if (source_it == state.storages.end() ||
+                    source_it->second.object_id == kUnknownObjectId ||
+                    (source_it->second.object_id == kNullObjectId &&
+                     source_it->second.relation == PointerRelation::Unknown)) {
+                    markUnsupported(binary, "ambiguous-alias-target");
+                } else if (source_it->second.object_id == kNullObjectId) {
+                    state.storages[*lhs_storage] =
+                        {kNullObjectId, PointerRelation::Null,
+                         location(binary.getExprLoc())};
+                } else {
+                    state.storages[*lhs_storage] =
+                        {source_it->second.object_id, PointerRelation::Alias,
+                         location(binary.getExprLoc())};
+                }
+            } else if (isAllocation(rhs)) {
                 emitUnsupported({"allocation-to-untracked-storage:" +
                                                untrackedStorageKind(lhs),
                                            "", location(binary.getExprLoc())});
             } else if (containsTrackedStorage(rhs, state)) {
-                markUnsupported(binary, "pointer-alias-assignment");
+                markUnsupported(binary, "unresolved-pointee-storage");
             } else {
                 checkPointerValueSource(rhs);
             }
             return;
         }
 
-        if (containsAllocationCall(rhs) && !containsTrackedStorage(rhs, state)) {
+        if (lhs->getType()->isAtomicType() && containsTrackedStorage(rhs, state)) {
+            markUnsupported(binary, "atomic-pointer-storage");
+        } else if (containsPointerToIntegerCast(rhs) &&
+            containsTrackedStorage(rhs, state)) {
+            markUnsupported(binary, "pointer-integer-provenance");
+        } else if (lhs->getType()->isRecordType() &&
+                   containsTrackedStorage(rhs, state)) {
+            markUnsupported(binary, "aggregate-copy-with-tracked-pointer");
+        } else if (containsAllocationCall(rhs) && !containsTrackedStorage(rhs, state)) {
             emitUnsupported({"allocation-to-untracked-storage:initializer",
                                        "", location(binary.getExprLoc())});
         }
     }
 
+    bool isKnownStaticPointerOrigin(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        expr = expr->IgnoreParenCasts();
+        if (isa<clang::StringLiteral>(expr)) return true;
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                return var->hasGlobalStorage() && var->getType()->isArrayType();
+            }
+        }
+        if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
+            if (unary->getOpcode() == clang::UO_AddrOf)
+                return isKnownStaticPointerOrigin(unary->getSubExpr());
+        }
+        return false;
+    }
+
     void handleReturn(const ReturnStmt &return_stmt, const FlowState &state) {
         const Expr *ret = return_stmt.getRetValue();
-        if (ret == nullptr || !ret->getType()->isPointerType()) {
+        if (ret == nullptr) return;
+        if (containsParameterStorage(ret)) {
+            markUnsupported(return_stmt, "unmodelled-pointer-parameter");
+            return;
+        }
+        if (containsGlobalStorage(ret) && !isKnownStaticPointerOrigin(ret)) {
+            markUnsupported(return_stmt, "global-or-static-pointer-storage");
+            return;
+        }
+        if (!ret->getType()->isPointerType()) {
+            if (containsPointerToIntegerCast(ret) && containsTrackedStorage(ret, state)) {
+                markUnsupported(return_stmt, "pointer-integer-provenance");
+            } else if (ret->getType()->isRecordType() &&
+                       containsTrackedStorage(ret, state)) {
+                markUnsupported(return_stmt, "aggregate-return-with-tracked-pointer");
+            }
             return;
         }
         if (containsTrackedStorage(ret, state)) {
@@ -1124,6 +1633,20 @@ private:
     }
 
     // ---- driver --------------------------------------------------------
+
+    void collectLoopAllocations(const Stmt *stmt, bool inside_loop) {
+        if (stmt == nullptr) return;
+        const bool children_in_loop = inside_loop || isa<ForStmt>(stmt) ||
+                                      isa<WhileStmt>(stmt) || isa<DoStmt>(stmt);
+        if (inside_loop) {
+            if (const auto *call = dyn_cast<CallExpr>(stmt)) {
+                if (isAllocatorCall(*call)) loop_allocation_sites_.insert(call);
+            }
+        }
+        for (const Stmt *child : stmt->children()) {
+            collectLoopAllocations(child, children_in_loop);
+        }
+    }
 
     void collectAllocationSites(const Stmt *root) {
         std::vector<const CallExpr *> sites;
@@ -1281,6 +1804,8 @@ private:
     Collector &collector_;
     const CFG *cfg_ = nullptr;
     std::map<const CallExpr *, unsigned> allocation_sites_;
+    std::map<const Expr *, unsigned> synthetic_allocation_sites_;
+    std::set<const CallExpr *> loop_allocation_sites_;
     unsigned next_fallback_id_ = 1;
     std::set<unsigned> bound_objects_;
     std::set<const VarDecl *> stack_pointers_;
@@ -1350,6 +1875,17 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
         if (unary->getOpcode() == clang::UO_Deref) {
             checkAccess(unary->getSubExpr(), unary->getOperatorLoc(), state);
+        } else if ((unary->getOpcode() == clang::UO_PreInc ||
+                    unary->getOpcode() == clang::UO_PostInc ||
+                    unary->getOpcode() == clang::UO_PreDec ||
+                    unary->getOpcode() == clang::UO_PostDec) &&
+                   unary->getSubExpr()->getType()->isPointerType()) {
+            markUnsupported(*unary, "pointer-arithmetic-reassignment");
+            if (const auto storage = storageFor(unary->getSubExpr())) {
+                state.storages[*storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown,
+                     location(unary->getOperatorLoc())};
+            }
         }
         recurseChildren(*unary, state, processed);
         return;
@@ -1373,6 +1909,14 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
         // Branch expressions live in their own CFG blocks; re-flattening them
         // here would double-apply ownership transitions.
         processStmt(conditional->getCond(), state, processed);
+        return;
+    }
+
+    if (const auto *atomic = dyn_cast<clang::AtomicExpr>(stmt)) {
+        if (atomic->getType()->isPointerType() ||
+            containsTrackedStorage(atomic, state) || containsGlobalStorage(atomic)) {
+            markUnsupported(*stmt, "atomic-pointer-storage");
+        }
         return;
     }
 
