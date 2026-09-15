@@ -38,3 +38,11 @@ add_test(
     NAME cand-showcase
     COMMAND bash ${CMAKE_SOURCE_DIR}/examples/showcase/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand-p0-1-failclosed
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/failclosed/run.sh $<TARGET_FILE:cand>
+)
+add_test(
+    NAME cand-differential-asan
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/differential/run.sh $<TARGET_FILE:cand>
+)

@@ -15,6 +15,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0007](ADR-0007-source-annotation-encoding.md) | Common ownership effects use one canonical C-compatible annotation encoding | Proposed |
 | [ADR-0008](ADR-0008-llm-first-synthesis-and-verification.md) | LLMs/coding agents are first-class synthesis engines; C& is the deterministic verifier | Proposed |
 | [ADR-0009](ADR-0009-agent-proof-policy.md) | Agents may repair implementation but must not silently weaken proof policy | Proposed |
+| [ADR-0010](ADR-0010-trustworthy-pass.md) | Trustworthy PASS: no unresolved ownership operation may be silently accepted | Proposed |
 
 ## Design chain
 

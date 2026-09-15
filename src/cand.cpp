@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -64,6 +65,13 @@ struct Location {
     unsigned column = 0;
 };
 
+struct LocationLess {
+    bool operator()(const Location &a, const Location &b) const {
+        return std::tie(a.file, a.line, a.column) <
+               std::tie(b.file, b.line, b.column);
+    }
+};
+
 struct TraceEvent {
     std::string event;
     std::string state;
@@ -82,6 +90,7 @@ struct Finding {
 
 struct Unsupported {
     std::string kind;
+    std::string symbol;
     Location primary;
 };
 
@@ -90,10 +99,21 @@ public:
     void addFinding(Finding finding) { findings_.push_back(std::move(finding)); }
 
     void addUnsupported(Unsupported unsupported) {
+        // The same obligation can be observed from more than one analysis
+        // path (e.g. an initializer and the call expression it contains).
+        // Report it once per site.
+        const std::tuple<std::string, std::string, unsigned, unsigned> key{
+            unsupported.kind, unsupported.primary.file,
+            unsupported.primary.line, unsupported.primary.column};
+        if (!seen_unsupported_.insert(key).second) {
+            return;
+        }
         unsupported_.push_back(std::move(unsupported));
     }
 
     void noteFunction() { ++functions_analyzed_; }
+
+    void noteTrackedHeapObject() { ++tracked_heap_objects_; }
 
     unsigned nextObjectId() { return next_object_id_++; }
 
@@ -177,6 +197,9 @@ public:
             llvm::json::Object obj;
             obj["id"] = "CAND-U001";
             obj["kind"] = item.kind;
+            if (!item.symbol.empty()) {
+                obj["symbol"] = item.symbol;
+            }
             obj["primary_location"] = locationJson(item.primary);
             unsupported.push_back(std::move(obj));
         }
@@ -184,6 +207,10 @@ public:
 
         llvm::json::Object coverage;
         coverage["functions_analyzed"] = static_cast<std::int64_t>(functions_analyzed_);
+        coverage["tracked_heap_objects"] =
+            static_cast<std::int64_t>(tracked_heap_objects_);
+        coverage["unsupported_ownership_operations"] =
+            static_cast<std::int64_t>(unsupported_.size());
         root["coverage"] = std::move(coverage);
 
         llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(root)));
@@ -200,7 +227,10 @@ private:
 
     std::vector<Finding> findings_;
     std::vector<Unsupported> unsupported_;
+    std::set<std::tuple<std::string, std::string, unsigned, unsigned>>
+        seen_unsupported_;
     unsigned functions_analyzed_ = 0;
+    unsigned tracked_heap_objects_ = 0;
     unsigned next_object_id_ = 1;
 };
 
@@ -213,6 +243,17 @@ struct ObjectInfo {
     SourceLocation destruction;
 };
 
+/*
+ * P0.1 PASS-completeness rule:
+ *
+ *   PASS = no known violation AND no unresolved ownership/lifetime
+ *   operation inside the P0 checked scope.
+ *
+ * Every heap-relevant operation the analyzer encounters must classify as
+ * exactly one of SUPPORTED, KNOWN SAFE, KNOWN VIOLATION or
+ * UNSUPPORTED/INCOMPLETE. There is deliberately no fifth category of
+ * "unknown but still PASS".
+ */
 class FunctionAnalyzer {
 public:
     FunctionAnalyzer(ASTContext &context, Collector &collector)
@@ -222,6 +263,29 @@ public:
         if (const Stmt *body = function.getBody()) {
             collector_.noteFunction();
             analyzeStmt(body);
+        }
+    }
+
+    /*
+     * File-scope pointer initializers are reachable from every function but
+     * owned by none. P0 tracks per-function locals only, so an allocation or
+     * an unmodelled pointer-returning call in a global initializer cannot be
+     * tracked: report the model gap instead of leaving the global silently
+     * untracked.
+     */
+    void analyzeGlobal(const VarDecl &var) {
+        const Expr *init = var.getInit();
+        if (init == nullptr || !var.getType()->isPointerType()) {
+            return;
+        }
+        scanExpr(init);
+        if (isAllocation(init)) {
+            collector_.addUnsupported({"allocation-to-untracked-storage:global",
+                                       "", location(var.getLocation())});
+        } else if (isNullConstant(init)) {
+            /* KNOWN SAFE: null pointer initialization */
+        } else {
+            checkPointerValueSource(init);
         }
     }
 
@@ -239,7 +303,7 @@ private:
         if (expr == nullptr) {
             return nullptr;
         }
-        expr = expr->IgnoreParenImpCasts();
+        expr = expr->IgnoreParenCasts();
         const auto *ref = dyn_cast<DeclRefExpr>(expr);
         if (ref == nullptr) {
             return nullptr;
@@ -251,7 +315,7 @@ private:
         if (expr == nullptr) {
             return nullptr;
         }
-        return dyn_cast<CallExpr>(expr->IgnoreParenImpCasts());
+        return dyn_cast<CallExpr>(expr->IgnoreParenCasts());
     }
 
     bool isNamedCall(const CallExpr &call, llvm::StringRef name) const {
@@ -259,12 +323,112 @@ private:
         return callee != nullptr && callee->getNameAsString() == name;
     }
 
+    bool isAllocatorCall(const CallExpr &call) const {
+        return isNamedCall(call, "malloc") || isNamedCall(call, "calloc");
+    }
+
     bool isAllocation(const Expr *expr) const {
         const CallExpr *call = asCall(expr);
-        if (call == nullptr) {
+        return call != nullptr && isAllocatorCall(*call);
+    }
+
+    bool isNullConstant(const Expr *expr) const {
+        if (expr == nullptr) {
             return false;
         }
-        return isNamedCall(*call, "malloc") || isNamedCall(*call, "calloc");
+        return expr->IgnoreParenCasts()->isNullPointerConstant(
+            context_, Expr::NPC_ValueDependentIsNotNull);
+    }
+
+    /*
+     * A call whose result is a pointer and which is not a recognized
+     * allocator. C& has no interprocedural summary or trusted contract for
+     * it, so the ownership of the returned pointer (owned, borrowed, static,
+     * retained, nullable, ...) is unknown. Any use that requires ownership
+     * information must fail closed.
+     */
+    const CallExpr *asUnknownPointerCall(const Expr *expr) const {
+        if (expr == nullptr) {
+            return nullptr;
+        }
+        expr = expr->IgnoreParenCasts();
+        const auto *call = dyn_cast<CallExpr>(expr);
+        if (call == nullptr) {
+            return nullptr;
+        }
+        if (!call->getType()->isPointerType()) {
+            return nullptr;
+        }
+        if (isAllocatorCall(*call)) {
+            return nullptr;
+        }
+        return call;
+    }
+
+    bool containsUnknownPointerCall(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        if (asUnknownPointerCall(expr) != nullptr) {
+            return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsUnknownPointerCall(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    std::string unknownPointerSymbol(const CallExpr &call) const {
+        if (const FunctionDecl *callee = call.getDirectCallee()) {
+            return callee->getNameAsString();
+        }
+        return "indirect";
+    }
+
+    /*
+     * True when the expression contains an operation that can affect heap
+     * ownership/lifetime state (a call of any kind, or a reference to a
+     * tracked object). Used to keep conditionally evaluated subexpressions
+     * from driving linear state transitions.
+     */
+    bool containsOwnershipOp(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (containsTrackedVar(expr)) {
+            return true;
+        }
+        if (isa<CallExpr>(expr)) {
+            return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsOwnershipOp(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    void noteUnknownPointerCall(const CallExpr &call) {
+        Unsupported unsupported;
+        unsupported.kind =
+            "unknown-pointer-return-ownership:" + unknownPointerSymbol(call);
+        unsupported.symbol = unknownPointerSymbol(call);
+        unsupported.primary = location(call.getExprLoc());
+        collector_.addUnsupported(std::move(unsupported));
+    }
+
+    void noteUnknownPointerCallIn(const Expr *expr) {
+        if (const CallExpr *call = asUnknownPointerCall(expr)) {
+            noteUnknownPointerCall(*call);
+        }
     }
 
     bool isSimpleNullGuard(const IfStmt &stmt) const {
@@ -277,8 +441,8 @@ private:
             return false;
         }
 
-        const Expr *lhs = binary->getLHS()->IgnoreParenImpCasts();
-        const Expr *rhs = binary->getRHS()->IgnoreParenImpCasts();
+        const Expr *lhs = binary->getLHS()->IgnoreParenCasts();
+        const Expr *rhs = binary->getRHS()->IgnoreParenCasts();
         const bool lhs_var_rhs_null =
             resolveVar(lhs) != nullptr &&
             rhs->isNullPointerConstant(context_, Expr::NPC_ValueDependentIsNotNull);
@@ -302,6 +466,82 @@ private:
         const unsigned id = collector_.nextObjectId();
         objects_[id] = ObjectInfo{id, ObjectState::Owned, loc, SourceLocation()};
         bindings_[&var] = id;
+        collector_.noteTrackedHeapObject();
+    }
+
+    /*
+     * True when the expression can produce a pointer to automatic storage:
+     * address of a local variable or local member, decay of a local array,
+     * or a block-scope compound literal — including when wrapped in a
+     * conditional, cast or comma expression. Storing that into a local
+     * pointer variable and returning it is the stack-escape bug that
+     * involves no heap object.
+     */
+    bool isLocalStackOrigin(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (const auto *addr = dyn_cast<UnaryOperator>(expr)) {
+            if (addr->getOpcode() == clang::UO_AddrOf) {
+                const Expr *target = addr->getSubExpr()->IgnoreParenCasts();
+                const VarDecl *var = resolveVar(target);
+                if (var == nullptr) {
+                    // Address of a member of a local object: &s.field
+                    if (const auto *member = dyn_cast<MemberExpr>(target)) {
+                        var = resolveVar(member->getBase());
+                    }
+                }
+                if (var != nullptr && var->hasLocalStorage() &&
+                    !isa<clang::ParmVarDecl>(var)) {
+                    return true;
+                }
+            }
+        }
+        if (const VarDecl *var = resolveVar(expr)) {
+            if (var->hasLocalStorage() && !isa<clang::ParmVarDecl>(var) &&
+                var->getType()->isArrayType()) {
+                return true;
+            }
+        }
+        if (const auto *literal = dyn_cast<clang::CompoundLiteralExpr>(expr)) {
+            if (!literal->isFileScope()) {
+                return true;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (isLocalStackOrigin(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /*
+     * True when an aggregate/other initializer contains a heap allocation
+     * store C& cannot model (`struct S s = { .p = malloc(...) }`), or a
+     * pointer value of unknown ownership.
+     */
+    bool containsAllocationCall(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (const auto *call = dyn_cast<CallExpr>(expr)) {
+            if (isAllocatorCall(*call)) {
+                return true;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsAllocationCall(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     ObjectInfo *objectForVar(const VarDecl *var) {
@@ -332,7 +572,7 @@ private:
         if (expr == nullptr) {
             return false;
         }
-        expr = expr->IgnoreParenImpCasts();
+        expr = expr->IgnoreParenCasts();
         if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
             if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
                 return objectForVar(var) != nullptr;
@@ -388,22 +628,30 @@ private:
     }
 
     void markUnsupported(const Stmt &stmt, llvm::StringRef kind) {
-        collector_.addUnsupported({kind.str(), location(stmt.getBeginLoc())});
+        collector_.addUnsupported({kind.str(), "", location(stmt.getBeginLoc())});
     }
 
-    void analyzeCall(const CallExpr &call) {
-        if (isNamedCall(call, "free") && call.getNumArgs() == 1) {
-            const Expr *arg = call.getArg(0);
-            const VarDecl *var = resolveVar(arg);
-            if (var == nullptr) {
-                if (containsTrackedVar(arg)) {
-                    markUnsupported(call, "nontrivial-free-argument");
-                }
-                return;
-            }
+    /*
+     * P0.1 free() rule — never silently ignore a free():
+     *
+     *   free(p)  tracked object  -> ownership transition (T003 if already dead)
+     *   free(NULL)               -> known safe (ISO C), allowed
+     *   free(p)  untracked var   -> INCOMPLETE (free-untracked-pointer)
+     *   free(<expr>) anything else -> INCOMPLETE (free-untracked-expression)
+     */
+    void analyzeFree(const CallExpr &call) {
+        const Expr *arg = call.getArg(0);
 
+        if (isNullConstant(arg)) {
+            return; /* KNOWN SAFE: free(NULL) is a no-op per ISO C */
+        }
+
+        const VarDecl *var = resolveVar(arg);
+        if (var != nullptr) {
             ObjectInfo *object = objectForVar(var);
             if (object == nullptr) {
+                collector_.addUnsupported(
+                    {"free-untracked-pointer", "", location(call.getExprLoc())});
                 return;
             }
             if (object->state == ObjectState::Dead) {
@@ -415,7 +663,17 @@ private:
             return;
         }
 
-        if (isNamedCall(call, "malloc") || isNamedCall(call, "calloc")) {
+        collector_.addUnsupported(
+            {"free-untracked-expression", "", location(call.getExprLoc())});
+    }
+
+    void analyzeCall(const CallExpr &call) {
+        if (isNamedCall(call, "free") && call.getNumArgs() == 1) {
+            analyzeFree(call);
+            return;
+        }
+
+        if (isAllocatorCall(call)) {
             for (const Expr *arg : call.arguments()) {
                 scanExpr(arg);
             }
@@ -426,6 +684,10 @@ private:
         for (const Expr *arg : call.arguments()) {
             scanExpr(arg);
             tracked_argument = tracked_argument || containsTrackedVar(arg);
+            // An unrecognized pointer-returning call used as an argument
+            // transfers an unknown-ownership pointer somewhere C& cannot
+            // model (escape into a callee). Fail closed.
+            noteUnknownPointerCallIn(arg);
         }
 
         if (tracked_argument) {
@@ -449,26 +711,121 @@ private:
             return;
         }
 
+        // GNU statement expressions embed control flow that the linear P0
+        // analyzer would flatten unsoundly. They can appear at expression
+        // positions (initializers, RHS), so scanExpr must reject them too.
+        if (isa<clang::StmtExpr>(expr)) {
+            markUnsupported(*expr, "statement-expression");
+            return;
+        }
+
         if (const auto *call = dyn_cast<CallExpr>(expr)) {
             analyzeCall(*call);
             return;
         }
 
+        // Conditionally evaluated subexpressions must not drive linear
+        // ownership-state transitions: only one branch of a conditional (or
+        // the short-circuited RHS of &&/||) executes. The controlling
+        // expression is always evaluated and is analyzed normally; a branch
+        // containing an ownership-affecting operation is reported as an
+        // unresolved obligation instead of being flattened.
+        if (const auto *cond_op = dyn_cast<clang::ConditionalOperator>(expr)) {
+            scanExpr(cond_op->getCond());
+            const Expr *taken = cond_op->getTrueExpr();
+            const Expr *untaken = cond_op->getFalseExpr();
+            if (containsOwnershipOp(taken) || containsOwnershipOp(untaken)) {
+                markUnsupported(*expr, "conditional-expression");
+                return;
+            }
+            scanExpr(taken);
+            scanExpr(untaken);
+            return;
+        }
+
+        if (const auto *logical = dyn_cast<BinaryOperator>(expr)) {
+            if (logical->getOpcode() == clang::BO_LAnd ||
+                logical->getOpcode() == clang::BO_LOr) {
+                scanExpr(logical->getLHS());
+                if (containsOwnershipOp(logical->getRHS())) {
+                    markUnsupported(*expr, "short-circuit-expression");
+                    return;
+                }
+                scanExpr(logical->getRHS());
+                return;
+            }
+        }
+
         if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
             if (unary->getOpcode() == clang::UO_Deref) {
-                checkAccess(unary->getSubExpr(), unary->getOperatorLoc());
+                const Expr *sub = unary->getSubExpr();
+                if (asUnknownPointerCall(sub) != nullptr) {
+                    noteUnknownPointerCallIn(sub);
+                } else {
+                    checkAccess(sub, unary->getOperatorLoc());
+                }
             }
         } else if (const auto *subscript = dyn_cast<ArraySubscriptExpr>(expr)) {
-            checkAccess(subscript->getBase(), subscript->getExprLoc());
+            const Expr *base = subscript->getBase();
+            if (asUnknownPointerCall(base) != nullptr) {
+                noteUnknownPointerCallIn(base);
+            } else {
+                checkAccess(base, subscript->getExprLoc());
+            }
         } else if (const auto *member = dyn_cast<MemberExpr>(expr)) {
             if (member->isArrow()) {
-                checkAccess(member->getBase(), member->getExprLoc());
+                const Expr *base = member->getBase();
+                if (asUnknownPointerCall(base) != nullptr) {
+                    noteUnknownPointerCallIn(base);
+                } else {
+                    checkAccess(base, member->getExprLoc());
+                }
             }
         }
 
         for (const Stmt *child : expr->children()) {
             if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
                 scanExpr(child_expr);
+            }
+        }
+    }
+
+    /*
+     * Classify the storage location on the LHS of a pointer assignment that
+     * is not a plain trackable variable. P0.1 does not model these
+     * locations, but must know its model is incomplete.
+     */
+    std::string untrackedStorageKind(const Expr *lhs) const {
+        const Expr *expr = lhs->IgnoreParenCasts();
+        if (isa<MemberExpr>(expr)) {
+            return "struct-member";
+        }
+        if (isa<ArraySubscriptExpr>(expr)) {
+            return "array-element";
+        }
+        if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
+            if (unary->getOpcode() == clang::UO_Deref) {
+                return "pointee";
+            }
+        }
+        return "unknown";
+    }
+
+    /*
+     * Shared logic for pointer initializers (DeclStmt) and pointer
+     * assignments: fail closed when the value comes from a call whose
+     * pointer-return ownership C& does not model.
+     */
+    void checkPointerValueSource(const Expr *init) {
+        if (const CallExpr *call = asUnknownPointerCall(init)) {
+            noteUnknownPointerCall(*call);
+            return;
+        }
+        if (containsUnknownPointerCall(init)) {
+            for (const Stmt *child : init->children()) {
+                if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                    checkPointerValueSource(child_expr);
+                }
             }
         }
     }
@@ -493,15 +850,34 @@ private:
                 }
 
                 const Expr *init = var->getInit();
-                scanExpr(init);
                 if (!var->getType()->isPointerType()) {
+                    scanExpr(init);
+                    // Aggregates can carry pointers too. A heap allocation or
+                    // an unmodelled pointer value stored into a struct/array
+                    // initializer is an unmodelled storage location, exactly
+                    // like the assignment form `s.p = malloc(...)`.
+                    if (containsAllocationCall(init)) {
+                        collector_.addUnsupported(
+                            {"allocation-to-untracked-storage:initializer", "",
+                             location(decl_stmt->getBeginLoc())});
+                    } else if (containsUnknownPointerCall(init)) {
+                        checkPointerValueSource(init);
+                    }
                     continue;
                 }
 
+                scanExpr(init);
                 if (isAllocation(init)) {
                     bindAllocation(*var, init->getExprLoc());
                 } else if (containsTrackedVar(init)) {
                     markUnsupported(*decl_stmt, "pointer-alias-initialization");
+                } else if (isNullConstant(init)) {
+                    /* KNOWN SAFE: null pointer initialization */
+                } else {
+                    if (isLocalStackOrigin(init)) {
+                        stack_pointers_.insert(var);
+                    }
+                    checkPointerValueSource(init);
                 }
             }
             return;
@@ -518,7 +894,8 @@ private:
         if (const auto *binary = dyn_cast<BinaryOperator>(stmt)) {
             scanExpr(binary->getRHS());
             if (binary->isAssignmentOp()) {
-                const VarDecl *lhs = resolveVar(binary->getLHS());
+                const Expr *lhs_expr = binary->getLHS();
+                const VarDecl *lhs = resolveVar(lhs_expr);
                 if (lhs != nullptr && lhs->getType()->isPointerType()) {
                     const bool lhs_tracked = objectForVar(lhs) != nullptr;
                     if (isAllocation(binary->getRHS())) {
@@ -532,10 +909,39 @@ private:
                         }
                         if (containsTrackedVar(binary->getRHS())) {
                             markUnsupported(*binary, "pointer-alias-assignment");
+                        } else if (!isNullConstant(binary->getRHS())) {
+                            if (isLocalStackOrigin(binary->getRHS())) {
+                                stack_pointers_.insert(lhs);
+                            }
+                            checkPointerValueSource(binary->getRHS());
                         }
                         scanExpr(binary->getLHS());
                     }
+                } else if (lhs_expr->getType()->isPointerType() ||
+                           (lhs != nullptr && lhs->getType()->isPointerType())) {
+                    // Pointer-typed assignment to storage C& cannot model
+                    // (struct member, array element, pointee, ...).
+                    if (isAllocation(binary->getRHS())) {
+                        collector_.addUnsupported(
+                            {"allocation-to-untracked-storage:" +
+                                 untrackedStorageKind(lhs_expr),
+                             "", location(binary->getExprLoc())});
+                    } else if (containsTrackedVar(binary->getRHS())) {
+                        markUnsupported(*binary, "pointer-alias-assignment");
+                    } else if (!isNullConstant(binary->getRHS())) {
+                        checkPointerValueSource(binary->getRHS());
+                    }
+                    scanExpr(binary->getLHS());
                 } else {
+                    // Non-pointer destination (e.g. aggregate assignment from
+                    // a compound literal): still an unmodelled storage site
+                    // when it carries a heap allocation.
+                    if (!containsTrackedVar(binary->getRHS()) &&
+                        containsAllocationCall(binary->getRHS())) {
+                        collector_.addUnsupported(
+                            {"allocation-to-untracked-storage:initializer", "",
+                             location(binary->getExprLoc())});
+                    }
                     scanExpr(binary->getLHS());
                 }
             } else {
@@ -552,9 +958,42 @@ private:
         if (const auto *return_stmt = dyn_cast<ReturnStmt>(stmt)) {
             const Expr *ret = return_stmt->getRetValue();
             scanExpr(ret);
-            if (ret != nullptr && ret->getType()->isPointerType() && containsTrackedVar(ret)) {
-                markUnsupported(*return_stmt, "tracked-pointer-return");
+            if (ret != nullptr && ret->getType()->isPointerType()) {
+                if (containsTrackedVar(ret)) {
+                    markUnsupported(*return_stmt, "tracked-pointer-return");
+                }
+                // Returning a pointer to automatic storage is always a
+                // lifetime bug (the classic stack-escape). It involves no
+                // tracked heap object, so without this check it would pass
+                // silently. Statics, globals and parameters are excluded.
+                const Expr *stripped = ret->IgnoreParenCasts();
+                bool stack_escape = false;
+                if (const VarDecl *var = resolveVar(stripped)) {
+                    stack_escape =
+                        (var->hasLocalStorage() && !isa<clang::ParmVarDecl>(var) &&
+                         var->getType()->isArrayType()) ||
+                        stack_pointers_.count(var) != 0;
+                } else {
+                    stack_escape = isLocalStackOrigin(stripped);
+                }
+                if (stack_escape) {
+                    markUnsupported(*return_stmt, "stack-pointer-return");
+                }
             }
+            return;
+        }
+
+        if (isa<clang::AsmStmt>(stmt)) {
+            // Inline asm can affect any ownership/lifetime state and is
+            // completely opaque to the analyzer.
+            markUnsupported(*stmt, "inline-asm");
+            return;
+        }
+
+        if (isa<clang::StmtExpr>(stmt)) {
+            // GNU statement expressions embed control flow that the linear
+            // P0 analyzer would flatten unsoundly.
+            markUnsupported(*stmt, "statement-expression");
             return;
         }
 
@@ -578,6 +1017,10 @@ private:
             markUnsupported(*stmt, "goto-control-flow");
             return;
         }
+        if (isa<clang::IndirectGotoStmt>(stmt)) {
+            markUnsupported(*stmt, "indirect-goto");
+            return;
+        }
 
         if (const auto *expr = dyn_cast<Expr>(stmt)) {
             scanExpr(expr);
@@ -594,6 +1037,7 @@ private:
     Collector &collector_;
     std::map<const VarDecl *, unsigned> bindings_;
     std::map<unsigned, ObjectInfo> objects_;
+    std::set<const VarDecl *> stack_pointers_;
 };
 
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {
@@ -611,6 +1055,24 @@ public:
         }
         FunctionAnalyzer analyzer(context_, collector_);
         analyzer.analyze(*function);
+        return true;
+    }
+
+    bool VisitVarDecl(VarDecl *var) {
+        if (var == nullptr || !var->hasInit()) {
+            return true;
+        }
+        // File-scope initializers only. Function-local declarations are
+        // analyzed through their DeclStmt and would be double-reported here.
+        if (!isa<clang::TranslationUnitDecl>(var->getDeclContext())) {
+            return true;
+        }
+        SourceLocation loc = context_.getSourceManager().getExpansionLoc(var->getLocation());
+        if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
+            return true;
+        }
+        FunctionAnalyzer analyzer(context_, collector_);
+        analyzer.analyzeGlobal(*var);
         return true;
     }
 
@@ -699,7 +1161,12 @@ int main(int argc, const char **argv) {
     CandActionFactory factory(collector);
     const int tool_result = tool.run(&factory);
     if (tool_result != 0) {
-        return tool_result;
+        // Tool/compilation failure is a distinct outcome from a C& FAIL:
+        //   0 = PASS, 1 = FAIL (findings), 2 = tool/input error,
+        //   3 = INCOMPLETE. Never leak ClangTool's own exit codes, which
+        //   can collide with the FAIL code.
+        llvm::errs() << "cand: analysis frontend failed (input or compiler error)\n";
+        return 2;
     }
 
     collector.sort();

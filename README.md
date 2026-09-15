@@ -160,6 +160,23 @@ C&1 is intended to cover ownership, moves, destruction, and borrow lifetimes in 
 
 C&1 alone does **not** claim general array-bounds safety, arbitrary pointer-arithmetic safety, data-race freedom, integer safety, null-dereference freedom, arbitrary pointer/integer provenance correctness, inline-assembly correctness, or correctness inside explicit unsafe/unsupported regions.
 
+## Result semantics: trustworthy PASS
+
+C& results follow [ADR-0010 — Trustworthy PASS](docs/adr/ADR-0010-trustworthy-pass.md). The rule is:
+
+> **False INCOMPLETE is temporarily acceptable. False PASS is not.**
+
+| Result | Exit | Meaning |
+|---|---|---|
+| `PASS` | 0 | no known violation **and** no unresolved ownership/lifetime operation in the P0 checked scope |
+| `FAIL` | 1 | C& found a known ownership/lifetime violation (e.g. `CAND-T002`, `CAND-T003`) |
+| ERROR | 2 | tool/frontend/input failure; never a C& verdict |
+| `INCOMPLETE` | 3 | C& encountered ownership/lifetime semantics it cannot currently model (`CAND-U001`: unknown calls, aliases, struct members, array elements, unknown pointer-return ownership, unsupported control flow, …) |
+
+PASS therefore never means merely "no T002/T003 was emitted". Any heap-relevant operation the analyzer encounters but does not model — an untracked `free()` argument, an allocation stored into a struct member or array element, a pointer returned by an unmodelled function — is reported as an explicit unsupported obligation, and the result is INCOMPLETE.
+
+The analyzer is a deliberately narrow P0 temporal-lifecycle subset. A differential ASan corpus (`tests/differential/`) runs in CI and fails on any `ASan violation + cand PASS` pair. This is P0.1 evidence hygiene, **not** a C&1 soundness claim.
+
 ## External API contracts
 
 Existing libraries do not need to become C& projects. Machine-readable contracts describe ownership effects at API boundaries:

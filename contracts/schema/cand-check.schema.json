@@ -79,6 +79,7 @@
         "properties": {
           "id": { "const": "CAND-U001" },
           "kind": { "type": "string" },
+          "symbol": { "type": "string" },
           "primary_location": { "$ref": "#/$defs/location" }
         },
         "additionalProperties": false
@@ -88,7 +89,9 @@
       "type": "object",
       "required": ["functions_analyzed"],
       "properties": {
-        "functions_analyzed": { "type": "integer", "minimum": 0 }
+        "functions_analyzed": { "type": "integer", "minimum": 0 },
+        "tracked_heap_objects": { "type": "integer", "minimum": 0 },
+        "unsupported_ownership_operations": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     }
