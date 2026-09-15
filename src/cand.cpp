@@ -784,6 +784,20 @@ private:
         return false;
     }
 
+    bool containsParameterStorage(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        expr = expr->IgnoreParenCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (isa<ParmVarDecl>(ref->getDecl())) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsParameterStorage(child_expr)) return true;
+            }
+        }
+        return false;
+    }
+
     bool typeMayContainPointer(clang::QualType type) const {
         if (type.isNull()) return false;
         type = type.getCanonicalType();
@@ -1113,6 +1127,11 @@ private:
         }
         if (!access_storage) access_storage = findTrackedStorage(pointer_expr, state);
         if (binding == nullptr) {
+            if (containsParameterStorage(pointer_expr)) {
+                emitUnsupported({"unmodelled-pointer-parameter", "",
+                                 location(access_loc)});
+                return;
+            }
             return; // genuinely untracked storage: outside the current P0 heap scope
         }
         if (binding->object_id == kUnknownObjectId ||
@@ -1540,6 +1559,10 @@ private:
     void handleReturn(const ReturnStmt &return_stmt, const FlowState &state) {
         const Expr *ret = return_stmt.getRetValue();
         if (ret == nullptr) return;
+        if (containsParameterStorage(ret)) {
+            markUnsupported(return_stmt, "unmodelled-pointer-parameter");
+            return;
+        }
         if (containsGlobalStorage(ret) && !isKnownStaticPointerOrigin(ret)) {
             markUnsupported(return_stmt, "global-or-static-pointer-storage");
             return;
