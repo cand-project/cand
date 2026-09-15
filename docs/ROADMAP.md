@@ -51,7 +51,7 @@ independent evaluation found three ASan-confirmed heap use-after-free
 programs (struct member, array element, wrapper-return) that P0 passed
 silently. P0.1 makes every heap-relevant operation classify as SUPPORTED,
 KNOWN SAFE, KNOWN VIOLATION or UNSUPPORTED/INCOMPLETE — there is no
-"unknown but PASS" (see [ADR-0010](docs/adr/ADR-0010-trustworthy-pass.md)).
+"unknown but PASS" (see [ADR-0010](adr/ADR-0010-trustworthy-pass.md)).
 
 Delivered:
 
