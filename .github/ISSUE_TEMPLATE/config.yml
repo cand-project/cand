@@ -1,1 +1,8 @@
 blank_issues_enabled: true
+contact_links:
+  - name: Independent review guide
+    url: https://github.com/cand-project/cand/blob/main/REVIEWING.md
+    about: Read the review methodology and verdict taxonomy before filing analyzer findings.
+  - name: Security and soundness disclosure
+    url: https://github.com/cand-project/cand/blob/main/SECURITY.md
+    about: Use the security guidance for potentially sensitive false-safety-claim findings.
