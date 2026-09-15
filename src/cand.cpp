@@ -1008,8 +1008,8 @@ private:
 
     void reportUseAfterDestroy(const StorageBinding &binding, const ObjectInfo &object,
                                const StorageId &access, SourceLocation use_loc,
-                               const FlowState &state) {
-        const bool definite = object.state == ObjectState::Dead;
+                               const FlowState &state, bool nullable) {
+        const bool definite = object.state == ObjectState::Dead && !nullable;
         Finding finding;
         finding.id = "CAND-T002";
         finding.rule_id = "cand1.no-use-after-death";
@@ -1106,18 +1106,10 @@ private:
             emitUnsupported({"access-unknown-ownership-state", "", location(access_loc)});
             return;
         }
-        if (binding->relation == PointerRelation::MaybeNull &&
-            (object->state == ObjectState::Dead ||
-             object->state == ObjectState::MaybeDead)) {
-            // Nullness and object state may be correlated across predecessor
-            // paths. Without edge/path predicates, reporting T002 here can be
-            // a false temporal failure (the only non-null path may be Owned).
-            emitUnsupported({"nullable-alias-state-correlation", "", location(access_loc)});
-            return;
-        }
         if (object->state == ObjectState::Dead || object->state == ObjectState::MaybeDead) {
             if (access_storage) {
-                reportUseAfterDestroy(*binding, *object, *access_storage, access_loc, state);
+                reportUseAfterDestroy(*binding, *object, *access_storage, access_loc, state,
+                                      binding->relation == PointerRelation::MaybeNull);
             } else {
                 emitUnsupported({"unresolved-access-storage", "", location(access_loc)});
             }
@@ -1191,8 +1183,7 @@ private:
             }
             if (object->state == ObjectState::Dead ||
                 object->state == ObjectState::MaybeDead) {
-                emitUnsupported({"nullable-alias-state-correlation", "",
-                                 location(call.getExprLoc())});
+                reportDoubleDestroy(binding, *object, *destroy_storage, call.getExprLoc(), false);
                 return;
             }
         }
@@ -1488,10 +1479,26 @@ private:
         }
     }
 
+    bool isKnownStaticPointerOrigin(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        expr = expr->IgnoreParenCasts();
+        if (isa<clang::StringLiteral>(expr)) return true;
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (const auto *var = dyn_cast<VarDecl>(ref->getDecl())) {
+                return var->hasGlobalStorage() && var->getType()->isArrayType();
+            }
+        }
+        if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
+            if (unary->getOpcode() == clang::UO_AddrOf)
+                return isKnownStaticPointerOrigin(unary->getSubExpr());
+        }
+        return false;
+    }
+
     void handleReturn(const ReturnStmt &return_stmt, const FlowState &state) {
         const Expr *ret = return_stmt.getRetValue();
         if (ret == nullptr) return;
-        if (containsGlobalStorage(ret)) {
+        if (containsGlobalStorage(ret) && !isKnownStaticPointerOrigin(ret)) {
             markUnsupported(return_stmt, "global-or-static-pointer-storage");
             return;
         }
