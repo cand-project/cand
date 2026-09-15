@@ -81,6 +81,11 @@ Concretely, in P0.1:
 - inline assembly (`AsmStmt`) and GNU statement expressions (`StmtExpr`,
   including at expression positions) are INCOMPLETE (`inline-asm`,
   `statement-expression`) because the linear analyzer cannot model them;
+- ownership-affecting operations in conditionally evaluated positions
+  (a branch of `?:` or the short-circuited RHS of `&&`/`||`) are INCOMPLETE
+  (`conditional-expression`, `short-circuit-expression`) and must not drive
+  linear state transitions — otherwise a single `free` on one branch would
+  be misreported as a double destruction;
 - file-scope pointer initializers are classified (in ISO C they can only be
   constant expressions, which are known safe; the frontend rejects
   non-constant initializers with exit 2).

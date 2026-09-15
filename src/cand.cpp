@@ -389,6 +389,33 @@ private:
         return "indirect";
     }
 
+    /*
+     * True when the expression contains an operation that can affect heap
+     * ownership/lifetime state (a call of any kind, or a reference to a
+     * tracked object). Used to keep conditionally evaluated subexpressions
+     * from driving linear state transitions.
+     */
+    bool containsOwnershipOp(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (containsTrackedVar(expr)) {
+            return true;
+        }
+        if (isa<CallExpr>(expr)) {
+            return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                if (containsOwnershipOp(child_expr)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     void noteUnknownPointerCall(const CallExpr &call) {
         Unsupported unsupported;
         unsupported.kind =
@@ -620,6 +647,38 @@ private:
         if (const auto *call = dyn_cast<CallExpr>(expr)) {
             analyzeCall(*call);
             return;
+        }
+
+        // Conditionally evaluated subexpressions must not drive linear
+        // ownership-state transitions: only one branch of a conditional (or
+        // the short-circuited RHS of &&/||) executes. The controlling
+        // expression is always evaluated and is analyzed normally; a branch
+        // containing an ownership-affecting operation is reported as an
+        // unresolved obligation instead of being flattened.
+        if (const auto *cond_op = dyn_cast<clang::ConditionalOperator>(expr)) {
+            scanExpr(cond_op->getCond());
+            const Expr *taken = cond_op->getTrueExpr();
+            const Expr *untaken = cond_op->getFalseExpr();
+            if (containsOwnershipOp(taken) || containsOwnershipOp(untaken)) {
+                markUnsupported(*expr, "conditional-expression");
+                return;
+            }
+            scanExpr(taken);
+            scanExpr(untaken);
+            return;
+        }
+
+        if (const auto *logical = dyn_cast<BinaryOperator>(expr)) {
+            if (logical->getOpcode() == clang::BO_LAnd ||
+                logical->getOpcode() == clang::BO_LOr) {
+                scanExpr(logical->getLHS());
+                if (containsOwnershipOp(logical->getRHS())) {
+                    markUnsupported(*expr, "short-circuit-expression");
+                    return;
+                }
+                scanExpr(logical->getRHS());
+                return;
+            }
         }
 
         if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {

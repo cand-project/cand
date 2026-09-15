@@ -87,6 +87,9 @@ expect_incomplete tests/failclosed/wrapper_return_uaf.c \
 expect_incomplete tests/failclosed/pointer_param_free.c free-untracked-pointer
 expect_incomplete tests/failclosed/stack_pointer_return.c stack-pointer-return
 expect_incomplete tests/failclosed/statement_expression.c statement-expression
+expect_incomplete tests/failclosed/conditional_ownership.c conditional-expression
+expect_incomplete tests/failclosed/short_circuit_ownership.c short-circuit-expression
+expect_incomplete tests/failclosed/inline_asm.c inline-asm
 expect_incomplete tests/p0/alias_unsupported.c pointer-alias-initialization
 expect_incomplete tests/p0/unknown_call_unsupported.c \
     unknown-call-with-tracked-pointer
@@ -94,5 +97,6 @@ expect_incomplete tests/p0/unknown_call_unsupported.c \
 # --- Known-safe cases that must stay PASS -------------------------------------
 
 expect_pass tests/failclosed/free_null_safe.c
+expect_pass tests/failclosed/conditional_known_safe.c
 
 echo "C& P0.1 fail-closed tests passed."
