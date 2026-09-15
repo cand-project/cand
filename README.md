@@ -175,6 +175,26 @@ C& results follow [ADR-0010 — Trustworthy PASS](docs/adr/ADR-0010-trustworthy-
 
 PASS therefore never means merely "no T002/T003 was emitted". Any heap-relevant operation the analyzer encounters but does not model — an untracked `free()` argument, an allocation stored into a struct member or array element, a pointer returned by an unmodelled function — is reported as an explicit unsupported obligation, and the result is INCOMPLETE.
 
+### Flow-sensitive analysis
+
+Since P0.2, ownership state is attached to program points and propagated over the function's control-flow graph (`clang::CFG`) instead of being interpreted in source order ([ADR-0011](docs/adr/ADR-0011-cfg-flow-sensitive-ownership.md)). Ordinary `if`/`else`, early returns, cleanup `goto`, `switch`, `break`/`continue`, `?:`, `&&`/`||` and simple loops are analyzed rather than rejected, and judgments are classified:
+
+```json
+{
+  "id": "CAND-T002",
+  "rule_id": "cand1.no-use-after-death",
+  "certainty": "possible",
+  "state_before_access": "MaybeDead",
+  "state_trace": [
+    {"event": "allocation", "state": "Owned"},
+    {"event": "conditional_destruction", "state": "MaybeDead"},
+    {"event": "access", "state": "MaybeDead"}
+  ]
+}
+```
+
+`certainty: definite` means every represented path reaches the point with the object destroyed; `possible` means at least one does. Aliases, struct members, array elements and interprocedural ownership remain INCOMPLETE — the CFG does not convert them into PASS.
+
 The analyzer is a deliberately narrow P0 temporal-lifecycle subset. A differential ASan corpus (`tests/differential/`) runs in CI and fails on any `ASan violation + cand PASS` pair. This is P0.1 evidence hygiene, **not** a C&1 soundness claim.
 
 ## External API contracts

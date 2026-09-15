@@ -52,6 +52,44 @@ PY
   rm -f "$tmp"
 }
 
+
+expect_fail() {
+  local source="$1"
+  local expected_id="$2"
+  local tmp
+  tmp="$(mktemp)"
+  set +e
+  "$cand" check --format=json "$source" -- -std=c11 -Iinclude >"$tmp"
+  local rc=$?
+  set -e
+  if [[ "$rc" -ne 1 ]]; then
+    echo "expected cand exit 1 (fail) for $source, got $rc" >&2
+    cat "$tmp" >&2 || true
+    rm -f "$tmp"
+    exit 1
+  fi
+  python3 - "$tmp" "$expected_id" <<'PY'
+import json
+import sys
+
+path, expected = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+if data.get("result") != "fail":
+    raise SystemExit(f"expected fail, got {data.get('result')!r}: {data}")
+ids = [item.get("id") for item in data.get("findings", [])]
+if expected not in ids:
+    raise SystemExit(f"expected {expected}, got {ids}")
+for item in data.get("findings", []):
+    if item.get("id") == expected:
+        if item.get("certainty") not in ("definite", "possible"):
+            raise SystemExit(f"finding missing certainty: {item}")
+        if not item.get("state_trace"):
+            raise SystemExit(f"finding missing state trace: {item}")
+PY
+  rm -f "$tmp"
+}
+
 expect_pass() {
   local source="$1"
   local tmp
@@ -92,14 +130,16 @@ expect_incomplete tests/failclosed/aggregate_initializer.c \
 expect_incomplete tests/failclosed/aggregate_initializer_unknown.c \
     unknown-pointer-return-ownership
 expect_incomplete tests/failclosed/statement_expression.c statement-expression
-expect_incomplete tests/failclosed/conditional_ownership.c conditional-expression
-expect_incomplete tests/failclosed/short_circuit_ownership.c short-circuit-expression
 expect_incomplete tests/failclosed/inline_asm.c inline-asm
 expect_incomplete tests/p0/alias_unsupported.c pointer-alias-initialization
 expect_incomplete tests/p0/unknown_call_unsupported.c \
     unknown-call-with-tracked-pointer
 
 # --- Known-safe cases that must stay PASS -------------------------------------
+
+# P0.2: conditions and short-circuit operators are modeled over the CFG.
+expect_pass tests/failclosed/conditional_ownership.c
+expect_fail tests/failclosed/short_circuit_ownership.c CAND-T003
 
 expect_pass tests/failclosed/free_null_safe.c
 expect_pass tests/failclosed/conditional_known_safe.c

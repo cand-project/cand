@@ -43,6 +43,10 @@ add_test(
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/failclosed/run.sh $<TARGET_FILE:cand>
 )
 add_test(
+    NAME cand-p0-2-cfg
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/cfg/run.sh $<TARGET_FILE:cand>
+)
+add_test(
     NAME cand-differential-asan
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/differential/run.sh $<TARGET_FILE:cand>
 )

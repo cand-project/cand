@@ -1,10 +1,13 @@
 #include <stdlib.h>
 
 /*
- * The right-hand side of && / || is conditionally evaluated and must not
- * drive linear ownership-state transitions.
+ * P0.2: short-circuit evaluation is modeled over the CFG. On the path where
+ * `c` is true, `free(p)` runs in the RHS block and the later `free(p)` is a
+ * second destruction of the same object. P0.1 reported this as INCOMPLETE
+ * (short-circuit-expression); the CFG establishes a possible double
+ * destruction.
  *
- * Required P0.1 result: INCOMPLETE (short-circuit-expression).
+ * Expected: FAIL CAND-T003 (certainty "possible").
  */
 int main(void)
 {

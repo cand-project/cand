@@ -4,6 +4,24 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### P0.2 — CFG-based flow-sensitive ownership
+
+- added ADR-0011: ownership state is attached to CFG program points and propagated with a worklist fixed point over upstream `clang::CFG` (no fork, no new parser);
+- introduced a five-state lattice (`Untracked`, `Owned`, `Dead`, `MaybeDead`, `Unknown`) with documented, deterministic join rules; `Unknown` is never downgraded to `Owned`;
+- `if`/`else`, nested branches, early returns, multiple returns, cleanup `goto`/labels, `switch`, `break`, `continue`, `?:`, `&&`/`||` and simple loops are now analyzed instead of being rejected as unsupported;
+- path-dependent use-after-destroy and double destruction now produce `CAND-T002`/`CAND-T003` with `certainty` (`definite`/`possible`) and flow evidence (`state_before_access`, `state_trace` events including `conditional_destruction`);
+- added a `Null` storage state: `p = NULL` is a modeled release, so a later `free(p)` is a defined no-op while a later access is a null-dereference issue outside P0's claim;
+- pointer-arithmetic access bases (`*(p + 1)`, `(p + i)[j]`, `(p + 1)->field`) are now checked against the tracked object instead of being silently dropped (independent review found seven ASan-confirmed use-after-free programs that previously returned PASS);
+- the operand of `sizeof`/`alignof`/`typeof` is unevaluated and is no longer treated as an access (the idiomatic free-then-`malloc(sizeof *p)` reuse previously produced a spurious definite `CAND-T002`);
+- a translation unit that produced any error-level diagnostic (including driver-level option errors that still allow a recovered AST) now returns exit 2 instead of a verdict, so C& never reports PASS/FAIL on code that did not compile;
+- diagnostics are emitted in a post-convergence pass, so intermediate worklist iterations cannot leave stale findings or obligations behind;
+- fixed-point loop analysis surfaces possible double destruction (`while (cond) { free(p); }` is FAIL, not a single-iteration assumption), while loops that do not change ownership state are provable;
+- unreachable CFG blocks are not analyzed and cannot invent obligations;
+- `tests/cfg/` corpus added (10 fixtures) with ASan cross-checks, wired into CTest as `cand-p0-2-cfg`;
+- two P0.1 fail-closed fixtures improved to modeled results: `conditional_ownership.c` is now PASS and `short_circuit_ownership.c` now FAILs with `CAND-T003` (possible), because those semantics are modeled by the CFG;
+- `contracts/schema/cand-check.schema.json`: findings gained `certainty` and `state_before_access`;
+- unchanged and still INCOMPLETE: aliases, struct members, array elements, pointee stores, interprocedural ownership, callbacks, `realloc`, inline asm, statement expressions, computed `goto`, unknown pointer-return ownership, unknown calls with tracked pointers.
+
 ### P0.1 — Trustworthy PASS / fail-closed heap semantics
 
 - added ADR-0010 defining the PASS-completeness invariant: PASS requires zero unresolved ownership/lifetime operations in checked scope; false INCOMPLETE is acceptable, false PASS is not;

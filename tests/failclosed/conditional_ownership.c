@@ -1,11 +1,12 @@
 #include <stdlib.h>
 
 /*
- * Only one branch of a conditional expression executes, so the linear P0
- * analyzer must not flatten branch state transitions. Before this fixture
- * existed, `c ? free(p) : free(p)` produced a spurious CAND-T003.
+ * P0.2 improvement: conditional evaluation is now modeled over the CFG, so
+ * only one branch's ownership transition is applied per path. In P0.1 this
+ * was INCOMPLETE (conditional-expression); the CFG proves that each path
+ * destroys the object exactly once and no access follows the join.
  *
- * Required P0.1 result: INCOMPLETE (conditional-expression), no finding.
+ * Expected: PASS.
  */
 int main(void)
 {
