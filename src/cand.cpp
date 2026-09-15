@@ -525,8 +525,41 @@ private:
         if (expr == nullptr) {
             return false;
         }
-        return expr->IgnoreParenCasts()->isNullPointerConstant(
-            context_, Expr::NPC_ValueDependentIsNotNull);
+        expr = expr->IgnoreParenCasts();
+        if (expr->isNullPointerConstant(context_, Expr::NPC_ValueDependentIsNotNull)) {
+            return true;
+        }
+        // A conditional whose branches are both null constants is a null
+        // constant (e.g. `c ? NULL : NULL`).
+        if (const auto *conditional = dyn_cast<ConditionalOperator>(expr)) {
+            return isNullConstant(conditional->getTrueExpr()) &&
+                   isNullConstant(conditional->getFalseExpr());
+        }
+        return false;
+    }
+
+    // An initializer/RHS that yields a fresh owned allocation or NULL on
+    // every path (e.g. `c ? malloc(4) : malloc(8)`), so binding it as an
+    // owned storage is sound. Anything mixing an allocation with a pointer
+    // of unknown ownership returns false and stays INCOMPLETE.
+    bool isAllocationOrNull(const Expr *expr) const {
+        if (expr == nullptr) {
+            return false;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (isNullConstant(expr) || isAllocation(expr)) {
+            return true;
+        }
+        if (const auto *conditional = dyn_cast<ConditionalOperator>(expr)) {
+            return isAllocationOrNull(conditional->getTrueExpr()) &&
+                   isAllocationOrNull(conditional->getFalseExpr());
+        }
+        if (const auto *binary = dyn_cast<BinaryOperator>(expr)) {
+            if (binary->getOpcode() == clang::BO_Comma) {
+                return isAllocationOrNull(binary->getRHS());
+            }
+        }
+        return false;
     }
 
     const CallExpr *asUnknownPointerCall(const Expr *expr) const {
@@ -909,15 +942,15 @@ private:
                 }
                 continue;
             }
-            if (isAllocation(init)) {
+            if (isNullConstant(init)) {
+                Binding null_binding;
+                null_binding.state = ObjectState::Null;
+                state.storages[var] = null_binding;
+            } else if (isAllocationOrNull(init)) {
                 // A declaration introduces a fresh object on every execution.
                 bindAllocation(var, init, state);
             } else if (containsTrackedStorage(init, state)) {
                 markUnsupported(decl_stmt, "pointer-alias-initialization");
-            } else if (isNullConstant(init)) {
-                Binding null_binding;
-                null_binding.state = ObjectState::Null;
-                state.storages[var] = null_binding;
             } else {
                 if (isLocalStackOrigin(init)) {
                     stack_pointers_.insert(var);
@@ -937,7 +970,14 @@ private:
 
         if (var != nullptr && var->getType()->isPointerType()) {
             auto it = state.storages.find(var);
-            if (isAllocation(rhs)) {
+            if (isNullConstant(rhs)) {
+                // Releasing an owned pointer into NULL: the object may leak
+                // (not modeled in P0.2) but no lifetime bug is introduced,
+                // and a later free(NULL) is a defined no-op.
+                Binding null_binding;
+                null_binding.state = ObjectState::Null;
+                state.storages[var] = null_binding;
+            } else if (isAllocationOrNull(rhs)) {
                 if (it != state.storages.end() &&
                     (it->second.state == ObjectState::Owned ||
                      it->second.state == ObjectState::MaybeDead ||
@@ -945,13 +985,6 @@ private:
                     markUnsupported(binary, "tracked-owner-overwrite");
                 }
                 bindAllocation(var, rhs, state);
-            } else if (isNullConstant(rhs)) {
-                // Releasing an owned pointer into NULL: the object may leak
-                // (not modeled in P0.2) but no lifetime bug is introduced,
-                // and a later free(NULL) is a defined no-op.
-                Binding null_binding;
-                null_binding.state = ObjectState::Null;
-                state.storages[var] = null_binding;
             } else {
                 if (it != state.storages.end() &&
                     it->second.state != ObjectState::Untracked) {
