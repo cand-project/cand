@@ -125,6 +125,8 @@ check_pass tests/cfg/loop_no_ownership_change.c
 check_pass tests/cfg/null_release_safe.c
 check_pass tests/cfg/ternary_allocation_safe.c
 check_pass tests/cfg/short_circuit_guard_safe.c
+check_pass tests/cfg/sizeof_after_free_safe.c
+check_pass tests/cfg/reealloc_sizeof_safe.c
 
 check_fail tests/cfg/conditional_free_uaf.c CAND-T002
 check_fail tests/cfg/conditional_double_free.c CAND-T003
@@ -133,5 +135,8 @@ check_fail tests/cfg/nested_if_uaf.c CAND-T002
 check_fail tests/cfg/loop_possible_double_free.c CAND-T003
 check_fail tests/cfg/branch_null_or_free_possible_uaf.c CAND-T002
 check_fail tests/cfg/branch_free_or_null_double_free.c CAND-T003
+check_fail tests/cfg/pointer_arithmetic_uaf.c CAND-T002
+check_fail tests/cfg/pointer_arithmetic_store_uaf.c CAND-T002
+check_fail tests/cfg/member_arrow_arith_uaf.c CAND-T002
 
 echo "C& P0.2 CFG corpus passed."

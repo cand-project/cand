@@ -443,6 +443,7 @@ public:
         }
         collector_.noteFunction();
         collectAllocationSites(body);
+        collectUnevaluated(body);
 
         std::unique_ptr<CFG> cfg =
             CFG::buildCFG(&function, const_cast<Stmt *>(body), &context_, CFG::BuildOptions());
@@ -665,6 +666,39 @@ private:
         return it == state.storages.end() ? nullptr : &it->second;
     }
 
+    // Find the tracked storage referenced anywhere inside an expression, so
+    // that a dereference whose base is not a bare variable (pointer
+    // arithmetic such as `*(p + 1)`, `(p + i)[j]`, `(p + 1)->field`) is still
+    // checked against the object it ultimately refers to. The lowest object
+    // id wins so the choice is deterministic.
+    void collectTrackedBindings(const Expr *expr, const FlowState &state,
+                                const Binding *&best) const {
+        if (expr == nullptr) {
+            return;
+        }
+        expr = expr->IgnoreParenCasts();
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            const Binding *binding =
+                bindingFor(dyn_cast<VarDecl>(ref->getDecl()), state);
+            if (binding != nullptr &&
+                (best == nullptr || binding->object_id < best->object_id)) {
+                best = binding;
+            }
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = llvm::dyn_cast_or_null<Expr>(child)) {
+                collectTrackedBindings(child_expr, state, best);
+            }
+        }
+    }
+
+    const Binding *findTrackedBinding(const Expr *expr,
+                                      const FlowState &state) const {
+        const Binding *best = nullptr;
+        collectTrackedBindings(expr, state, best);
+        return best;
+    }
+
     bool containsTrackedStorage(const Expr *expr, const FlowState &state) const {
         if (expr == nullptr) {
             return false;
@@ -817,6 +851,11 @@ private:
             return;
         }
         const Binding *binding = bindingFor(resolveVar(pointer_expr), state);
+        if (binding == nullptr) {
+            // The base is not a bare variable: it may be pointer arithmetic
+            // or another computed form that still refers to a tracked object.
+            binding = findTrackedBinding(pointer_expr, state);
+        }
         if (binding == nullptr) {
             return; // untracked storage: not an additional obligation here
         }
@@ -1049,6 +1088,32 @@ private:
     void processStmt(const Stmt *stmt, FlowState &state,
                      std::set<const Stmt *> &processed);
 
+    // Collect the operands of unevaluated contexts (sizeof / alignof /
+    // typeof). Their children are listed by the CFG but never dereference
+    // memory, so they must not be treated as accesses.
+    void collectUnevaluated(const Stmt *stmt) {
+        if (stmt == nullptr) {
+            return;
+        }
+        if (isa<UnaryExprOrTypeTraitExpr>(stmt)) {
+            markUnevaluatedChildren(stmt);
+            return;
+        }
+        for (const Stmt *child : stmt->children()) {
+            collectUnevaluated(child);
+        }
+    }
+
+    void markUnevaluatedChildren(const Stmt *stmt) {
+        for (const Stmt *child : stmt->children()) {
+            if (child == nullptr) {
+                continue;
+            }
+            unevaluated_.insert(child);
+            markUnevaluatedChildren(child);
+        }
+    }
+
     void recurseChildren(const Stmt &stmt, FlowState &state,
                          std::set<const Stmt *> &processed) {
         for (const Stmt *child : stmt.children()) {
@@ -1219,6 +1284,7 @@ private:
     unsigned next_fallback_id_ = 1;
     std::set<unsigned> bound_objects_;
     std::set<const VarDecl *> stack_pointers_;
+    std::set<const Stmt *> unevaluated_;
     bool emitting_ = true;
 };
 
@@ -1228,6 +1294,9 @@ private:
 void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
                                std::set<const Stmt *> &processed) {
     if (stmt == nullptr || !processed.insert(stmt).second) {
+        return;
+    }
+    if (unevaluated_.count(stmt) != 0) {
         return;
     }
 

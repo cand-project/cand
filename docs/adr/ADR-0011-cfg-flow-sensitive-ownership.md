@@ -196,6 +196,14 @@ label. This is adequate for the P0.2 scope and is documented as a limit.
 - findings must be deduplicated across worklist iterations, and the last
   (most conservative) classification for a program point wins.
 
+## Access bases and unevaluated operands
+
+A dereference, subscript or arrow access is checked against the tracked
+object its **base** ultimately refers to, including computed bases such as
+`*(p + 1)` and `(p + 1)->field`; a computed base must never be silently
+dropped. Conversely, operands of unevaluated contexts (`sizeof`, `alignof`,
+`typeof`) are never accesses.
+
 ## Invariants
 
 1. Every ownership-relevant operation still classifies as SUPPORTED,
