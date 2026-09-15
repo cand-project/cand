@@ -1411,6 +1411,16 @@ private:
             return;
         }
 
+        if (binary.isCompoundAssignmentOp() && lhs_is_pointer) {
+            markUnsupported(binary, "pointer-arithmetic-reassignment");
+            if (lhs_storage) {
+                state.storages[*lhs_storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown,
+                     location(binary.getExprLoc())};
+            }
+            return;
+        }
+
         if (var != nullptr && var->getType()->isPointerType()) {
             auto it = lhs_storage ? state.storages.find(*lhs_storage) : state.storages.end();
             if (isNullConstant(rhs)) {
@@ -1842,6 +1852,17 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
         if (unary->getOpcode() == clang::UO_Deref) {
             checkAccess(unary->getSubExpr(), unary->getOperatorLoc(), state);
+        } else if ((unary->getOpcode() == clang::UO_PreInc ||
+                    unary->getOpcode() == clang::UO_PostInc ||
+                    unary->getOpcode() == clang::UO_PreDec ||
+                    unary->getOpcode() == clang::UO_PostDec) &&
+                   unary->getSubExpr()->getType()->isPointerType()) {
+            markUnsupported(*unary, "pointer-arithmetic-reassignment");
+            if (const auto storage = storageFor(unary->getSubExpr())) {
+                state.storages[*storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown,
+                     location(unary->getOperatorLoc())};
+            }
         }
         recurseChildren(*unary, state, processed);
         return;
