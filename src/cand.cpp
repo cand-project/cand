@@ -14,6 +14,7 @@
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <limits>
 #include <memory>
@@ -50,6 +51,10 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "agent_policy.hpp"
+
+#ifndef CAND_VERIFIER_SOURCE_COMMIT
+#define CAND_VERIFIER_SOURCE_COMMIT "unknown"
+#endif
 
 namespace {
 
@@ -311,7 +316,7 @@ public:
             obj["id"] = finding.id;
             obj["rule_id"] = finding.rule_id;
             obj["severity"] = "error";
-            obj["safety_level"] = "cand1";
+            obj["safety_level"] = "p0-temporal-lifecycle";
             obj["certainty"] = finding.certainty;
             obj["message_key"] = finding.id;
             obj["message"] = finding.message;
@@ -1167,7 +1172,7 @@ private:
         const bool definite = object.state == ObjectState::Dead && !nullable;
         Finding finding;
         finding.id = "CAND-T002";
-        finding.rule_id = "cand1.no-use-after-death";
+    finding.rule_id = "cand1.no-use-after-death";
         finding.message = definite ? "use after object destruction"
                                    : "possible use after object destruction";
         finding.repair_class = "SEMANTIC_REPAIR";
@@ -1202,7 +1207,7 @@ private:
                              bool definite) {
         Finding finding;
         finding.id = "CAND-T003";
-        finding.rule_id = "cand1.single-destruction";
+    finding.rule_id = "cand1.single-destruction";
         finding.message = definite ? "object destroyed more than once"
                                    : "possible double destruction on some path";
         finding.repair_class = "SEMANTIC_REPAIR";
@@ -2772,30 +2777,6 @@ std::string gitOriginMain() {
     return output;
 }
 
-void addRepositoryPolicyReview(AgentPolicyState &state) {
-    FILE *pipe = popen("git diff --name-only origin/main -- 2>/dev/null", "r");
-    if (!pipe) return;
-    std::array<char, 4096> buffer{};
-    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
-        std::string path = buffer.data();
-        while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
-        const bool sensitive = path == "CMakeLists.txt" ||
-            path == "scripts/check.sh" || path == "src/cand.cpp" ||
-            path == "src/agent_policy.cpp" || path == "src/agent_policy.hpp" ||
-            llvm::StringRef(path).starts_with(".github/workflows/") ||
-            llvm::StringRef(path).starts_with("contracts/") ||
-            llvm::StringRef(path).starts_with("tests/");
-        if (sensitive) {
-            state.review_required = true;
-            state.delta.review_required = true;
-            state.delta.classification = state.delta.weakened ? "PROOF_WEAKENING" : "REVIEW_REQUIRED";
-            state.delta.changes.push_back({"verification-surface-change", "unchanged base", path,
-                                           "REVIEW_REQUIRED"});
-        }
-    }
-    (void)pclose(pipe);
-}
-
 unsigned countToken(const std::string &text, llvm::StringRef token) {
     unsigned count = 0;
     std::size_t offset = 0;
@@ -2996,10 +2977,11 @@ llvm::json::Object buildEvidence(const Collector &collector,
     llvm::json::Object cand_info;
     cand_info["version"] = "0.1.0-dev";
     cand_info["build_identity"] = llvm::formatv("cand-0.1.0-dev/llvm-{0}/clang-{1}", LLVM_VERSION_STRING, CLANG_VERSION_STRING).str();
-    cand_info["commit"] = gitHead();
+    cand_info["verifier_source_commit"] = CAND_VERIFIER_SOURCE_COMMIT;
     cand_info["binary_sha256"] = CandExecutableSha256;
     evidence["cand"] = std::move(cand_info);
     llvm::json::Object source;
+    source["commit"] = gitHead();
     source["files"] = std::move(sources);
     evidence["source"] = std::move(source);
     llvm::json::Object frontend;
@@ -3016,6 +2998,7 @@ llvm::json::Object buildEvidence(const Collector &collector,
     verification["trusted_base_sha"] = TrustedBaseCommit;
     verification["effective_policy_sha256"] = state.policy.sha256;
     verification["checked_scope"] = state.policy.scope_files;
+    verification["policy_revision"] = gitHead();
     evidence["verification"] = std::move(verification);
     const llvm::json::Object analysis = collector.jsonObject();
     llvm::json::Object coverage;
@@ -3057,6 +3040,8 @@ llvm::json::Object buildEvidence(const Collector &collector,
     }
     evidence["proof_policy_delta"] = std::move(policy_delta);
     evidence["semantic_result"] = semantic_result.str();
+    evidence["policy_result"] = state.policy_failed || state.delta.weakened ? "fail" :
+        (state.review_required || state.delta.review_required ? "review_required" : "pass");
     const std::string payload = canonicalJson(llvm::json::Value(std::move(evidence)));
     auto reparsed = llvm::json::parse(payload);
     evidence = std::move(*reparsed->getAsObject());
@@ -3105,23 +3090,49 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     if (!restored || !restored->getAsObject()) { status = "tampered"; detail = "invalid canonical payload"; return false; }
     evidence = std::move(*restored->getAsObject());
     const auto *cand_info = evidence.getObject("cand");
+    const auto *source = evidence.getObject("source");
+    auto verifier_source = cand_info ? cand_info->getString("verifier_source_commit") : std::nullopt;
+    auto source_commit = source ? source->getString("commit") : std::nullopt;
+    if (!verifier_source || verifier_source->str() != CAND_VERIFIER_SOURCE_COMMIT ||
+        !source_commit || source_commit->str() != gitHead()) {
+        status = "stale"; detail = "verifier/source commit provenance differs from evidence"; return false;
+    }
+    const auto result = evidence.getString("result");
+    const auto semantic_result = evidence.getString("semantic_result");
+    const auto policy_result = evidence.getString("policy_result");
+    const auto *policy_delta = evidence.getObject("proof_policy_delta");
+    const auto weakened = policy_delta ? policy_delta->getBoolean("weakened") : std::nullopt;
+    if (!result || !semantic_result || !policy_result || !weakened ||
+        (result->str() == "pass" &&
+         (semantic_result->str() != "pass" || policy_result->str() != "pass" || *weakened))) {
+        status = "tampered"; detail = "invalid semantic/policy result combination"; return false;
+    }
     auto binary_digest = cand_info ? cand_info->getString("binary_sha256") : std::nullopt;
     if (!binary_digest || binary_digest->str() != CandExecutableSha256) {
         status = "stale"; detail = "C& verifier binary differs from evidence"; return false;
     }
-    const auto *source = evidence.getObject("source");
     const auto *files = source ? source->getArray("files") : nullptr;
     if (!files) { status = "tampered"; detail = "missing source file manifest"; return false; }
     for (const auto &item : *files) {
         const auto *file = item.getAsObject();
         auto file_path = file ? file->getString("path") : std::nullopt;
         auto expected = file ? file->getString("sha256") : std::nullopt;
+        const std::filesystem::path path(file_path ? file_path->str() : "");
+        if (!file_path || path.is_absolute() || path.lexically_normal() != path ||
+            std::find(path.begin(), path.end(), "..") != path.end()) {
+            status = "tampered"; detail = "source manifest contains a non-relative path"; return false;
+        }
         std::string actual, hash_error;
         if (!file_path || !expected || !cand::sha256File(file_path->str(), actual, hash_error) || actual != expected->str()) {
             status = "stale"; detail = "source content changed or unavailable"; return false;
         }
     }
     const auto *verification = evidence.getObject("verification");
+    auto relative_manifest_path = [](llvm::StringRef value) {
+        const std::filesystem::path path(value.str());
+        return !path.empty() && !path.is_absolute() && path.lexically_normal() == path &&
+               std::find(path.begin(), path.end(), "..") == path.end();
+    };
     auto expected_base = verification ? verification->getString("trusted_base_sha") : std::nullopt;
     const char *trusted_base_env = std::getenv("CAND_TRUSTED_BASE_SHA");
     if (!expected_base || !trusted_base_env || expected_base->str() != trusted_base_env ||
@@ -3131,7 +3142,8 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     auto policy_path = verification ? verification->getString("policy_path") : std::nullopt;
     auto policy_digest = verification ? verification->getString("effective_policy_sha256") : std::nullopt;
     std::string actual_policy;
-    if (!policy_path || !policy_digest || !cand::sha256File(policy_path->str(), actual_policy, error) || actual_policy != policy_digest->str()) {
+    if (!policy_path || !relative_manifest_path(*policy_path) || !policy_digest ||
+        !cand::sha256File(policy_path->str(), actual_policy, error) || actual_policy != policy_digest->str()) {
         status = "stale"; detail = "effective policy changed or unavailable"; return false;
     }
     const auto *contracts = evidence.getArray("contracts");
@@ -3140,7 +3152,8 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
         auto contract_path = contract ? contract->getString("path") : std::nullopt;
         auto expected = contract ? contract->getString("sha256") : std::nullopt;
         std::string actual;
-        if (!contract_path || !expected || !cand::sha256File(contract_path->str(), actual, error) || actual != expected->str()) {
+        if (!contract_path || !relative_manifest_path(*contract_path) || !expected ||
+            !cand::sha256File(contract_path->str(), actual, error) || actual != expected->str()) {
             status = "stale"; detail = "trusted contract changed or unavailable"; return false;
         }
     }
@@ -3327,7 +3340,6 @@ bool loadAgentPolicy(AgentPolicyState &state) {
     }
     if (state.delta.weakened) state.policy_failed = true;
     if (state.delta.review_required) state.review_required = true;
-    addRepositoryPolicyReview(state);
     return !state.policy_failed;
 }
 
@@ -3362,6 +3374,67 @@ void addDetectedPolicyViolations(AgentPolicyState &state) {
     };
     violation("new-unsafe-boundaries", state.unsafe_boundaries);
     violation("new-suppressions", state.suppressions);
+}
+
+void validateAgentFrontendEnvironment(AgentPolicyState &state) {
+    const char *variables[] = {
+        "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH",
+        "COMPILER_PATH", "GCC_EXEC_PREFIX", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
+        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "CLANG_CONFIG_FILE"
+    };
+    for (const char *variable : variables) {
+        if (const char *value = std::getenv(variable); value && *value) {
+            state.policy_failed = true;
+            state.policy_errors.push_back(std::string("frontend environment variable is not permitted: ") + variable);
+        }
+        unsetenv(variable);
+    }
+}
+
+void validateAgentFrontendArguments(const llvm::json::Array &arguments,
+                                    AgentPolicyState &state) {
+    const auto cwd = std::filesystem::current_path();
+    const auto reject = [&](const std::string &detail) {
+        state.policy_failed = true;
+        state.policy_errors.push_back(detail);
+    };
+    bool pending_path = false;
+    for (const auto &entry : arguments) {
+        const auto value = entry.getAsString();
+        if (!value) { reject("frontend argument is not a string"); continue; }
+        const std::string argument = value->str();
+        if (pending_path) {
+            const std::filesystem::path path(argument);
+            const auto resolved = (cwd / path).lexically_normal();
+            if (path.is_absolute() || (resolved != cwd && resolved.string().find(cwd.string() + "/") != 0))
+                reject("frontend path escapes the candidate workspace: " + argument);
+            pending_path = false;
+            continue;
+        }
+        if (argument == "-I" || argument == "-iquote" || argument == "-isystem" ||
+            argument == "-idirafter" || argument == "-include" || argument == "-imacros") {
+            pending_path = true;
+            continue;
+        }
+        if (argument == "-isysroot" || llvm::StringRef(argument).starts_with("-isysroot=") ||
+            llvm::StringRef(argument).starts_with("--sysroot=") || llvm::StringRef(argument).starts_with("@") ||
+            argument == "-Xclang" || argument == "-load" || llvm::StringRef(argument).starts_with("-fplugin") ||
+            llvm::StringRef(argument).starts_with("-fmodule-") || llvm::StringRef(argument).starts_with("-resource-dir") ||
+            llvm::StringRef(argument).starts_with("-working-directory")) {
+            reject("frontend argument is not permitted in generated verification: " + argument);
+            continue;
+        }
+        for (const char *prefix : {"-I", "-iquote", "-isystem", "-idirafter", "-include", "-imacros"}) {
+            if (llvm::StringRef(argument).starts_with(prefix) && argument.size() > std::strlen(prefix)) {
+                const std::filesystem::path path(argument.substr(std::strlen(prefix)));
+                const auto resolved = (cwd / path).lexically_normal();
+                if (path.is_absolute() || resolved.string().find(cwd.string() + "/") != 0)
+                    reject("frontend path escapes the candidate workspace: " + argument);
+                break;
+            }
+        }
+    }
+    if (pending_path) reject("frontend path flag is missing its path");
 }
 
 int writeEvidenceFile(const std::string &path, const std::string &evidence) {
@@ -3456,9 +3529,10 @@ int main(int argc, const char **argv) {
         llvm::errs() << "cand: unsupported profile; supported values are semantic and generated\n";
         return 2;
     }
+    const std::string requested_profile = ProfileName;
     if (ProfileName == "generated") AgentMode = true;
     const bool weaker_profile_requested = AgentMode &&
-        ProfileName.getNumOccurrences() != 0 && ProfileName != "generated";
+        ProfileName.getNumOccurrences() != 0 && requested_profile != "generated";
     if (AgentMode && SafetyLevel != "p0-temporal-lifecycle") {
         llvm::errs() << "cand: unsupported safety level; only p0-temporal-lifecycle is implemented\n";
         return 2;
@@ -3484,7 +3558,7 @@ int main(int argc, const char **argv) {
             agent_state.policy_errors.push_back("--agent cannot be combined with a weaker/non-generated profile");
             agent_state.delta.weakened = true;
             agent_state.delta.classification = "PROOF_WEAKENING";
-            agent_state.delta.changes.push_back({"profile-override", "generated", ProfileName, "PROOF_WEAKENING"});
+            agent_state.delta.changes.push_back({"profile-override", requested_profile, "generated", "PROOF_WEAKENING"});
         }
         if (agent_state.policy.schema.empty()) {
             llvm::json::Object error;
@@ -3513,6 +3587,8 @@ int main(int argc, const char **argv) {
             agent_state.policy_failed = true;
             agent_state.policy_errors.push_back("frontend arguments must explicitly select -std=c11");
         }
+        validateAgentFrontendEnvironment(agent_state);
+        validateAgentFrontendArguments(frontend_args, agent_state);
         std::vector<std::string> extra_frontend_args;
         for (const auto &argument : frontend_args) {
             const auto value = argument.getAsString();

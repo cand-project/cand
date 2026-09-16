@@ -17,7 +17,7 @@
     "schema": { "const": "cand.check/v1" },
     "cand_version": { "type": "string" },
     "result": { "enum": ["pass", "fail", "incomplete"] },
-    "safety_level": { "type": "string" },
+    "safety_level": { "const": "p0-temporal-lifecycle" },
     "profile": { "type": "string" },
     "findings": {
       "type": "array",
@@ -41,7 +41,7 @@
           "severity": { "enum": ["error", "warning", "note"] },
           "certainty": { "enum": ["definite", "possible"] },
           "state_before_access": { "type": "string" },
-          "safety_level": { "type": "string" },
+          "safety_level": { "const": "p0-temporal-lifecycle" },
           "message_key": { "type": "string" },
           "message": { "type": "string" },
           "repair_class": {

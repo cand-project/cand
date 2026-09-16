@@ -50,7 +50,7 @@ jobs:
         run: >-
           sudo apt-get update &&
           sudo apt-get install -y
-          clang gcc ruby python3 cmake ninja-build llvm-dev libclang-dev
+          clang gcc ruby python3 python3-jsonschema cmake ninja-build llvm-dev libclang-dev
 
       - name: Build verifier only from protected base
         run: |

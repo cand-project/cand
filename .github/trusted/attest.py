@@ -20,21 +20,11 @@ import urllib.request
 
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
-SENSITIVE_EXACT = {
-    "cand-policy.json",
-    "CMakeLists.txt",
-    "VERSION",
+PATH_FLAGS = {"-I", "-iquote", "-isystem", "-idirafter", "-include", "-imacros"}
+FORBIDDEN_FRONTEND_FLAGS = {
+    "-Xclang", "-load", "-fplugin", "-fplugin-file", "-fmodule-map-file",
+    "-fmodule-file", "-fmodules-cache-path", "-resource-dir", "-working-directory", "-isysroot",
 }
-SENSITIVE_PREFIXES = (
-    ".github/",
-    "cmake/",
-    "contracts/",
-    "include/cand/",
-    "scripts/",
-    "src/",
-    "tests/",
-)
-PATH_FLAGS = {"-I", "-iquote", "-isystem", "-idirafter", "-include", "-imacros", "-isysroot"}
 
 
 class AttestationError(RuntimeError):
@@ -100,6 +90,10 @@ def validate_frontend_paths(root: Path, arguments: list[str]) -> None:
     """
     pending_path_flag: str | None = None
     for argument in arguments:
+        if argument.startswith("@") or argument in FORBIDDEN_FRONTEND_FLAGS:
+            raise AttestationError(f"frontend argument is not permitted in trusted attestation: {argument}")
+        if any(argument.startswith(flag + "=") for flag in FORBIDDEN_FRONTEND_FLAGS):
+            raise AttestationError(f"frontend argument is not permitted in trusted attestation: {argument}")
         if pending_path_flag is not None:
             if pending_path_flag in {"-include", "-imacros"}:
                 require_repo_file(root, argument, f"frontend {pending_path_flag} input")
@@ -114,6 +108,11 @@ def validate_frontend_paths(root: Path, arguments: list[str]) -> None:
         for prefix in ("-I", "-iquote", "-isystem", "-idirafter"):
             if argument.startswith(prefix) and len(argument) > len(prefix):
                 _require_repo_dir(root, argument[len(prefix):], prefix)
+                matched = True
+                break
+        for prefix in ("-include", "-imacros"):
+            if argument.startswith(prefix) and len(argument) > len(prefix):
+                require_repo_file(root, argument[len(prefix):], f"frontend {prefix} input")
                 matched = True
                 break
         if matched:
@@ -153,8 +152,24 @@ def changed_files(repo: Path, base_sha: str, head_sha: str) -> list[str]:
     return sorted(path for path in process.stdout.split("\0") if path)
 
 
-def is_sensitive(path: str) -> bool:
-    return path in SENSITIVE_EXACT or any(path.startswith(prefix) for prefix in SENSITIVE_PREFIXES)
+def load_surface(path: Path) -> tuple[set[str], tuple[str, ...], str]:
+    surface = load_json(path)
+    if surface.get("schema") != "cand.verifier-surface/v1":
+        raise AttestationError("invalid verifier-surface schema")
+    exact = surface.get("exact")
+    prefixes = surface.get("prefixes")
+    unknown_policy = surface.get("unknown_path_policy")
+    if (not isinstance(exact, list) or not all(isinstance(item, str) for item in exact) or
+            not isinstance(prefixes, list) or not all(isinstance(item, str) for item in prefixes) or
+            unknown_policy != "review_required"):
+        raise AttestationError("invalid verifier-surface manifest")
+    return set(exact), tuple(prefixes), unknown_policy
+
+
+def surface_class(path: str, exact: set[str], prefixes: tuple[str, ...]) -> str:
+    if path in exact or any(path.startswith(prefix) for prefix in prefixes):
+        return "sensitive"
+    return "unknown"
 
 
 def github_json(url: str, token: str) -> object:
@@ -243,6 +258,8 @@ def main() -> int:
     summary_path = output_dir / "attestation-summary.json"
 
     policy_path = require_repo_file(candidate, "cand-policy.json", "proof policy")
+    surface_path = Path(__file__).with_name("verifier-surface.json")
+    exact_surface, surface_prefixes, _ = load_surface(surface_path)
     policy = load_json(policy_path)
     scope = ((policy.get("scope") or {}).get("files"))
     frontend = policy.get("frontend") or {}
@@ -271,8 +288,11 @@ def main() -> int:
         require_repo_file(candidate, contract_path, "trusted contract")
 
     changed = changed_files(candidate, args.base_sha, args.head_sha)
-    sensitive = [path for path in changed if is_sensitive(path)]
     scoped = set(scope)
+    sensitive = [path for path in changed
+                 if surface_class(path, exact_surface, surface_prefixes) == "sensitive"]
+    ambiguous = [path for path in changed
+                 if surface_class(path, exact_surface, surface_prefixes) == "unknown" and path not in scoped]
     # A changed production C source that is not in the declared proof scope is
     # not "reviewable PASS" — it was never analyzed.  Tests are verifier
     # surface and follow the exact-head review path instead.
@@ -290,6 +310,14 @@ def main() -> int:
     # The candidate is untrusted input. Even though P0.5 pins frontend flags,
     # never expose the workflow token to Clang/verifier subprocesses.
     verifier_env.pop("GITHUB_TOKEN", None)
+    for variable in (
+        "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH",
+        "COMPILER_PATH", "GCC_EXEC_PREFIX", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
+        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "LD_PRELOAD", "DYLD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES", "CLANG_CONFIG_FILE", "BASH_ENV", "ENV",
+    ):
+        verifier_env.pop(variable, None)
+    verifier_env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     verifier_env["CAND_TRUSTED_BASE_SHA"] = args.base_sha
     command = [
         str(cand), "check", "--agent", "--base", "origin/main",
@@ -317,8 +345,16 @@ def main() -> int:
         raise AttestationError(f"agent result is {final_result!r}; proof-policy failure cannot be approved away")
     if not evidence_path.is_file():
         raise AttestationError("trusted cand did not emit evidence")
+    evidence = load_json(evidence_path)
+    cand_identity = evidence.get("cand") or {}
+    source_identity = evidence.get("source") or {}
+    verification = evidence.get("verification") or {}
+    if (cand_identity.get("verifier_source_commit") != args.base_sha or
+            source_identity.get("commit") != args.head_sha or
+            verification.get("trusted_base_sha") != args.base_sha):
+        raise AttestationError("evidence provenance does not match protected base and PR head")
 
-    requires_review = final_result == "review-required" or bool(sensitive)
+    requires_review = final_result == "review-required" or bool(sensitive) or bool(ambiguous)
     reviewers = {item.strip() for item in args.trusted_reviewers.split(",") if item.strip()}
     approved_by: list[str] = []
     if requires_review:
@@ -358,8 +394,9 @@ def main() -> int:
         "head_sha": args.head_sha,
         "semantic_result": semantic,
         "agent_result": final_result,
-        "verification_surface_changed": bool(sensitive),
+        "verification_surface_changed": bool(sensitive) or bool(ambiguous),
         "sensitive_files": sensitive,
+        "ambiguous_files": ambiguous,
         "exact_head_review_required": requires_review,
         "approved_by": approved_by,
         "evidence_replay": "valid",

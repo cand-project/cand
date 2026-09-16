@@ -1,0 +1,18 @@
+{
+  "schema": "cand.verifier-surface/v1",
+  "exact": [
+    "CMakeLists.txt",
+    "VERSION",
+    "cand-policy.json"
+  ],
+  "prefixes": [
+    ".github/",
+    "cmake/",
+    "contracts/",
+    "include/cand/",
+    "scripts/",
+    "src/",
+    "tests/"
+  ],
+  "unknown_path_policy": "review_required"
+}

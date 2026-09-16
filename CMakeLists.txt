@@ -16,6 +16,17 @@ include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 include_directories(SYSTEM ${CLANG_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
+execute_process(
+    COMMAND git rev-parse --verify HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE CAND_VERIFIER_SOURCE_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if (CAND_VERIFIER_SOURCE_COMMIT STREQUAL "")
+    set(CAND_VERIFIER_SOURCE_COMMIT "unknown")
+endif()
+
 add_executable(cand
     src/cand.cpp
     src/agent_policy.cpp
@@ -25,6 +36,9 @@ add_executable(cand
 # one LLVM runtime/command-line registry in the process and avoids duplicate
 # global option registration from split static component libraries.
 target_link_libraries(cand PRIVATE clang-cpp LLVM)
+target_compile_definitions(cand PRIVATE
+    CAND_VERIFIER_SOURCE_COMMIT="${CAND_VERIFIER_SOURCE_COMMIT}"
+)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(cand PRIVATE -Wall -Wextra -Wpedantic -Werror)

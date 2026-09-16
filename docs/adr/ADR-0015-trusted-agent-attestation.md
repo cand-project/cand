@@ -48,7 +48,8 @@ comes from the protected PR base. It:
    base-built verifier compare that policy with the pinned base policy;
 7. rejects source/policy paths that escape the candidate workspace and rejects
    candidate-selected external include/config paths;
-8. independently classifies verifier-authority paths, including `src/`,
+8. classifies verifier-authority paths from the protected
+   `.github/trusted/verifier-surface.json` manifest, including `src/`,
    `include/cand/`, contracts, tests, build scripts, workflows and policy;
 9. requires a fresh exact-head approval from a trusted reviewer when verifier
    authority changes or C& returns `REVIEW_REQUIRED`;
@@ -78,6 +79,13 @@ Default system/toolchain headers remain part of the supported toolchain trust
 boundary until issue #12 defines a reproducible toolchain/sysroot strategy.
 Arbitrary external non-system dependencies must not silently become trusted
 inputs.
+
+Evidence separates the base-built verifier source commit from the analyzed
+candidate source commit, and records the trusted base revision, policy revision
+and digest, frontend/toolchain identity, source/include manifest, contract
+identities, checked scope, semantic result, and policy result. The verifier
+source commit is embedded at trusted build time; it is never inferred from the
+candidate worktree.
 
 ## Security properties
 
@@ -113,6 +121,5 @@ they are not treated as ordinary source repairs.
 - enforce repository ruleset/branch protection (issue #15);
 - complete toolchain/sysroot reproducibility and support matrix (issue #12);
 - close evidence over explicitly supported external dependencies;
-- replace implementation-local sensitive-path lists with a reviewed authority
-  manifest/prefix model;
-- correct pre-C&1 machine labels that currently use `cand1` terminology.
+- enforce the attestation status through repository rules (issue #15);
+- define a reproducible system-header/sysroot identity (issue #12).
