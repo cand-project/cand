@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cand-project.github.io/cand/schema/cand-policy-v1.json",
+  "title": "C& proof policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "profile", "safety_level", "base_ref", "budgets", "unsupported", "contracts", "scope", "frontend"],
+  "properties": {
+    "schema": {"const": "cand.policy/v1"},
+    "profile": {"const": "generated"},
+    "safety_level": {"const": "p0-temporal-lifecycle"},
+    "base_ref": {"const": "origin/main"},
+    "budgets": {
+      "type": "object", "additionalProperties": false,
+      "required": ["new_unsafe_boundaries", "new_suppressions", "safety_level_reductions", "checked_scope_decrease", "unsupported_scope_increase"],
+      "properties": {
+        "new_unsafe_boundaries": {"const": 0}, "new_suppressions": {"const": 0},
+        "safety_level_reductions": {"const": 0}, "checked_scope_decrease": {"const": 0},
+        "unsupported_scope_increase": {"const": 0}
+      }
+    },
+    "unsupported": {
+      "type": "object", "additionalProperties": false,
+      "required": ["allow_in_verified_success"],
+      "properties": {"allow_in_verified_success": {"const": false}}
+    },
+    "contracts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["trusted_changes_require_review", "trusted"],
+      "properties": {
+        "trusted_changes_require_review": {"const": true},
+        "trusted": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+          "required": ["path", "sha256", "trust_class"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+            "trust_class": {"enum": ["builtin", "verified", "reviewed", "candidate"]}
+          }
+        }}
+      }
+    },
+    "scope": {"type": "object", "additionalProperties": false, "required": ["files"],
+      "properties": {"files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}},
+    "frontend": {"type": "object", "additionalProperties": false, "required": ["standard", "arguments"],
+      "properties": {"standard": {"const": "c11"}, "arguments": {"type": "array", "items": {"type": "string", "minLength": 1}}}}
+  }
+}

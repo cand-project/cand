@@ -34,6 +34,11 @@ requirements / architecture
 
 The agent is a synthesis client. C& is the deterministic verifier.
 
+P0.5 implements a narrow protocol slice: generated profile
+`p0-temporal-lifecycle`, `cand.policy/v1`, `cand.agent-check/v1`,
+`cand.evidence/v1`, policy diff, and evidence replay. It does not implement a
+`cand1` soundness claim or every aspirational command below.
+
 ## 2. Normative principles
 
 1. Machine output MUST be deterministic for identical relevant inputs.
@@ -49,16 +54,18 @@ The initial machine-capable CLI SHOULD expose equivalent functionality to:
 
 ```text
 cand check --format json
-cand check --agent --base <ref> --format json
+cand check --agent --base origin/main --policy cand-policy.json --format json
 cand explain <diagnostic-id> --format json
 cand contract validate --format json
 cand contract explain <symbol> --format json
 cand policy diff --base <ref> --format json
 cand report --format json
-cand evidence --format json
+cand check --agent --emit-evidence evidence.json ...
+cand evidence verify evidence.json
 ```
 
-Exact spelling may evolve. The capabilities are normative, not the final CLI syntax.
+The listed non-P0.5 commands remain aspirational; implemented spellings are
+normative for the current version.
 
 ## 4. Agent generation profile
 
@@ -67,7 +74,7 @@ C& SHOULD provide a strict generation profile for new machine-authored code.
 Conceptually:
 
 ```bash
-cand check --profile generated --level cand1 --format json
+cand check --profile generated --level p0-temporal-lifecycle --format json
 ```
 
 The profile SHOULD default to:
@@ -79,6 +86,27 @@ The profile SHOULD default to:
 - no automatic unsafe insertion;
 - proof-policy regression checks when a base is supplied;
 - deterministic evidence output.
+
+P0.5 supports only `p0-temporal-lifecycle`, C11, an explicit non-empty source
+scope, zero weakening budgets, and exact policy-pinned additional compiler
+arguments. Unsupported levels/arguments are rejected. `--agent` requires
+`--base origin/main` and a runner-provided `CAND_TRUSTED_BASE_SHA` matching the
+resolved base commit. The environment value must come from protected CI
+context; agent-controlled local output is not a trusted CI result.
+
+The effective policy is strict `cand.policy/v1` JSON. Contract trust is
+separate from contract contents and binds path, digest, and trust class.
+Candidate contracts cannot support PASS. Semantic PASS and policy PASS are
+distinct; a policy failure or `REVIEW_REQUIRED` cannot be reported as verified
+agent success.
+
+`cand.evidence/v1` binds checked source and project-local include contents,
+verifier binary digest, frontend identity/arguments, base commit, effective
+policy digest, scope, and used contract digests. `cand evidence verify`
+validates bound inputs and reruns the exact analysis, comparing canonical
+evidence. Its unkeyed digest is not a signature; trusted CI must select the
+verifier binary and supply the trusted base. Evidence does not imply general C
+memory safety.
 
 A project may override these defaults explicitly, but the evidence record must capture the effective policy.
 

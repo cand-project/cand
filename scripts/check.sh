@@ -7,6 +7,10 @@ cd "$root"
 echo "==> JSON schema syntax"
 python3 -m json.tool contracts/schema/cand-api-contract.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-check.schema.json >/dev/null
+python3 -m json.tool contracts/schema/cand-policy.schema.json >/dev/null
+python3 -m json.tool contracts/schema/cand-evidence.schema.json >/dev/null
+python3 -m json.tool contracts/schema/cand-agent-check.schema.json >/dev/null
+python3 -m json.tool cand-policy.json >/dev/null
 
 echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \

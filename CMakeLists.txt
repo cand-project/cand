@@ -18,6 +18,7 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_executable(cand
     src/cand.cpp
+    src/agent_policy.cpp
 )
 
 # Use the distribution's monolithic shared Clang and LLVM libraries. This keeps
@@ -57,4 +58,8 @@ add_test(
 add_test(
     NAME cand-p0-4-interprocedural
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/interprocedural/run.sh $<TARGET_FILE:cand>
+)
+add_test(
+    NAME cand-p0-5-agent-verification
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/agent/run.sh $<TARGET_FILE:cand>
 )

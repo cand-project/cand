@@ -19,6 +19,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0011](ADR-0011-cfg-flow-sensitive-ownership.md) | Ownership state is attached to CFG program points with a finite lattice and deterministic joins | Proposed |
 | [ADR-0012](ADR-0012-storage-identity-and-alias-model.md) | Object lifetime is separate from pointer storage and alias relationships | Accepted (P0.3) |
 | [ADR-0013](ADR-0013-interprocedural-ownership-summaries.md) | Calls require verified summaries or explicitly trusted contracts | Accepted (P0.4) |
+| [ADR-0014](ADR-0014-agent-verification-evidence.md) | Agent output is accepted only under runner-authorized policy and replayable input-bound evidence | Accepted (P0.5 slice) |
 
 ## Design chain
 

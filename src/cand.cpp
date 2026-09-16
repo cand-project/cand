@@ -7,9 +7,13 @@
 // UNSUPPORTED/INCOMPLETE; there is no "unknown but PASS" (ADR-0010).
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <fstream>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <limits>
 #include <memory>
@@ -19,6 +23,8 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "clang/Analysis/CFG.h"
 #include "clang/AST/ASTConsumer.h"
@@ -31,13 +37,19 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "clang/Basic/Version.h"
 #include "clang/Tooling/CommonOptionsParser.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Config/llvm-config.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include "agent_policy.hpp"
 
 namespace {
 
@@ -89,6 +101,32 @@ llvm::cl::opt<std::string> OutputFormat(
 llvm::cl::opt<std::string> ContractFile(
     "contracts", llvm::cl::desc("trusted C& API contract YAML"),
     llvm::cl::init(""), llvm::cl::cat(CandCategory));
+llvm::cl::opt<bool> AgentMode(
+    "agent", llvm::cl::desc("strict generated-code verification mode"),
+    llvm::cl::init(false), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> ProfileName(
+    "profile", llvm::cl::desc("verification profile: semantic|generated"),
+    llvm::cl::init("semantic"), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> SafetyLevel(
+    "level", llvm::cl::desc("implemented safety level: p0-temporal-lifecycle"),
+    llvm::cl::init("p0-temporal-lifecycle"), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> PolicyPath(
+    "policy", llvm::cl::desc("effective proof policy JSON"),
+    llvm::cl::init("cand-policy.json"), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> BaseRef(
+    "base", llvm::cl::desc("trusted base git ref for policy comparison"),
+    llvm::cl::init(""), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> BasePolicyPath(
+    "base-policy", llvm::cl::desc("base proof-policy JSON file"),
+    llvm::cl::init(""), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> EvidencePath(
+    "emit-evidence", llvm::cl::desc("write deterministic evidence JSON"),
+    llvm::cl::init(""), llvm::cl::cat(CandCategory));
+
+int CandExecutableAnchor = 0;
+std::string CandExecutableSha256;
+std::string CandExecutablePath;
+std::string TrustedBaseCommit;
 
 struct Location {
     std::string file;
@@ -196,6 +234,8 @@ public:
     }
 
     void noteFunction() { ++functions_analyzed_; }
+    void noteDependency(std::string path) { dependencies_.insert(std::move(path)); }
+    const std::set<std::string> &dependencies() const { return dependencies_; }
 
     // A translation unit that produced compilation errors must never receive
     // a C& verdict: the analysis ran on a recovered (not real) AST.
@@ -256,7 +296,7 @@ public:
         }
     }
 
-    void printJson() const {
+    llvm::json::Object jsonObject() const {
         llvm::json::Object root;
         root["schema"] = "cand.check/v1";
         root["cand_version"] = "0.1.0-dev";
@@ -322,7 +362,11 @@ public:
             static_cast<std::int64_t>(unsupported_.size());
         root["coverage"] = std::move(coverage);
 
-        llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(root)));
+        return root;
+    }
+
+    void printJson() const {
+        llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(jsonObject()));
     }
 
 private:
@@ -341,6 +385,7 @@ private:
     std::vector<Unsupported> unsupported_;
     std::set<std::tuple<std::string, std::string, unsigned, unsigned>>
         seen_unsupported_;
+    std::set<std::string> dependencies_;
     bool frontend_error_ = false;
     bool contract_error_ = false;
     unsigned functions_analyzed_ = 0;
@@ -2377,6 +2422,9 @@ public:
         : context_(context), collector_(collector) {}
 
     void prepare() {
+        const SourceManager &source_manager = context_.getSourceManager();
+        for (auto it = source_manager.fileinfo_begin(); it != source_manager.fileinfo_end(); ++it)
+            collector_.noteDependency(it->first.getName().str());
         std::vector<const FunctionDecl *> functions;
         for (const clang::Decl *decl : context_.getTranslationUnitDecl()->decls()) {
             if (const auto *function = dyn_cast<FunctionDecl>(decl); function && function->hasBody())
@@ -2677,6 +2725,653 @@ private:
     Collector &collector_;
 };
 
+struct AgentPolicyState {
+    cand::Policy policy;
+    cand::PolicyDiff delta;
+    bool policy_failed = false;
+    bool review_required = false;
+    std::vector<std::string> policy_errors;
+    std::vector<std::tuple<std::string, std::string, std::string>> contract_inputs;
+    unsigned unsafe_boundaries = 0;
+    unsigned suppressions = 0;
+};
+
+std::string readFile(const std::string &path, std::string &error) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) { error = "cannot read file: " + path; return {}; }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    if (input.bad()) { error = "failed reading file: " + path; return {}; }
+    return contents.str();
+}
+
+std::string gitHead() {
+    FILE *pipe = popen("git rev-parse HEAD 2>/dev/null", "r");
+    if (!pipe) return {};
+    std::array<char, 256> buffer{};
+    std::string output;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) output += buffer.data();
+    const int status = pclose(pipe);
+    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return {};
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+    return output;
+}
+
+std::string gitOriginMain() {
+    FILE *pipe = popen("git rev-parse --verify 'origin/main^{commit}' 2>/dev/null", "r");
+    if (!pipe) return {};
+    std::array<char, 256> buffer{};
+    std::string output;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) output += buffer.data();
+    const int status = pclose(pipe);
+    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return {};
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+    if ((output.size() != 40 && output.size() != 64) ||
+        !std::all_of(output.begin(), output.end(), [](unsigned char c) { return std::isxdigit(c) != 0; }))
+        return {};
+    return output;
+}
+
+void addRepositoryPolicyReview(AgentPolicyState &state) {
+    FILE *pipe = popen("git diff --name-only origin/main -- 2>/dev/null", "r");
+    if (!pipe) return;
+    std::array<char, 4096> buffer{};
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+        std::string path = buffer.data();
+        while (!path.empty() && (path.back() == '\n' || path.back() == '\r')) path.pop_back();
+        const bool sensitive = path == "CMakeLists.txt" ||
+            path == "scripts/check.sh" || path == "src/cand.cpp" ||
+            path == "src/agent_policy.cpp" || path == "src/agent_policy.hpp" ||
+            llvm::StringRef(path).starts_with(".github/workflows/") ||
+            llvm::StringRef(path).starts_with("contracts/") ||
+            llvm::StringRef(path).starts_with("tests/");
+        if (sensitive) {
+            state.review_required = true;
+            state.delta.review_required = true;
+            state.delta.classification = state.delta.weakened ? "PROOF_WEAKENING" : "REVIEW_REQUIRED";
+            state.delta.changes.push_back({"verification-surface-change", "unchanged base", path,
+                                           "REVIEW_REQUIRED"});
+        }
+    }
+    (void)pclose(pipe);
+}
+
+unsigned countToken(const std::string &text, llvm::StringRef token) {
+    unsigned count = 0;
+    std::size_t offset = 0;
+    while ((offset = text.find(token.str(), offset)) != std::string::npos) {
+        ++count;
+        offset += token.size();
+    }
+    return count;
+}
+
+bool collectSourceInputs(clang::tooling::CommonOptionsParser &parser,
+                         const cand::Policy &policy,
+                         llvm::json::Array &sources,
+                         llvm::json::Array &frontend_args,
+                         AgentPolicyState &state) {
+    std::vector<std::string> input_paths;
+    std::vector<std::string> contents;
+    for (const std::string &source : parser.getSourcePathList()) {
+        std::string normalized = cand::normalizedRelativePath(source);
+        if (normalized.empty()) {
+            state.policy_failed = true;
+            state.policy_errors.push_back("source path must be relative and remain inside the workspace: " + source);
+            continue;
+        }
+        std::string error;
+        const std::string bytes = readFile(source, error);
+        if (!error.empty()) {
+            state.policy_failed = true;
+            state.policy_errors.push_back(error);
+            continue;
+        }
+        std::string digest = cand::sha256(bytes);
+        llvm::json::Object file;
+        file["path"] = normalized;
+        file["sha256"] = digest;
+        sources.push_back(std::move(file));
+        input_paths.push_back(normalized);
+        contents.push_back(bytes);
+        state.unsafe_boundaries += countToken(bytes, "CAND_UNSAFE");
+        state.suppressions += countToken(bytes, "CAND_SUPPRESS") +
+                              countToken(bytes, "CAND_BASELINE") +
+                              countToken(bytes, "cand: ignore");
+    }
+    std::sort(input_paths.begin(), input_paths.end());
+    if (std::adjacent_find(input_paths.begin(), input_paths.end()) != input_paths.end()) {
+        state.policy_failed = true;
+        state.policy_errors.push_back("duplicate checked source path");
+    }
+    if (input_paths != policy.scope_files) {
+        state.policy_failed = true;
+        state.policy_errors.push_back("checked source inputs do not exactly match policy scope.files");
+        llvm::json::Array before, after;
+        for (const auto &path : policy.scope_files) before.push_back(path);
+        for (const auto &path : input_paths) after.push_back(path);
+        cand::PolicyChange change{"checked-scope-change", "policy scope", "invocation scope", "PROOF_WEAKENING"};
+        state.delta.changes.push_back(std::move(change));
+        state.delta.weakened = true;
+        state.delta.classification = "PROOF_WEAKENING";
+    }
+    for (const auto &source : parser.getSourcePathList()) {
+        const auto commands = parser.getCompilations().getCompileCommands(source);
+        for (const auto &command : commands) {
+            bool skip_output = false;
+            for (std::size_t i = 1; i < command.CommandLine.size(); ++i) {
+                const std::string &arg = command.CommandLine[i];
+                if (skip_output) { skip_output = false; continue; }
+                if (arg == "-o") { skip_output = true; continue; }
+                if (arg == command.Filename || arg == source || arg == "-c") continue;
+                frontend_args.push_back(arg);
+            }
+        }
+    }
+    return !state.policy_failed;
+}
+
+void addIncludedFiles(llvm::json::Array &sources, const Collector &collector,
+                      AgentPolicyState &state) {
+    std::map<std::string, std::string> hashes;
+    for (const auto &entry : sources) {
+        const auto *object = entry.getAsObject();
+        if (!object) continue;
+        auto path = object->getString("path");
+        auto digest = object->getString("sha256");
+        if (path && digest) hashes[path->str()] = digest->str();
+    }
+    const auto cwd = std::filesystem::current_path();
+    for (const std::string &input : collector.dependencies()) {
+        if (input.empty() || input.front() == '<') continue;
+        std::filesystem::path path(input);
+        std::string logical;
+        if (path.is_absolute()) {
+            const auto relative = path.lexically_relative(cwd);
+            if (relative.empty() || *relative.begin() == "..") continue;
+            logical = relative.generic_string();
+        } else {
+            logical = cand::normalizedRelativePath(input);
+        }
+        if (logical.empty() || hashes.count(logical)) continue;
+        std::string content_error;
+        const std::string content = readFile(input, content_error);
+        if (!content_error.empty()) {
+            state.policy_failed = true;
+            state.policy_errors.push_back("cannot inspect frontend dependency " + logical);
+            continue;
+        }
+        state.unsafe_boundaries += countToken(content, "CAND_UNSAFE");
+        state.suppressions += countToken(content, "CAND_SUPPRESS") +
+                              countToken(content, "CAND_BASELINE") +
+                              countToken(content, "cand: ignore");
+        std::string digest, error;
+        if (!cand::sha256File(input, digest, error)) {
+            state.policy_failed = true;
+            state.policy_errors.push_back("cannot bind frontend dependency " + logical + ": " + error);
+            continue;
+        }
+        hashes[logical] = std::move(digest);
+    }
+    sources.clear();
+    for (const auto &entry : hashes) {
+        llvm::json::Object file;
+        file["path"] = entry.first;
+        file["sha256"] = entry.second;
+        sources.push_back(std::move(file));
+    }
+}
+
+llvm::json::Object policyDeltaJson(const AgentPolicyState &state) {
+    llvm::json::Object delta;
+    delta["classification"] = state.delta.classification;
+    delta["weakened"] = state.delta.weakened || state.policy_failed;
+    delta["review_required"] = state.delta.review_required || state.review_required;
+    llvm::json::Array changes;
+    for (const auto &change : state.delta.changes) {
+        llvm::json::Object item;
+        item["kind"] = change.kind;
+        item["before"] = change.before;
+        item["after"] = change.after;
+        item["classification"] = change.classification;
+        changes.push_back(std::move(item));
+    }
+    for (const auto &error : state.policy_errors) {
+        llvm::json::Object item;
+        item["kind"] = "policy-violation";
+        item["detail"] = error;
+        item["classification"] = "PROOF_WEAKENING";
+        changes.push_back(std::move(item));
+    }
+    delta["changes"] = std::move(changes);
+    return delta;
+}
+
+std::string serializeJson(llvm::json::Object object) {
+    return llvm::formatv("{0:2}", llvm::json::Value(std::move(object))).str();
+}
+
+llvm::json::Value canonicalizeJson(const llvm::json::Value &value) {
+    if (const auto *object = value.getAsObject()) {
+        std::map<std::string, const llvm::json::Value *> fields;
+        for (const auto &entry : *object) fields.emplace(entry.first.str(), &entry.second);
+        llvm::json::Object canonical;
+        for (const auto &entry : fields) canonical[entry.first] = canonicalizeJson(*entry.second);
+        return canonical;
+    }
+    if (const auto *array = value.getAsArray()) {
+        llvm::json::Array canonical;
+        for (const auto &entry : *array) canonical.push_back(canonicalizeJson(entry));
+        return canonical;
+    }
+    if (auto string = value.getAsString()) return string->str();
+    if (auto boolean = value.getAsBoolean()) return *boolean;
+    if (auto integer = value.getAsInteger()) return *integer;
+    if (auto number = value.getAsNumber()) return *number;
+    return nullptr;
+}
+
+std::string canonicalJson(const llvm::json::Value &value) {
+    return llvm::formatv("{0:2}", canonicalizeJson(value)).str();
+}
+
+std::string quoteShellArgument(const std::string &value) {
+    std::string quoted = "'";
+    for (char ch : value) {
+        if (ch == '\'') quoted += "'\\''";
+        else quoted += ch;
+    }
+    return quoted + "'";
+}
+
+llvm::json::Object buildEvidence(const Collector &collector,
+                                 const AgentPolicyState &state,
+                                 llvm::json::Array sources,
+                                 llvm::json::Array frontend_args,
+                                 llvm::StringRef semantic_result,
+                                 llvm::StringRef final_result) {
+    llvm::json::Object evidence;
+    evidence["schema"] = "cand.evidence/v1";
+    evidence["result"] = final_result.str();
+    llvm::json::Object cand_info;
+    cand_info["version"] = "0.1.0-dev";
+    cand_info["build_identity"] = llvm::formatv("cand-0.1.0-dev/llvm-{0}/clang-{1}", LLVM_VERSION_STRING, CLANG_VERSION_STRING).str();
+    cand_info["commit"] = gitHead();
+    cand_info["binary_sha256"] = CandExecutableSha256;
+    evidence["cand"] = std::move(cand_info);
+    llvm::json::Object source;
+    source["files"] = std::move(sources);
+    evidence["source"] = std::move(source);
+    llvm::json::Object frontend;
+    frontend["compiler"] = "clang";
+    frontend["version"] = CLANG_VERSION_STRING;
+    frontend["llvm_version"] = LLVM_VERSION_STRING;
+    frontend["arguments"] = std::move(frontend_args);
+    evidence["frontend"] = std::move(frontend);
+    llvm::json::Object verification;
+    verification["profile"] = state.policy.profile;
+    verification["safety_level"] = state.policy.safety_level;
+    verification["policy_path"] = PolicyPath.getValue();
+    verification["base_ref"] = BaseRef.getValue();
+    verification["trusted_base_sha"] = TrustedBaseCommit;
+    verification["effective_policy_sha256"] = state.policy.sha256;
+    verification["checked_scope"] = state.policy.scope_files;
+    evidence["verification"] = std::move(verification);
+    const llvm::json::Object analysis = collector.jsonObject();
+    llvm::json::Object coverage;
+    if (const auto *counts = analysis.getObject("coverage")) {
+        if (auto value = counts->getInteger("functions_analyzed")) coverage["functions_analyzed"] = *value;
+        if (auto value = counts->getInteger("tracked_heap_objects")) coverage["tracked_heap_objects"] = *value;
+        if (auto value = counts->getInteger("unsupported_ownership_operations")) coverage["unsupported_ownership_operations"] = *value;
+    }
+    coverage["unsafe_boundaries"] = static_cast<std::int64_t>(state.unsafe_boundaries);
+    coverage["suppressions"] = static_cast<std::int64_t>(state.suppressions);
+    evidence["analysis"] = std::move(coverage);
+    llvm::json::Array contracts;
+    for (const auto &entry : state.contract_inputs) {
+        llvm::json::Object contract;
+        contract["path"] = std::get<0>(entry);
+        contract["sha256"] = std::get<1>(entry);
+        contract["trust_class"] = std::get<2>(entry);
+        contracts.push_back(std::move(contract));
+    }
+    evidence["contracts"] = std::move(contracts);
+    llvm::json::Object policy_delta;
+    policy_delta["weakened"] = state.delta.weakened || state.policy_failed;
+    policy_delta["review_required"] = state.delta.review_required || state.review_required;
+    policy_delta["changes"] = llvm::json::Array();
+    for (const auto &change : state.delta.changes) {
+        llvm::json::Object item;
+        item["kind"] = change.kind;
+        item["before"] = change.before;
+        item["after"] = change.after;
+        item["classification"] = change.classification;
+        policy_delta.getArray("changes")->push_back(std::move(item));
+    }
+    for (const auto &error : state.policy_errors) {
+        llvm::json::Object item;
+        item["kind"] = "policy-violation";
+        item["detail"] = error;
+        item["classification"] = "PROOF_WEAKENING";
+        policy_delta.getArray("changes")->push_back(std::move(item));
+    }
+    evidence["proof_policy_delta"] = std::move(policy_delta);
+    evidence["semantic_result"] = semantic_result.str();
+    const std::string payload = canonicalJson(llvm::json::Value(std::move(evidence)));
+    auto reparsed = llvm::json::parse(payload);
+    evidence = std::move(*reparsed->getAsObject());
+    evidence["integrity_sha256"] = cand::sha256(payload);
+    return evidence;
+}
+
+void printAgentJson(const Collector &collector, const AgentPolicyState &state,
+                    llvm::json::Object evidence,
+                    llvm::StringRef semantic_result,
+                    llvm::StringRef final_result,
+                    llvm::StringRef evidence_path) {
+    llvm::json::Object root;
+    root["schema"] = "cand.agent-check/v1";
+    root["result"] = final_result.str();
+    root["semantic_result"] = semantic_result.str();
+    root["policy_result"] = state.policy_failed || state.delta.weakened ? "fail" :
+        (state.review_required || state.delta.review_required ? "review_required" : "pass");
+    root["profile"] = state.policy.profile;
+    root["safety_level"] = state.policy.safety_level;
+    root["policy_delta"] = policyDeltaJson(state);
+    root["analysis"] = collector.jsonObject();
+    root["effective_policy"] = cand::policyJson(state.policy);
+    root["evidence"] = std::move(evidence);
+    if (!evidence_path.empty()) root["evidence_path"] = evidence_path.str();
+    llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(root)));
+}
+
+bool verifyEvidenceFile(const std::string &path, std::string &status,
+                        std::string &detail) {
+    std::string error;
+    const std::string text = readFile(path, error);
+    if (!error.empty()) { status = "error"; detail = error; return false; }
+    auto parsed = llvm::json::parse(text);
+    if (!parsed || !parsed->getAsObject()) { status = "tampered"; detail = "invalid evidence JSON"; return false; }
+    llvm::json::Object evidence = std::move(*parsed->getAsObject());
+    auto integrity = evidence.getString("integrity_sha256");
+    if (!integrity) { status = "tampered"; detail = "missing integrity digest"; return false; }
+    const std::string expected_integrity = integrity->str();
+    evidence.erase("integrity_sha256");
+    const std::string canonical_payload = canonicalJson(llvm::json::Value(std::move(evidence)));
+    if (cand::sha256(canonical_payload) != expected_integrity) {
+        status = "tampered"; detail = "evidence payload digest mismatch"; return false;
+    }
+    auto restored = llvm::json::parse(canonical_payload);
+    if (!restored || !restored->getAsObject()) { status = "tampered"; detail = "invalid canonical payload"; return false; }
+    evidence = std::move(*restored->getAsObject());
+    const auto *cand_info = evidence.getObject("cand");
+    auto binary_digest = cand_info ? cand_info->getString("binary_sha256") : std::nullopt;
+    if (!binary_digest || binary_digest->str() != CandExecutableSha256) {
+        status = "stale"; detail = "C& verifier binary differs from evidence"; return false;
+    }
+    const auto *source = evidence.getObject("source");
+    const auto *files = source ? source->getArray("files") : nullptr;
+    if (!files) { status = "tampered"; detail = "missing source file manifest"; return false; }
+    for (const auto &item : *files) {
+        const auto *file = item.getAsObject();
+        auto file_path = file ? file->getString("path") : std::nullopt;
+        auto expected = file ? file->getString("sha256") : std::nullopt;
+        std::string actual, hash_error;
+        if (!file_path || !expected || !cand::sha256File(file_path->str(), actual, hash_error) || actual != expected->str()) {
+            status = "stale"; detail = "source content changed or unavailable"; return false;
+        }
+    }
+    const auto *verification = evidence.getObject("verification");
+    auto expected_base = verification ? verification->getString("trusted_base_sha") : std::nullopt;
+    const char *trusted_base_env = std::getenv("CAND_TRUSTED_BASE_SHA");
+    if (!expected_base || !trusted_base_env || expected_base->str() != trusted_base_env ||
+        gitOriginMain() != expected_base->str()) {
+        status = "stale"; detail = "trusted base commit differs from evidence"; return false;
+    }
+    auto policy_path = verification ? verification->getString("policy_path") : std::nullopt;
+    auto policy_digest = verification ? verification->getString("effective_policy_sha256") : std::nullopt;
+    std::string actual_policy;
+    if (!policy_path || !policy_digest || !cand::sha256File(policy_path->str(), actual_policy, error) || actual_policy != policy_digest->str()) {
+        status = "stale"; detail = "effective policy changed or unavailable"; return false;
+    }
+    const auto *contracts = evidence.getArray("contracts");
+    if (contracts) for (const auto &item : *contracts) {
+        const auto *contract = item.getAsObject();
+        auto contract_path = contract ? contract->getString("path") : std::nullopt;
+        auto expected = contract ? contract->getString("sha256") : std::nullopt;
+        std::string actual;
+        if (!contract_path || !expected || !cand::sha256File(contract_path->str(), actual, error) || actual != expected->str()) {
+            status = "stale"; detail = "trusted contract changed or unavailable"; return false;
+        }
+    }
+    const auto *frontend = evidence.getObject("frontend");
+    const auto *arguments = frontend ? frontend->getArray("arguments") : nullptr;
+    const auto *scope = verification ? verification->getArray("checked_scope") : nullptr;
+    if (!arguments || !scope || scope->empty() || CandExecutablePath.empty()) {
+        status = "tampered"; detail = "evidence cannot be replayed"; return false;
+    }
+    std::vector<std::string> source_paths;
+    for (const auto &item : *scope) {
+        auto path = item.getAsString();
+        if (!path || cand::normalizedRelativePath(path->str()) != path->str()) {
+            status = "tampered"; detail = "invalid checked-scope path"; return false;
+        }
+        source_paths.push_back(path->str());
+    }
+    std::string contract_path;
+    if (contracts) {
+        if (contracts->size() > 1) {
+            status = "tampered"; detail = "unsupported contract bundle count"; return false;
+        }
+        if (!contracts->empty()) {
+            const auto *contract = contracts->front().getAsObject();
+            auto path = contract ? contract->getString("path") : std::nullopt;
+            if (!path) { status = "tampered"; detail = "invalid contract identity"; return false; }
+            contract_path = path->str();
+        }
+    }
+    char replay_path[] = "/tmp/cand-evidence-XXXXXX";
+    const int replay_fd = mkstemp(replay_path);
+    if (replay_fd < 0) { status = "error"; detail = "cannot create evidence replay file"; return false; }
+    close(replay_fd);
+    std::string command = quoteShellArgument(CandExecutablePath) +
+        " check --agent --base origin/main --policy " + quoteShellArgument(policy_path->str()) +
+        " --emit-evidence " + quoteShellArgument(replay_path);
+    if (!contract_path.empty()) command += " --contracts " + quoteShellArgument(contract_path);
+    for (const auto &path : source_paths) command += " " + quoteShellArgument(path);
+    command += " --";
+    for (const auto &item : *arguments) {
+        auto argument = item.getAsString();
+        if (!argument) {
+            std::filesystem::remove(replay_path);
+            status = "tampered"; detail = "invalid frontend argument"; return false;
+        }
+        command += " " + quoteShellArgument(argument->str());
+    }
+    command += " >/dev/null 2>&1";
+    const int replay_status = std::system(command.c_str());
+    std::string replay_error;
+    const std::string replay_text = readFile(replay_path, replay_error);
+    std::filesystem::remove(replay_path);
+    if (replay_status == -1 || !replay_error.empty()) {
+        status = "stale"; detail = "evidence replay could not reproduce a verifier result"; return false;
+    }
+    auto replayed = llvm::json::parse(replay_text);
+    if (!replayed || !replayed->getAsObject()) {
+        status = "stale"; detail = "evidence replay failed"; return false;
+    }
+    replayed->getAsObject()->erase("integrity_sha256");
+    if (canonicalJson(*replayed) != canonical_payload) {
+        status = "stale"; detail = "evidence does not match replayed verification"; return false;
+    }
+    status = "valid"; detail = "all bound inputs match"; return true;
+}
+
+void printPolicyAddedDiff(llvm::StringRef path) {
+    llvm::json::Object root;
+    root["schema"] = "cand.policy-diff/v1";
+    root["classification"] = "REVIEW_REQUIRED";
+    root["result"] = "review_required";
+    llvm::json::Array changes;
+    llvm::json::Object change;
+    change["kind"] = "initial-policy";
+    change["before"] = "absent";
+    change["after"] = path.str();
+    change["classification"] = "REVIEW_REQUIRED";
+    changes.push_back(std::move(change));
+    root["changes"] = std::move(changes);
+    llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(root)));
+}
+
+int runPolicyDiff(int argc, const char **argv) {
+    std::string base_ref, base_file, head_file = "cand-policy.json";
+    bool json = false;
+    for (int i = 3; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if ((arg == "--base" || arg == "--base-policy" || arg == "--head-policy" || arg == "--format") && i + 1 < argc) {
+            const std::string value = argv[++i];
+            if (arg == "--base") base_ref = value;
+            else if (arg == "--base-policy") base_file = value;
+            else if (arg == "--head-policy") head_file = value;
+            else json = value == "json";
+        } else {
+            llvm::errs() << "cand policy diff: unknown or incomplete argument: " << arg << '\n';
+            return 2;
+        }
+    }
+    if (!json || (base_ref.empty() == base_file.empty())) {
+        llvm::errs() << "Usage: cand policy diff (--base <git-ref>|--base-policy <file>) [--head-policy <file>] --format json\n";
+        return 2;
+    }
+    cand::Policy before, after;
+    std::string error;
+    if (!cand::loadPolicy(head_file, after, error)) {
+        llvm::errs() << "cand policy diff: " << error << '\n';
+        return 2;
+    }
+    const bool base_ok = base_file.empty()
+        ? cand::loadPolicyAtRef(base_ref, "cand-policy.json", before, error)
+        : cand::loadPolicy(base_file, before, error);
+    if (!base_ok && error.find("base policy not found") == 0) {
+        printPolicyAddedDiff("cand-policy.json");
+        return 4;
+    }
+    if (!base_ok) {
+        llvm::errs() << "cand policy diff: " << error << '\n';
+        return 2;
+    }
+    const cand::PolicyDiff diff = cand::comparePolicies(before, after);
+    llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(diff.toJson()));
+    return diff.weakened || diff.review_required ? 4 : 0;
+}
+
+int runEvidenceVerify(int argc, const char **argv) {
+    if (argc != 4 || llvm::StringRef(argv[2]) != "verify") {
+        llvm::errs() << "Usage: cand evidence verify <evidence.json>\n";
+        return 2;
+    }
+    std::string status, detail;
+    const bool valid = verifyEvidenceFile(argv[3], status, detail);
+    llvm::json::Object result;
+    result["schema"] = "cand.evidence-verify/v1";
+    result["result"] = status;
+    result["detail"] = detail;
+    llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(result)));
+    return valid ? 0 : (status == "stale" ? 1 : 2);
+}
+
+bool loadAgentPolicy(AgentPolicyState &state) {
+    std::string error;
+    if (!cand::loadPolicy(PolicyPath, state.policy, error)) {
+        state.policy_failed = true;
+        state.policy_errors.push_back(error);
+        return false;
+    }
+    if (!cand::isStrictGeneratedPolicy(state.policy, error)) {
+        state.policy_failed = true;
+        state.policy_errors.push_back(error);
+    }
+    if (cand::normalizedRelativePath(PolicyPath) != "cand-policy.json") {
+        state.policy_failed = true;
+        state.policy_errors.push_back("--agent only accepts the repository-authoritative cand-policy.json path");
+    }
+    if (BaseRef != "origin/main" || !BasePolicyPath.empty()) {
+        state.policy_failed = true;
+        state.policy_errors.push_back("generated verification requires --base origin/main; --base-policy is not proof authority");
+        return false;
+    }
+    const char *trusted_base_env = std::getenv("CAND_TRUSTED_BASE_SHA");
+    if (!trusted_base_env || TrustedBaseCommit.empty() || TrustedBaseCommit != gitOriginMain()) {
+        state.policy_failed = true;
+        state.policy_errors.push_back("CAND_TRUSTED_BASE_SHA must be supplied by the trusted verifier runner and match origin/main");
+        return false;
+    }
+    if (BaseRef != state.policy.base_ref) {
+        state.policy_failed = true;
+        state.policy_errors.push_back("--base differs from the base ref configured by the effective policy");
+    }
+    cand::Policy before;
+    const bool loaded = cand::loadPolicyAtRef(BaseRef, PolicyPath, before, error);
+    if (!loaded) {
+        if (BasePolicyPath.empty() && error.find("base policy not found") == 0) {
+            state.review_required = true;
+            state.delta.classification = "REVIEW_REQUIRED";
+            state.delta.review_required = true;
+            state.delta.changes.push_back({"initial-policy", "absent", PolicyPath, "REVIEW_REQUIRED"});
+        } else {
+            state.policy_failed = true;
+            state.policy_errors.push_back(error);
+        }
+    } else {
+        state.delta = cand::comparePolicies(before, state.policy);
+    }
+    if (state.delta.weakened) state.policy_failed = true;
+    if (state.delta.review_required) state.review_required = true;
+    addRepositoryPolicyReview(state);
+    return !state.policy_failed;
+}
+
+bool validateAgentContract(AgentPolicyState &state) {
+    if (ContractFile.empty()) return true;
+    std::string digest, error, trust;
+    const std::string normalized = cand::normalizedRelativePath(ContractFile);
+    if (normalized.empty() || !cand::sha256File(ContractFile, digest, error) ||
+        !cand::contractIsPinned(state.policy, normalized, digest, trust)) {
+        state.policy_failed = true;
+        state.review_required = true;
+        state.policy_errors.push_back("contract path/content is not pinned by the effective policy");
+        state.delta.review_required = true;
+        state.delta.classification = state.delta.weakened ? "PROOF_WEAKENING" : "REVIEW_REQUIRED";
+        state.delta.changes.push_back({"contract-set-substitution", "pinned trusted inputs", normalized,
+                                       "REVIEW_REQUIRED"});
+        ContractFile = ""; // candidate or substituted contracts never reach the analyzer
+        return false;
+    }
+    state.contract_inputs.emplace_back(normalized, digest, trust);
+    return true;
+}
+
+void addDetectedPolicyViolations(AgentPolicyState &state) {
+    auto violation = [&](llvm::StringRef kind, unsigned count) {
+        if (count == 0) return;
+        state.policy_failed = true;
+        state.policy_errors.push_back((kind + ": detected " + llvm::Twine(count)).str());
+        state.delta.changes.push_back({kind.str(), "0", std::to_string(count), "PROOF_WEAKENING"});
+        state.delta.weakened = true;
+        state.delta.classification = "PROOF_WEAKENING";
+    };
+    violation("new-unsafe-boundaries", state.unsafe_boundaries);
+    violation("new-suppressions", state.suppressions);
+}
+
+int writeEvidenceFile(const std::string &path, const std::string &evidence) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) { llvm::errs() << "cand: cannot write evidence file: " << path << '\n'; return 2; }
+    output << evidence << '\n';
+    if (!output) { llvm::errs() << "cand: failed writing evidence file: " << path << '\n'; return 2; }
+    return 0;
+}
+
 // Any error-level diagnostic (including driver-level option errors that
 // still let Clang build a recovered AST) means the translation unit did not
 // compile: C& must report a tool error, never a verdict. The flag lives in
@@ -2715,12 +3410,23 @@ private:
 
 void printUsage(llvm::StringRef program) {
     llvm::errs() << "Usage: " << program
-                 << " check [--format=human|json] <source...> [-- <clang-args...>]\n";
+                 << " check [--agent] [--profile semantic|generated] [--policy file] [--base ref] [--emit-evidence file] <source...> [-- <clang-args...>]\n"
+                 << "       " << program << " policy diff --base <git-ref> --format json\n"
+                 << "       " << program << " evidence verify <evidence.json>\n";
 }
 
 } // namespace
 
 int main(int argc, const char **argv) {
+    const std::string executable = llvm::sys::fs::getMainExecutable(argv[0], &CandExecutableAnchor);
+    CandExecutablePath = executable;
+    std::string executable_error;
+    if (!executable.empty()) (void)cand::sha256File(executable, CandExecutableSha256, executable_error);
+    if (const char *trusted_base = std::getenv("CAND_TRUSTED_BASE_SHA")) TrustedBaseCommit = trusted_base;
+    if (argc >= 2 && llvm::StringRef(argv[1]) == "policy")
+        return runPolicyDiff(argc, argv);
+    if (argc >= 2 && llvm::StringRef(argv[1]) == "evidence")
+        return runEvidenceVerify(argc, argv);
     if (argc < 2 || llvm::StringRef(argv[1]) != "check") {
         printUsage(argv[0]);
         return 2;
@@ -2746,7 +3452,79 @@ int main(int argc, const char **argv) {
         return 2;
     }
 
+    if (ProfileName != "semantic" && ProfileName != "generated") {
+        llvm::errs() << "cand: unsupported profile; supported values are semantic and generated\n";
+        return 2;
+    }
+    if (ProfileName == "generated") AgentMode = true;
+    const bool weaker_profile_requested = AgentMode &&
+        ProfileName.getNumOccurrences() != 0 && ProfileName != "generated";
+    if (AgentMode && SafetyLevel != "p0-temporal-lifecycle") {
+        llvm::errs() << "cand: unsupported safety level; only p0-temporal-lifecycle is implemented\n";
+        return 2;
+    }
+    if (AgentMode) {
+        ProfileName = "generated";
+        OutputFormat = "json";
+    }
+
     auto &options_parser = parser_or_error.get();
+
+    AgentPolicyState agent_state;
+    llvm::json::Array source_inputs;
+    llvm::json::Array frontend_args;
+    if (AgentMode) {
+        if (CandExecutableSha256.empty()) {
+            llvm::errs() << "cand: cannot identify the running verifier binary\n";
+            return 2;
+        }
+        (void)loadAgentPolicy(agent_state);
+        if (weaker_profile_requested) {
+            agent_state.policy_failed = true;
+            agent_state.policy_errors.push_back("--agent cannot be combined with a weaker/non-generated profile");
+            agent_state.delta.weakened = true;
+            agent_state.delta.classification = "PROOF_WEAKENING";
+            agent_state.delta.changes.push_back({"profile-override", "generated", ProfileName, "PROOF_WEAKENING"});
+        }
+        if (agent_state.policy.schema.empty()) {
+            llvm::json::Object error;
+            error["schema"] = "cand.agent-check/v1";
+            error["result"] = "policy-error";
+            error["policy_errors"] = agent_state.policy_errors;
+            llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(error)));
+            return 2;
+        }
+        (void)collectSourceInputs(options_parser, agent_state.policy, source_inputs,
+                                  frontend_args, agent_state);
+        bool saw_required_standard = false;
+        for (const auto &argument : frontend_args) {
+            if (auto standard = argument.getAsString()) {
+                if (standard->starts_with("-std=")) {
+                    if (*standard == "-std=c11" && agent_state.policy.frontend_standard == "c11")
+                        saw_required_standard = true;
+                    else {
+                        agent_state.policy_failed = true;
+                        agent_state.policy_errors.push_back("frontend standard differs from the effective policy");
+                    }
+                }
+            }
+        }
+        if (!saw_required_standard) {
+            agent_state.policy_failed = true;
+            agent_state.policy_errors.push_back("frontend arguments must explicitly select -std=c11");
+        }
+        std::vector<std::string> extra_frontend_args;
+        for (const auto &argument : frontend_args) {
+            const auto value = argument.getAsString();
+            if (value && *value != "-std=c11") extra_frontend_args.push_back(value->str());
+        }
+        if (extra_frontend_args != agent_state.policy.frontend_arguments) {
+            agent_state.policy_failed = true;
+            agent_state.policy_errors.push_back("frontend arguments differ from the policy-pinned argument list");
+        }
+        (void)validateAgentContract(agent_state);
+    }
+
     clang::tooling::ClangTool tool(options_parser.getCompilations(),
                                    options_parser.getSourcePathList());
 
@@ -2778,7 +3556,34 @@ int main(int argc, const char **argv) {
         return 2;
     }
 
+    if (AgentMode) {
+        addIncludedFiles(source_inputs, collector, agent_state);
+        addDetectedPolicyViolations(agent_state);
+    }
+
     collector.finalize();
+    if (AgentMode) {
+        llvm::json::Object analysis = collector.jsonObject();
+        const auto semantic = analysis.getString("result").value_or("internal-error");
+        const bool policy_fail = agent_state.policy_failed || agent_state.delta.weakened;
+        const bool review = agent_state.review_required || agent_state.delta.review_required;
+        const char *final_result = policy_fail ? "fail-policy" :
+                                   (review ? "review-required" : semantic.data());
+        llvm::json::Object evidence = buildEvidence(collector, agent_state,
+            std::move(source_inputs), std::move(frontend_args), semantic, final_result);
+        const std::string evidence_text = serializeJson(std::move(evidence));
+        auto parsed_evidence = llvm::json::parse(evidence_text);
+        if (!parsed_evidence || !parsed_evidence->getAsObject()) {
+            llvm::errs() << "cand: internal evidence serialization error\n";
+            return 2;
+        }
+        if (!EvidencePath.empty() && writeEvidenceFile(EvidencePath, evidence_text) != 0)
+            return 2;
+        printAgentJson(collector, agent_state,
+            std::move(*parsed_evidence->getAsObject()), semantic, final_result, EvidencePath);
+        if (policy_fail || review) return 4;
+        return collector.exitCode();
+    }
     if (OutputFormat == "json") {
         collector.printJson();
     } else {

@@ -1,6 +1,9 @@
-schema: cand.agent-policy/v1
-profile: generated-strict
-safety_level: cand1
+schema: cand.agent-policy-design/v1
+profile: generated
+safety_level: p0-temporal-lifecycle
+
+# Design vocabulary only. The executable, versioned policy is cand-policy.json
+# (cand.policy/v1); this file is retained for the architecture checklist.
 
 # C& treats the coding agent as an untrusted synthesis engine.
 # This policy describes the default proof budget for new machine-authored code.
