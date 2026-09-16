@@ -101,7 +101,10 @@ def validate_frontend_paths(root: Path, arguments: list[str]) -> None:
     pending_path_flag: str | None = None
     for argument in arguments:
         if pending_path_flag is not None:
-            require_repo_file(root, argument, f"frontend {pending_path_flag} input") if pending_path_flag in {"-include", "-imacros"} else _require_repo_dir(root, argument, pending_path_flag)
+            if pending_path_flag in {"-include", "-imacros"}:
+                require_repo_file(root, argument, f"frontend {pending_path_flag} input")
+            else:
+                _require_repo_dir(root, argument, pending_path_flag)
             pending_path_flag = None
             continue
         if argument in PATH_FLAGS:
@@ -262,8 +265,12 @@ def main() -> int:
     changed = changed_files(candidate, args.base_sha, args.head_sha)
     sensitive = [path for path in changed if is_sensitive(path)]
 
-    env = os.environ.copy()
-    env["CAND_TRUSTED_BASE_SHA"] = args.base_sha
+    approval_token = os.environ.get("GITHUB_TOKEN", "")
+    verifier_env = os.environ.copy()
+    # The candidate is untrusted input. Even though P0.5 pins frontend flags,
+    # never expose the workflow token to Clang/verifier subprocesses.
+    verifier_env.pop("GITHUB_TOKEN", None)
+    verifier_env["CAND_TRUSTED_BASE_SHA"] = args.base_sha
     command = [
         str(cand), "check", "--agent", "--base", "origin/main",
         "--policy", "cand-policy.json", "--emit-evidence", str(evidence_path),
@@ -271,7 +278,7 @@ def main() -> int:
     if contract_path:
         command += ["--contracts", contract_path]
     command += scope + ["--", f"-std={standard}"] + frontend_args
-    checked = run(command, cwd=candidate, env=env, check=False)
+    checked = run(command, cwd=candidate, env=verifier_env, check=False)
     check_path.write_text(checked.stdout, encoding="utf-8")
     if checked.stderr:
         (output_dir / "agent-check.stderr.txt").write_text(checked.stderr, encoding="utf-8")
@@ -295,15 +302,14 @@ def main() -> int:
     reviewers = {item.strip() for item in args.trusted_reviewers.split(",") if item.strip()}
     approved_by: list[str] = []
     if requires_review:
-        token = os.environ.get("GITHUB_TOKEN", "")
-        if not token or not reviewers:
+        if not approval_token or not reviewers:
             raise AttestationError("verification-surface review requires GITHUB_TOKEN and trusted reviewer authority")
         approved, approved_by = has_exact_head_approval(
             args.repository,
             args.pr_number,
             args.head_sha,
             args.pr_author,
-            token,
+            approval_token,
             reviewers,
         )
         if not approved:
@@ -314,7 +320,7 @@ def main() -> int:
     verified = run(
         [str(cand), "evidence", "verify", str(evidence_path)],
         cwd=candidate,
-        env=env,
+        env=verifier_env,
         check=False,
     )
     verify_path.write_text(verified.stdout, encoding="utf-8")
