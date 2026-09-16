@@ -147,10 +147,10 @@ def _require_repo_dir(root: Path, relative: str, what: str) -> Path:
 
 def changed_files(repo: Path, base_sha: str, head_sha: str) -> list[str]:
     process = run(
-        ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB", base_sha, head_sha, "--"],
+        ["git", "diff", "--name-only", "-z", base_sha, head_sha, "--"],
         cwd=repo,
     )
-    return sorted(line for line in process.stdout.splitlines() if line)
+    return sorted(path for path in process.stdout.split("\0") if path)
 
 
 def is_sensitive(path: str) -> bool:
@@ -177,7 +177,10 @@ def github_json(url: str, token: str) -> object:
 def has_exact_head_approval(repository: str, pr_number: int, head_sha: str,
                             author: str, token: str,
                             trusted_reviewers: set[str]) -> tuple[bool, list[str]]:
-    approved: set[str] = set()
+    # GitHub returns review history, not only effective review state. Keep the
+    # latest exact-head review from each trusted reviewer so an old APPROVED
+    # record cannot survive a later CHANGES_REQUESTED/DISMISSED review.
+    latest: dict[str, tuple[int, str]] = {}
     page = 1
     while True:
         url = (
@@ -188,22 +191,27 @@ def has_exact_head_approval(repository: str, pr_number: int, head_sha: str,
         if not isinstance(payload, list):
             raise AttestationError("GitHub reviews response is not a list")
         for review in payload:
-            if not isinstance(review, dict):
+            if not isinstance(review, dict) or review.get("commit_id") != head_sha:
                 continue
             user = review.get("user") or {}
             login = user.get("login") if isinstance(user, dict) else None
+            review_id = review.get("id")
+            state = review.get("state")
             if (
-                review.get("state") == "APPROVED"
-                and review.get("commit_id") == head_sha
-                and isinstance(login, str)
+                isinstance(login, str)
                 and login != author
                 and login in trusted_reviewers
+                and isinstance(review_id, int)
+                and isinstance(state, str)
             ):
-                approved.add(login)
+                previous = latest.get(login)
+                if previous is None or review_id > previous[0]:
+                    latest[login] = (review_id, state)
         if len(payload) < 100:
             break
         page += 1
-    return bool(approved), sorted(approved)
+    approved = sorted(login for login, (_, state) in latest.items() if state == "APPROVED")
+    return bool(approved), approved
 
 
 def parse_args() -> argparse.Namespace:
@@ -264,6 +272,18 @@ def main() -> int:
 
     changed = changed_files(candidate, args.base_sha, args.head_sha)
     sensitive = [path for path in changed if is_sensitive(path)]
+    scoped = set(scope)
+    # A changed production C source that is not in the declared proof scope is
+    # not "reviewable PASS" — it was never analyzed.  Tests are verifier
+    # surface and follow the exact-head review path instead.
+    unscoped_c = [
+        path for path in changed
+        if path.endswith(".c") and not path.startswith("tests/") and path not in scoped
+    ]
+    if unscoped_c:
+        raise AttestationError(
+            "changed C source is outside cand-policy.json scope.files: " + ", ".join(unscoped_c)
+        )
 
     approval_token = os.environ.get("GITHUB_TOKEN", "")
     verifier_env = os.environ.copy()
