@@ -54,3 +54,7 @@ add_test(
     NAME cand-p0-3-storage
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/storage/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand-p0-4-interprocedural
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/interprocedural/run.sh $<TARGET_FILE:cand>
+)

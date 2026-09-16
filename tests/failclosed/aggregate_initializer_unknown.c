@@ -10,8 +10,8 @@ static char *make(void)
 }
 
 /*
- * An unmodelled pointer-returning call stored through an aggregate
- * initializer must fail closed exactly like the assignment form.
+ * An owned pointer-returning call stored through an aggregate initializer is
+ * outside the tracked storage model and must fail closed.
  *
  * Required P0.1 result: INCOMPLETE (unknown-pointer-return-ownership).
  */

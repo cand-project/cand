@@ -193,13 +193,21 @@ Since P0.2, ownership state is attached to program points and propagated over th
 }
 ```
 
-`certainty: definite` means every represented path reaches the point with the object destroyed; `possible` means at least one does. Aliases, struct members, array elements and interprocedural ownership remain INCOMPLETE — the CFG does not convert them into PASS.
+`certainty: definite` means every represented path reaches the point with the object destroyed; `possible` means at least one does. Aliases, struct members, array elements and supported same-translation-unit effects are tracked. Unknown external effects, unsupported pointer shapes, mixed provenance, and unresolved alias targets remain INCOMPLETE; CFG reachability never converts unknown behavior into PASS.
 
 The analyzer is a deliberately narrow P0 temporal-lifecycle subset. A differential ASan corpus (`tests/differential/`) runs in CI and fails on any `ASan violation + cand PASS` pair. This is P0.1 evidence hygiene, **not** a C&1 soundness claim.
 
 ## External API contracts
 
 Existing libraries do not need to become C& projects. Machine-readable contracts describe ownership effects at API boundaries:
+
+P0.4 derives same-translation-unit allocator, destructor, borrow/view, and
+read-only parameter summaries. Trusted SPEC-0003 v1 bundles load with
+`--contracts=PATH`; visible bodies take precedence and conflicting contracts
+fail closed. A `consumes` effect transfers the caller's tracked object to an
+unknown state, so subsequent caller use is INCOMPLETE rather than assumed live
+or destroyed. Unknown external calls and candidate/LLM proposals remain
+INCOMPLETE.
 
 ```yaml
 - symbol: malloc
@@ -220,6 +228,12 @@ Existing libraries do not need to become C& projects. Machine-readable contracts
 Contracts are security-sensitive proof inputs. Strict checking must fail closed on unknown or contradictory ownership effects.
 
 LLMs are expected to be useful at proposing contracts from headers, implementations, documentation and call sites. Those proposals remain **candidate/untrusted** until promoted through an approved trust path. A model cannot make its own generated code pass by inventing a trusted contract.
+
+For P0.4, trust is granted by the verifier operator explicitly supplying a
+bundle with `--contracts=PATH`; YAML trust/provenance fields do not grant
+authority. Any deployment that lets an agent control this verifier option or
+its configuration must protect that authority outside the agent-editable
+worktree.
 
 ## Incremental adoption
 

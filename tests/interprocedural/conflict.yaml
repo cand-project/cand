@@ -1,0 +1,11 @@
+schema: cand.api-contract/v1
+name: conflict
+version: "1"
+symbols:
+  - symbol: bad_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+    returns:
+      ownership: none

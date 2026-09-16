@@ -1,0 +1,7 @@
+schema: cand.api-contract/v1
+name: missing-version
+symbols:
+  - symbol: vendor_create
+    kind: function
+    returns:
+      ownership: owned

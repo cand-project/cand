@@ -65,7 +65,7 @@ run_case "Snake Tail fixed" \
 run_case "RPG Inventory Alias" \
   examples/showcase/04-rpg-inventory-alias-incomplete.c fail 1 CAND-T002
 run_case "Renderer Plugin Boundary" \
-  examples/showcase/05-renderer-plugin-boundary-incomplete.c incomplete 3 unknown-call-with-tracked-pointer
+  examples/showcase/05-renderer-plugin-boundary-incomplete.c pass 0 -
 
 echo
 echo "C& showcase passed: concrete bugs fail, repairs pass, unknown semantics fail closed."

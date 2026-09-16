@@ -1,11 +1,8 @@
 #include <stdlib.h>
 
 /*
- * A pointer parameter has no ownership context in P0: the callee cannot be
- * proven to own (or not own) the object. The free must not be silently
- * accepted.
- *
- * Required P0.1 result: INCOMPLETE (free-untracked-pointer).
+ * P0.4 derives destroys(arg0) from this visible wrapper and applies it to the
+ * caller's ObjectId.
  */
 void destroy(int *p)
 {

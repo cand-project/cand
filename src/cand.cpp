@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <fstream>
 #include <map>
 #include <limits>
 #include <memory>
@@ -85,6 +86,9 @@ llvm::cl::opt<std::string> OutputFormat(
     llvm::cl::desc("Output format: human|json"),
     llvm::cl::init("human"),
     llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> ContractFile(
+    "contracts", llvm::cl::desc("trusted C& API contract YAML"),
+    llvm::cl::init(""), llvm::cl::cat(CandCategory));
 
 struct Location {
     std::string file;
@@ -138,6 +142,38 @@ struct Unsupported {
     Location primary;
 };
 
+enum class ReturnEffect { None, Owned, BorrowFromArg, Unknown };
+enum class ParamEffect { None, Borrow, TakeOwnership, Destroy, Unknown };
+enum class SummaryOrigin { BodyVerified, BuiltinTrusted, ExternalTrusted, CandidateUntrusted, Unknown };
+
+struct FunctionSummary {
+    const FunctionDecl *function = nullptr;
+    ReturnEffect return_effect = ReturnEffect::None;
+    std::optional<unsigned> return_borrow_arg;
+    std::vector<ParamEffect> params;
+    SummaryOrigin origin = SummaryOrigin::Unknown;
+    bool conflict = false;
+};
+
+class SummaryStore {
+public:
+    void add(const FunctionDecl *function, FunctionSummary summary) {
+        summaries_[function->getNameAsString()] = std::move(summary);
+    }
+    void set(llvm::StringRef name, FunctionSummary summary) { summaries_[name.str()] = std::move(summary); }
+    const FunctionSummary *find(const FunctionDecl *function) const {
+        if (!function) return nullptr;
+        auto it = summaries_.find(function->getNameAsString());
+        return it == summaries_.end() ? nullptr : &it->second;
+    }
+    const FunctionSummary *find(llvm::StringRef name) const {
+        auto it = summaries_.find(name.str());
+        return it == summaries_.end() ? nullptr : &it->second;
+    }
+private:
+    std::map<std::string, FunctionSummary> summaries_;
+};
+
 class Collector {
 public:
     // Findings are collected only during the post-convergence emission pass.
@@ -165,6 +201,8 @@ public:
     // a C& verdict: the analysis ran on a recovered (not real) AST.
     void noteFrontendError() { frontend_error_ = true; }
     bool hasFrontendError() const { return frontend_error_; }
+    void noteContractError() { contract_error_ = true; }
+    bool hasContractError() const { return contract_error_; }
 
     void noteTrackedHeapObjects(std::size_t count) {
         tracked_heap_objects_ += static_cast<unsigned>(count);
@@ -304,6 +342,7 @@ private:
     std::set<std::tuple<std::string, std::string, unsigned, unsigned>>
         seen_unsupported_;
     bool frontend_error_ = false;
+    bool contract_error_ = false;
     unsigned functions_analyzed_ = 0;
     unsigned tracked_heap_objects_ = 0;
     unsigned next_object_id_ = 1;
@@ -530,9 +569,9 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
 
 class FlowAnalyzer {
 public:
-    FlowAnalyzer(ASTContext &context, Collector &collector)
+    FlowAnalyzer(ASTContext &context, Collector &collector, const SummaryStore &summaries)
         : context_(context), source_manager_(context.getSourceManager()),
-          collector_(collector) {}
+          collector_(collector), summaries_(summaries) {}
 
     void analyze(const FunctionDecl &function) {
         const Stmt *body = function.getBody();
@@ -540,6 +579,7 @@ public:
             return;
         }
         collector_.noteFunction();
+        current_summary_ = summaries_.find(&function);
         collectAllocationSites(body);
         collectLoopAllocations(body, false);
         collectUnevaluated(body);
@@ -619,6 +659,25 @@ private:
         return call != nullptr && isAllocatorCall(*call);
     }
 
+    const FunctionSummary *summaryFor(const CallExpr &call) const {
+        return summaries_.find(call.getDirectCallee());
+    }
+
+    std::optional<unsigned> currentParameter(const Expr *expr) const {
+        if (!current_summary_ || !expr) return std::nullopt;
+        expr = expr->IgnoreParenCasts();
+        const auto *ref = dyn_cast<DeclRefExpr>(expr);
+        const auto *param = ref ? dyn_cast<ParmVarDecl>(ref->getDecl()) : nullptr;
+        if (!param || !current_summary_->function) return std::nullopt;
+        for (unsigned i = 0; i < current_summary_->function->param_size(); ++i)
+            if (current_summary_->function->getParamDecl(i) == param) return i;
+        return std::nullopt;
+    }
+
+    bool isModeledPointerCall(const CallExpr &call) const {
+        return isAllocatorCall(call) || summaryFor(call) != nullptr;
+    }
+
     bool isNullConstant(const Expr *expr) const {
         if (expr == nullptr) {
             return false;
@@ -672,7 +731,7 @@ private:
         if (!call->getType()->isPointerType()) {
             return nullptr;
         }
-        if (isAllocatorCall(*call)) {
+        if (isModeledPointerCall(*call)) {
             return nullptr;
         }
         return call;
@@ -710,6 +769,19 @@ private:
                     return true;
                 }
             }
+        }
+        return false;
+    }
+
+    bool containsOwnedPointerCall(const Expr *expr) const {
+        if (!expr) return false;
+        if (const auto *call = asCall(expr)) {
+            const auto *summary = summaryFor(*call);
+            if (summary && summary->return_effect == ReturnEffect::Owned) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            const auto *e = llvm::dyn_cast_or_null<Expr>(child);
+            if (e && containsOwnedPointerCall(e)) return true;
         }
         return false;
     }
@@ -1127,6 +1199,9 @@ private:
         }
         if (!access_storage) access_storage = findTrackedStorage(pointer_expr, state);
         if (binding == nullptr) {
+            if (auto index = currentParameter(pointer_expr); index &&
+                *index < current_summary_->params.size() &&
+                current_summary_->params[*index] == ParamEffect::Borrow) return;
             if (containsParameterStorage(pointer_expr)) {
                 emitUnsupported({"unmodelled-pointer-parameter", "",
                                  location(access_loc)});
@@ -1179,6 +1254,8 @@ private:
         }
         const auto destroy_storage = storageFor(arg);
         if (!destroy_storage) {
+            if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
+                current_summary_->params[*index] == ParamEffect::Destroy) return;
             const Expr *base = arg->IgnoreParenCasts();
             if (isa<ArraySubscriptExpr>(base)) {
                 emitUnsupported({untrackedStorageKind(base), "", location(call.getExprLoc())});
@@ -1195,6 +1272,10 @@ private:
             return;
         }
         auto it = state.storages.find(*destroy_storage);
+        if (it == state.storages.end()) {
+            if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
+                current_summary_->params[*index] == ParamEffect::Destroy) return;
+        }
         if (it == state.storages.end()) {
             emitUnsupported(
                 {"free-untracked-pointer", "", location(call.getExprLoc())});
@@ -1254,7 +1335,69 @@ private:
         }
     }
 
-    void handleCall(const CallExpr &call, const FlowState &state) {
+    void destroyBinding(const Expr *arg, const CallExpr &call, FlowState &state) {
+        const auto storage = storageFor(arg);
+        if (!storage) {
+            markUnsupported(call, "destroy-untracked-pointer");
+            return;
+        }
+        auto it = state.storages.find(*storage);
+        if (it == state.storages.end()) {
+            markUnsupported(call, "destroy-untracked-pointer");
+            return;
+        }
+        StorageBinding &binding = it->second;
+        if (binding.object_id == kNullObjectId && binding.relation == PointerRelation::Null) return;
+        if (binding.object_id == kUnknownObjectId || binding.object_id == kNullObjectId) {
+            markUnsupported(call, "ambiguous-alias-target");
+            return;
+        }
+        auto object_it = state.objects.find(binding.object_id);
+        if (object_it == state.objects.end()) {
+            markUnsupported(call, "destroy-unknown-ownership-state");
+            return;
+        }
+        ObjectInfo &object = object_it->second;
+        if (object.state == ObjectState::Owned) {
+            object.state = ObjectState::Dead;
+            object.destruction = location(call.getExprLoc());
+            object.destruction_known = true;
+            object.destruction_storage = storageName(*storage);
+        } else if (object.state == ObjectState::Dead || object.state == ObjectState::MaybeDead) {
+            reportDoubleDestroy(binding, object, *storage, call.getExprLoc(), object.state == ObjectState::Dead);
+        } else {
+            markUnsupported(call, "destroy-unknown-ownership-state");
+        }
+    }
+
+    void transferBinding(const Expr *arg, const CallExpr &call, FlowState &state) {
+        const auto storage = storageFor(arg);
+        if (!storage) {
+            markUnsupported(call, "transfer-untracked-pointer");
+            return;
+        }
+        const auto binding = state.storages.find(*storage);
+        if (binding == state.storages.end() || binding->second.object_id == kUnknownObjectId) {
+            markUnsupported(call, "transfer-unknown-ownership-state");
+            return;
+        }
+        if (binding->second.object_id == kNullObjectId &&
+            binding->second.relation == PointerRelation::Null) return;
+        const auto object = state.objects.find(binding->second.object_id);
+        if (object == state.objects.end() || object->second.state != ObjectState::Owned) {
+            markUnsupported(call, "transfer-unknown-ownership-state");
+            return;
+        }
+        // The callee now owns the object, but may retain or destroy it. Do not
+        // conflate transfer with destruction: future caller accesses become
+        // unknown rather than being optimistically treated as live or dead.
+        object->second.state = ObjectState::Unknown;
+        object->second.destruction_known = false;
+        object->second.destruction = {};
+        object->second.destruction_storage.clear();
+    }
+
+    void handleCall(const CallExpr &call, FlowState &state) {
         const auto is_nonlocal_control = [this, &call]() {
             static const char *names[] = {"setjmp", "_setjmp", "sigsetjmp",
                                            "__sigsetjmp", "longjmp", "_longjmp",
@@ -1273,6 +1416,34 @@ private:
         }
         if (isAllocatorCall(call)) {
             return;
+        }
+        if (const FunctionSummary *summary = summaryFor(call)) {
+            if (summary->conflict) {
+                markUnsupported(call, "contract-body-conflict");
+                return;
+            }
+            if (summary->return_effect == ReturnEffect::Unknown) {
+                markUnsupported(call, "unknown-pointer-return-ownership");
+                return;
+            }
+            for (unsigned i = 0; i < call.getNumArgs() && i < summary->params.size(); ++i) {
+                if (summary->params[i] == ParamEffect::Destroy) {
+                    const auto parameter = currentParameter(call.getArg(i));
+                    if (!(parameter && current_summary_ && *parameter < current_summary_->params.size() &&
+                          current_summary_->params[*parameter] == ParamEffect::Destroy))
+                        destroyBinding(call.getArg(i), call, state);
+                }
+                else if (summary->params[i] == ParamEffect::Borrow) checkAccess(call.getArg(i), call.getExprLoc(), state);
+                else if (summary->params[i] == ParamEffect::TakeOwnership &&
+                         containsTrackedStorage(call.getArg(i), state))
+                    transferBinding(call.getArg(i), call, state);
+                else if (summary->params[i] == ParamEffect::Unknown && containsTrackedStorage(call.getArg(i), state))
+                    markUnsupported(call, "unknown-call-with-tracked-pointer");
+            }
+            return;
+        }
+        if (call.getType()->isPointerType()) {
+            noteUnknownPointerCall(call);
         }
         bool tracked_argument = false;
         bool global_argument = false;
@@ -1348,6 +1519,37 @@ private:
         return id;
     }
 
+    void bindSummaryReturn(const StorageId &storage, const CallExpr &call,
+                           FlowState &state) {
+        const FunctionSummary *summary = summaryFor(call);
+        if (!summary || summary->conflict || summary->origin == SummaryOrigin::Unknown) {
+            markUnsupported(call, "unknown-pointer-return-ownership");
+            return;
+        }
+        if (summary->return_effect == ReturnEffect::Owned) {
+            const unsigned id = objectIdForAllocation(&call);
+            state.storages[storage] = {id, PointerRelation::Owner, location(call.getExprLoc())};
+            auto &object = state.objects[id];
+            object.state = ObjectState::Owned;
+            object.allocation = location(call.getExprLoc());
+            bound_objects_.insert(id);
+            return;
+        }
+        if (summary->return_effect == ReturnEffect::BorrowFromArg &&
+            summary->return_borrow_arg && *summary->return_borrow_arg < call.getNumArgs()) {
+            const auto source = storageFor(call.getArg(*summary->return_borrow_arg));
+            if (source) {
+                auto it = state.storages.find(*source);
+                if (it != state.storages.end() && it->second.object_id != kUnknownObjectId) {
+                    state.storages[storage] = {it->second.object_id, PointerRelation::Alias,
+                                               location(call.getExprLoc())};
+                    return;
+                }
+            }
+        }
+        markUnsupported(call, "unknown-pointer-return-ownership");
+    }
+
     void handleDeclStmt(const DeclStmt &decl_stmt, FlowState &state) {
         for (const clang::Decl *decl : decl_stmt.decls()) {
             const auto *var = dyn_cast<VarDecl>(decl);
@@ -1363,7 +1565,7 @@ private:
                 continue;
             }
             if (!var->getType()->isPointerType()) {
-                if (containsAllocationCall(init)) {
+                if (containsAllocationCall(init) || containsOwnedPointerCall(init)) {
                     emitUnsupported(
                         {"allocation-to-untracked-storage:initializer", "",
                          location(decl_stmt.getBeginLoc())});
@@ -1388,6 +1590,8 @@ private:
             } else if (isAllocationOrNull(init)) {
                 // A declaration introduces a fresh object on every execution.
                 bindAllocation(storage, init, state);
+            } else if (const auto *call = asCall(init); call != nullptr && summaryFor(*call) != nullptr) {
+                bindSummaryReturn(storage, *call, state);
             } else if (const auto source = storageFor(init)) {
                 const auto it = state.storages.find(*source);
                 if (it == state.storages.end() ||
@@ -1458,6 +1662,8 @@ private:
                     markUnsupported(binary, "tracked-owner-overwrite");
                 }
                 if (lhs_storage) bindAllocation(*lhs_storage, rhs, state);
+            } else if (const auto *call = asCall(rhs); call != nullptr && summaryFor(*call) != nullptr) {
+                if (lhs_storage) bindSummaryReturn(*lhs_storage, *call, state);
             } else {
                 if (const auto source = storageFor(rhs)) {
                     const auto source_it = state.storages.find(*source);
@@ -1497,6 +1703,10 @@ private:
                 } else {
                     bindAllocation(*lhs_storage, rhs, state);
                 }
+            } else if (const auto *call = asCall(rhs); call != nullptr && summaryFor(*call) != nullptr) {
+                if (lhs_storage) bindSummaryReturn(*lhs_storage, *call, state);
+                else if (summaryFor(*call)->return_effect == ReturnEffect::Owned)
+                    emitUnsupported({"allocation-to-untracked-storage:" + untrackedStorageKind(lhs), "", location(binary.getExprLoc())});
             } else if (lhs_storage && storageFor(rhs)) {
                 const auto source = storageFor(rhs);
                 const auto source_it = state.storages.find(*source);
@@ -1534,7 +1744,7 @@ private:
         } else if (lhs->getType()->isRecordType() &&
                    containsTrackedStorage(rhs, state)) {
             markUnsupported(binary, "aggregate-copy-with-tracked-pointer");
-        } else if (containsAllocationCall(rhs) && !containsTrackedStorage(rhs, state)) {
+        } else if ((containsAllocationCall(rhs) || containsOwnedPointerCall(rhs)) && !containsTrackedStorage(rhs, state)) {
             emitUnsupported({"allocation-to-untracked-storage:initializer",
                                        "", location(binary.getExprLoc())});
         }
@@ -1559,7 +1769,8 @@ private:
     void handleReturn(const ReturnStmt &return_stmt, const FlowState &state) {
         const Expr *ret = return_stmt.getRetValue();
         if (ret == nullptr) return;
-        if (containsParameterStorage(ret)) {
+        if (ret->getType()->isPointerType() && containsParameterStorage(ret) && !storageFor(ret) &&
+            !(current_summary_ && current_summary_->return_effect == ReturnEffect::BorrowFromArg)) {
             markUnsupported(return_stmt, "unmodelled-pointer-parameter");
             return;
         }
@@ -1577,7 +1788,18 @@ private:
             return;
         }
         if (containsTrackedStorage(ret, state)) {
-            markUnsupported(return_stmt, "tracked-pointer-return");
+            bool live_owned_return = false;
+            if (current_summary_ && current_summary_->return_effect == ReturnEffect::Owned) {
+                if (const auto storage = storageFor(ret)) {
+                    const auto binding = state.storages.find(*storage);
+                    if (binding != state.storages.end()) {
+                        const auto object = state.objects.find(binding->second.object_id);
+                        live_owned_return = object != state.objects.end() && object->second.state == ObjectState::Owned;
+                    }
+                }
+            }
+            if (!live_owned_return)
+                markUnsupported(return_stmt, "tracked-pointer-return");
         }
         const Expr *stripped = ret->IgnoreParenCasts();
         bool stack_escape = false;
@@ -1802,6 +2024,7 @@ private:
     ASTContext &context_;
     SourceManager &source_manager_;
     Collector &collector_;
+    const SummaryStore &summaries_;
     const CFG *cfg_ = nullptr;
     std::map<const CallExpr *, unsigned> allocation_sites_;
     std::map<const Expr *, unsigned> synthetic_allocation_sites_;
@@ -1811,6 +2034,7 @@ private:
     std::set<const VarDecl *> stack_pointers_;
     std::set<const Stmt *> unevaluated_;
     bool emitting_ = true;
+    const FunctionSummary *current_summary_ = nullptr;
 };
 
 // Process one statement/expression node exactly once per block transfer.
@@ -1964,10 +2188,414 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     recurseChildren(*stmt, state, processed);
 }
 
+class SummaryBuilder {
+public:
+    SummaryBuilder(const SummaryStore &old, SummaryStore &out) : old_(old), out_(out) {}
+
+    void build(const FunctionDecl &function) {
+        FunctionSummary summary;
+        summary.function = &function;
+        summary.origin = SummaryOrigin::BodyVerified;
+        summary.params.assign(function.param_size(), ParamEffect::None);
+        const Stmt *body = function.getBody();
+        if (!body) return;
+        scan(body, function, summary, false);
+        if (function.getReturnType()->isPointerType() && summary.return_effect == ReturnEffect::None)
+            summary.return_effect = ReturnEffect::Unknown;
+        if (summary.conflict) {
+            summary.return_effect = ReturnEffect::Unknown;
+            summary.return_borrow_arg.reset();
+            std::fill(summary.params.begin(), summary.params.end(), ParamEffect::Unknown);
+        }
+        out_.add(&function, std::move(summary));
+    }
+
+private:
+    static std::optional<unsigned> parameterIndex(const Expr *expr, const FunctionDecl &f) {
+        expr = expr ? expr->IgnoreParenCasts() : nullptr;
+        const auto *ref = expr ? dyn_cast<DeclRefExpr>(expr) : nullptr;
+        const auto *param = ref ? dyn_cast<ParmVarDecl>(ref->getDecl()) : nullptr;
+        if (!param) return std::nullopt;
+        for (unsigned i = 0; i < f.param_size(); ++i) if (f.getParamDecl(i) == param) return i;
+        return std::nullopt;
+    }
+
+    static bool containsParameter(const Expr *expr, const FunctionDecl &f, unsigned index) {
+        auto direct = parameterIndex(expr, f);
+        if (direct && *direct == index) return true;
+        if (!expr) return false;
+        for (const Stmt *child : expr->children()) {
+            const auto *e = llvm::dyn_cast_or_null<Expr>(child);
+            if (e && containsParameter(e, f, index)) return true;
+        }
+        return false;
+    }
+
+    static ReturnEffect returnEffect(const CallExpr &call, const SummaryStore &store,
+                                     std::optional<unsigned> &borrow) {
+        if (call.getDirectCallee() && (call.getDirectCallee()->getNameAsString() == "malloc" ||
+                                       call.getDirectCallee()->getNameAsString() == "calloc")) return ReturnEffect::Owned;
+        const FunctionSummary *s = store.find(call.getDirectCallee());
+        if (!s) return ReturnEffect::Unknown;
+        borrow = s->return_borrow_arg;
+        return s->return_effect;
+    }
+
+    static bool ownedInitializer(const Expr *expr, const SummaryStore &store) {
+        expr = expr ? expr->IgnoreParenCasts() : nullptr;
+        if (const auto *call = expr ? dyn_cast<CallExpr>(expr) : nullptr) {
+            if (call->getDirectCallee() && (call->getDirectCallee()->getNameAsString() == "malloc" ||
+                                            call->getDirectCallee()->getNameAsString() == "calloc")) return true;
+            const auto *summary = store.find(call->getDirectCallee());
+            return summary && summary->return_effect == ReturnEffect::Owned;
+        }
+        return false;
+    }
+
+    static bool assignedLater(const Stmt *stmt, const VarDecl *var) {
+        if (!stmt) return false;
+        if (const auto *binary = dyn_cast<BinaryOperator>(stmt); binary && binary->isAssignmentOp()) {
+            const Expr *lhs = binary->getLHS()->IgnoreParenCasts();
+            const auto *ref = dyn_cast<DeclRefExpr>(lhs);
+            if (ref && ref->getDecl() == var) return true;
+        }
+        for (const Stmt *child : stmt->children()) if (assignedLater(child, var)) return true;
+        return false;
+    }
+
+    static bool ownedLocal(const Stmt *stmt, const VarDecl *var, const SummaryStore &store) {
+        if (!stmt) return false;
+        if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
+            for (const clang::Decl *item : decl->decls()) {
+                const auto *candidate = dyn_cast<VarDecl>(item);
+                if (candidate == var && candidate->getInit() && ownedInitializer(candidate->getInit(), store)) return true;
+            }
+        }
+        for (const Stmt *child : stmt->children()) if (ownedLocal(child, var, store)) return true;
+        return false;
+    }
+
+    static void combineReturn(FunctionSummary &s, ReturnEffect effect,
+                              std::optional<unsigned> borrow) {
+        if (effect == ReturnEffect::None) return;
+        if (s.return_effect == ReturnEffect::None) { s.return_effect = effect; s.return_borrow_arg = borrow; return; }
+        if (s.return_effect != effect || (effect == ReturnEffect::BorrowFromArg && s.return_borrow_arg != borrow)) s.conflict = true;
+    }
+
+    void scan(const Stmt *stmt, const FunctionDecl &f, FunctionSummary &s, bool conditional) {
+        if (!stmt) return;
+        auto markParameterFlow = [&](const Expr *expr) {
+            for (unsigned i = 0; i < f.param_size(); ++i) {
+                if (!f.getParamDecl(i)->getType()->isPointerType() ||
+                    !containsParameter(expr, f, i) || s.params[i] != ParamEffect::None) continue;
+                s.params[i] = f.getParamDecl(i)->getType()->getPointeeType()->isPointerType()
+                                  ? ParamEffect::Unknown : ParamEffect::Borrow;
+            }
+        };
+        if (const auto *ret = dyn_cast<ReturnStmt>(stmt)) {
+            const Expr *value = ret->getRetValue();
+            if (value && value->getType()->isPointerType()) {
+                value = value->IgnoreParenCasts();
+                std::optional<unsigned> borrow;
+                ReturnEffect effect = ReturnEffect::Unknown;
+                if ((borrow = parameterIndex(value, f))) effect = ReturnEffect::BorrowFromArg;
+                else if (const auto *call = dyn_cast<CallExpr>(value)) {
+                    effect = returnEffect(*call, old_, borrow);
+                    if (effect == ReturnEffect::BorrowFromArg && borrow && *borrow < call->getNumArgs()) {
+                        const auto mapped = parameterIndex(call->getArg(*borrow), f);
+                        if (mapped) borrow = mapped;
+                        else effect = ReturnEffect::Unknown;
+                    }
+                }
+                else if (const auto *ref = dyn_cast<DeclRefExpr>(value)) {
+                    const auto *var = dyn_cast<VarDecl>(ref->getDecl());
+                    if (var && ownedLocal(f.getBody(), var, old_) && !assignedLater(f.getBody(), var)) effect = ReturnEffect::Owned;
+                }
+                combineReturn(s, effect, borrow);
+            }
+        }
+        if (const auto *unary = dyn_cast<UnaryOperator>(stmt);
+            unary && unary->getOpcode() == clang::UO_Deref) {
+            for (unsigned i = 0; i < f.param_size(); ++i) {
+                if (!f.getParamDecl(i)->getType()->isPointerType() ||
+                    !containsParameter(unary->getSubExpr(), f, i) || s.params[i] != ParamEffect::None) continue;
+                s.params[i] = f.getParamDecl(i)->getType()->getPointeeType()->isPointerType()
+                                  ? ParamEffect::Unknown : ParamEffect::Borrow;
+            }
+        }
+        if (const auto *member = dyn_cast<MemberExpr>(stmt); member && member->isArrow()) {
+            for (unsigned i = 0; i < f.param_size(); ++i)
+                if (f.getParamDecl(i)->getType()->isPointerType() && containsParameter(member->getBase(), f, i) && s.params[i] == ParamEffect::None) s.params[i] = ParamEffect::Borrow;
+        }
+        if (const auto *subscript = dyn_cast<ArraySubscriptExpr>(stmt)) {
+            for (unsigned i = 0; i < f.param_size(); ++i)
+                if (f.getParamDecl(i)->getType()->isPointerType() && containsParameter(subscript->getBase(), f, i) && s.params[i] == ParamEffect::None) s.params[i] = ParamEffect::Borrow;
+        }
+        if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
+            for (const clang::Decl *item : decl->decls()) {
+                const auto *var = dyn_cast<VarDecl>(item);
+                if (var && var->getType()->isPointerType() && var->getInit()) markParameterFlow(var->getInit());
+            }
+        }
+        if (const auto *assignment = dyn_cast<BinaryOperator>(stmt);
+            assignment && assignment->isAssignmentOp() && assignment->getLHS()->getType()->isPointerType())
+            markParameterFlow(assignment->getRHS());
+        if (const auto *call = dyn_cast<CallExpr>(stmt)) {
+            const std::string name = call->getDirectCallee() ? call->getDirectCallee()->getNameAsString() : "";
+            const FunctionSummary *callee = old_.find(call->getDirectCallee());
+            for (unsigned argument = 0; argument < call->getNumArgs(); ++argument) {
+                std::vector<unsigned> currents;
+                for (unsigned i = 0; i < f.param_size(); ++i)
+                    if (f.getParamDecl(i)->getType()->isPointerType() && containsParameter(call->getArg(argument), f, i)) currents.push_back(i);
+                if (currents.empty()) continue;
+                if (currents.size() > 1) {
+                    for (unsigned current : currents) s.params[current] = ParamEffect::Unknown;
+                    continue;
+                }
+                const unsigned current = currents.front();
+                ParamEffect effect = ParamEffect::Unknown;
+                if (name == "free" && call->getNumArgs() == 1) effect = ParamEffect::Destroy;
+                else if (callee && argument < callee->params.size()) effect = callee->params[argument];
+                if (conditional) effect = ParamEffect::Unknown;
+                if (s.params[current] == ParamEffect::None || s.params[current] == ParamEffect::Borrow) s.params[current] = effect;
+                else if (effect != s.params[current]) s.params[current] = ParamEffect::Unknown;
+            }
+            if (name == "realloc") s.conflict = true;
+        }
+        const bool nested = conditional || isa<IfStmt>(stmt) || isa<SwitchStmt>(stmt) ||
+                            isa<WhileStmt>(stmt) || isa<ForStmt>(stmt) || isa<DoStmt>(stmt) ||
+                            isa<ConditionalOperator>(stmt);
+        for (const Stmt *child : stmt->children()) scan(child, f, s, nested);
+    }
+    const SummaryStore &old_;
+    SummaryStore &out_;
+};
+
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {
 public:
     TranslationUnitVisitor(ASTContext &context, Collector &collector)
         : context_(context), collector_(collector) {}
+
+    void prepare() {
+        std::vector<const FunctionDecl *> functions;
+        for (const clang::Decl *decl : context_.getTranslationUnitDecl()->decls()) {
+            if (const auto *function = dyn_cast<FunctionDecl>(decl); function && function->hasBody())
+                functions.push_back(function);
+        }
+        for (const FunctionDecl *function : functions) {
+            FunctionSummary empty;
+            empty.function = function;
+            empty.origin = SummaryOrigin::Unknown;
+            empty.return_effect = ReturnEffect::Unknown;
+            empty.params.assign(function->param_size(), ParamEffect::Unknown);
+            summaries_.add(function, std::move(empty));
+        }
+        for (unsigned round = 0; round < functions.size() + 1; ++round) {
+            SummaryStore next;
+            for (const FunctionDecl *function : functions) SummaryBuilder(summaries_, next).build(*function);
+            summaries_ = std::move(next);
+        }
+        loadContracts();
+        // Contracts can seed bodies that wrap external APIs. Re-run the same
+        // bounded summary fixed point with trusted external facts available;
+        // preserve explicit body/contract conflicts instead of overwriting them.
+        for (unsigned round = 0; round < functions.size() + 1; ++round) {
+            SummaryStore next = summaries_;
+            for (const FunctionDecl *function : functions) {
+                const FunctionSummary *existing = summaries_.find(function);
+                if (existing && existing->conflict) continue;
+                SummaryBuilder(summaries_, next).build(*function);
+            }
+            summaries_ = std::move(next);
+        }
+    }
+
+    void loadContracts() {
+        if (ContractFile.empty()) return;
+        std::ifstream input(ContractFile);
+        if (!input) { collector_.noteContractError(); return; }
+        std::string line, symbol;
+        std::set<std::string> seen_symbols;
+        std::set<unsigned> seen_param_indices, seen_param_effects;
+        std::optional<unsigned> last_index;
+        std::optional<ReturnEffect> return_seen;
+        bool borrow_index_seen = false;
+        FunctionSummary summary;
+        bool in_symbol = false;
+        bool schema_seen = false, name_seen = false, version_seen = false;
+        bool symbols_seen = false, kind_seen = false;
+        bool in_platform = false, in_notes_block = false;
+        const auto parseUnsigned = [](const std::string &text, unsigned &value) {
+            std::size_t end = 0;
+            try {
+                const unsigned long parsed = std::stoul(text, &end);
+                if (end != text.size() || parsed > std::numeric_limits<unsigned>::max()) return false;
+                value = static_cast<unsigned>(parsed);
+                return true;
+            } catch (...) { return false; }
+        };
+        auto finish = [&]() {
+            if (!in_symbol || symbol.empty()) return true;
+            if (!kind_seen) return false;
+            if (seen_param_indices.size() != seen_param_effects.size()) return false;
+            if (summary.return_effect == ReturnEffect::BorrowFromArg && !summary.return_borrow_arg) return false;
+            if (summary.return_effect != ReturnEffect::BorrowFromArg && summary.return_borrow_arg) return false;
+            const FunctionDecl *decl = nullptr;
+            for (const clang::Decl *item : context_.getTranslationUnitDecl()->decls()) {
+                const auto *candidate = dyn_cast<FunctionDecl>(item);
+                if (candidate && candidate->getNameAsString() == symbol) { decl = candidate; break; }
+            }
+            if (decl && (summary.params.size() > decl->param_size() ||
+                         (summary.return_borrow_arg && *summary.return_borrow_arg >= decl->param_size()))) return false;
+            if (decl) summary.params.resize(decl->param_size(), ParamEffect::None);
+            summary.origin = SummaryOrigin::ExternalTrusted;
+            // realloc's success/failure and old-object lifetime are conditional
+            // and cannot be represented by P0.4's simple effects.
+            if (symbol == "realloc") {
+                summary.return_effect = ReturnEffect::Unknown;
+                summary.return_borrow_arg.reset();
+                std::fill(summary.params.begin(), summary.params.end(), ParamEffect::Unknown);
+            }
+            const FunctionSummary *body = summaries_.find(symbol);
+            if (body && body->origin == SummaryOrigin::BodyVerified &&
+                (body->return_effect != summary.return_effect || body->return_borrow_arg != summary.return_borrow_arg || body->params != summary.params)) {
+                FunctionSummary conflict = *body; conflict.conflict = true; summaries_.set(symbol, std::move(conflict));
+            } else if (!body || body->origin == SummaryOrigin::Unknown) summaries_.set(symbol, summary);
+            return true;
+        };
+        while (std::getline(input, line)) {
+            const auto trim = [](std::string s) { const auto a = s.find_first_not_of(" \t"); const auto b = s.find_last_not_of(" \t\r"); return a == std::string::npos ? std::string{} : s.substr(a, b - a + 1); };
+            const std::size_t indent = line.find_first_not_of(" \t");
+            if (indent == std::string::npos) continue;
+            if (line.substr(0, indent).find('\t') != std::string::npos) { collector_.noteContractError(); return; }
+            std::string t = trim(line);
+            if (t.empty() || t[0] == '#') continue;
+            if (in_notes_block && indent >= 6) continue;
+            in_notes_block = false;
+            if (!in_symbol) {
+                if (t.rfind("schema:", 0) == 0) {
+                    if (indent != 0 || schema_seen || t != "schema: cand.api-contract/v1") { collector_.noteContractError(); return; }
+                    schema_seen = true;
+                    continue;
+                }
+                if (t.rfind("name:", 0) == 0) {
+                    const std::string value = trim(t.substr(5));
+                    if (indent != 0 || name_seen || value.empty()) { collector_.noteContractError(); return; }
+                    name_seen = true;
+                    continue;
+                }
+                if (t.rfind("version:", 0) == 0) {
+                    const std::string value = trim(t.substr(8));
+                    if (indent != 0 || version_seen || value.empty()) { collector_.noteContractError(); return; }
+                    version_seen = true;
+                    continue;
+                }
+                if (t == "symbols:") {
+                    if (indent != 0 || symbols_seen) { collector_.noteContractError(); return; }
+                    symbols_seen = true;
+                    in_platform = false;
+                    continue;
+                }
+                if (t.rfind("- symbol:", 0) == 0) {
+                    if (indent != 2 || !symbols_seen || !schema_seen || !name_seen || !version_seen) { collector_.noteContractError(); return; }
+                    symbol = trim(t.substr(t.find(':') + 1));
+                    in_symbol = !symbol.empty();
+                    summary = FunctionSummary{};
+                    last_index.reset(); return_seen.reset(); kind_seen = false;
+                    seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
+                    if (!in_symbol || !seen_symbols.insert(symbol).second) { collector_.noteContractError(); return; }
+                    continue;
+                }
+                if (t == "platform:") { if (indent != 0) { collector_.noteContractError(); return; } in_platform = true; continue; }
+                if (in_platform && (t.rfind("os:", 0) == 0 || t.rfind("libc:", 0) == 0)) {
+                    const std::string value = trim(t.substr(t.find(':') + 1));
+                    if (indent != 2 || value.size() < 2 || value.front() != '[' || value.back() != ']') { collector_.noteContractError(); return; }
+                    continue;
+                }
+                if (t.rfind("provenance:", 0) == 0) {
+                    const std::string value = trim(t.substr(11));
+                    if (indent != 0 || value != "{}") { collector_.noteContractError(); return; }
+                    continue;
+                }
+                collector_.noteContractError(); return;
+            }
+            if (t.rfind("- symbol:", 0) == 0) {
+                if (indent != 2) { collector_.noteContractError(); return; }
+                if (in_symbol && !finish()) { collector_.noteContractError(); return; }
+                symbol = trim(t.substr(t.find(':') + 1)); in_symbol = !symbol.empty(); summary = FunctionSummary{}; last_index.reset(); return_seen.reset();
+                seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
+                kind_seen = false;
+                if (!in_symbol) { collector_.noteContractError(); return; }
+                if (!seen_symbols.insert(symbol).second) { collector_.noteContractError(); return; }
+                continue;
+            }
+            if (t.rfind("ownership:", 0) == 0) {
+                if (indent != 6) { collector_.noteContractError(); return; }
+                std::string v = trim(t.substr(10));
+                ReturnEffect effect;
+                if (v == "owned") effect = ReturnEffect::Owned;
+                else if (v == "borrowed") effect = ReturnEffect::BorrowFromArg;
+                else if (v == "none") effect = ReturnEffect::None;
+                else if (v == "unknown") effect = ReturnEffect::Unknown;
+                else { collector_.noteContractError(); return; }
+                if (return_seen) { collector_.noteContractError(); return; }
+                return_seen = effect; summary.return_effect = effect;
+            } else if (t.rfind("from_param:", 0) == 0) {
+                if (indent != 8) { collector_.noteContractError(); return; }
+                unsigned index;
+                if (borrow_index_seen || !parseUnsigned(trim(t.substr(11)), index)) { collector_.noteContractError(); return; }
+                borrow_index_seen = true;
+                summary.return_borrow_arg = index;
+            } else if (t.rfind("index:", 0) == 0 || t.rfind("- index:", 0) == 0) {
+                if (indent != 6) { collector_.noteContractError(); return; }
+                unsigned index;
+                const std::size_t colon = t.find(':');
+                if (!parseUnsigned(trim(t.substr(colon + 1)), index)) { collector_.noteContractError(); return; }
+                if (!seen_param_indices.insert(index).second) { collector_.noteContractError(); return; }
+                if (summary.params.size() <= index) summary.params.resize(index + 1, ParamEffect::None);
+                last_index = index;
+                summary.params[index] = ParamEffect::Unknown;
+            } else if (t.rfind("effect:", 0) == 0) {
+                if (indent != 8) { collector_.noteContractError(); return; }
+                if (!last_index || *last_index >= summary.params.size() ||
+                    !seen_param_effects.insert(*last_index).second) { collector_.noteContractError(); return; }
+                std::string v = trim(t.substr(7));
+                ParamEffect effect;
+                if (v == "borrow" || v == "borrow_shared") effect = ParamEffect::Borrow;
+                else if (v == "consumes") effect = ParamEffect::TakeOwnership;
+                else if (v == "destroys") effect = ParamEffect::Destroy;
+                else if (v == "no_ownership_effect") effect = ParamEffect::None;
+                else if (v == "unknown") effect = ParamEffect::Unknown;
+                else { collector_.noteContractError(); return; }
+                summary.params[*last_index] = effect;
+            } else if (t == "kind: function") {
+                if (indent != 4) { collector_.noteContractError(); return; }
+                if (kind_seen) { collector_.noteContractError(); return; }
+                kind_seen = true;
+            } else if (t == "returns:" || t == "params:") {
+                if (indent != 4) { collector_.noteContractError(); return; }
+            } else if (t == "lifetime:") {
+                if (indent != 6) { collector_.noteContractError(); return; }
+            } else if (t == "conditional_effects:" || t == "callbacks:") {
+                if (indent != 4) { collector_.noteContractError(); return; }
+            } else if (t.rfind("notes:", 0) == 0) {
+                if (indent != 4) { collector_.noteContractError(); return; }
+                const std::string value = trim(t.substr(6));
+                in_notes_block = value == ">-" || value == ">" || value == "|" || value == "|-" || value == "|+";
+            } else if (t.rfind("allocation_family:", 0) == 0) {
+                if (indent != 6 && indent != 8) { collector_.noteContractError(); return; }
+            } else if (t.rfind("nullable:", 0) == 0) {
+                if (indent != 6) { collector_.noteContractError(); return; }
+                continue;
+            } else if (t.find(':') != std::string::npos) {
+                collector_.noteContractError(); return;
+            } else {
+                collector_.noteContractError(); return;
+            }
+        }
+        if (!schema_seen || !name_seen || !version_seen || !symbols_seen || !finish())
+            collector_.noteContractError();
+    }
 
     bool VisitFunctionDecl(FunctionDecl *function) {
         if (function == nullptr || !function->hasBody()) {
@@ -1978,7 +2606,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_);
         analyzer.analyze(*function);
         return true;
     }
@@ -1995,7 +2623,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_);
         analyzer.analyzeGlobal(*var);
         return true;
     }
@@ -2003,6 +2631,7 @@ public:
 private:
     ASTContext &context_;
     Collector &collector_;
+    SummaryStore summaries_;
 };
 
 class CandConsumer : public ASTConsumer {
@@ -2014,6 +2643,7 @@ public:
         if (context.getDiagnostics().hasErrorOccurred()) {
             collector_.noteFrontendError();
         }
+        visitor_.prepare();
         visitor_.TraverseDecl(context.getTranslationUnitDecl());
     }
 
@@ -2140,6 +2770,11 @@ int main(int argc, const char **argv) {
         collector.hasFrontendError()) {
         llvm::errs() << "cand: translation unit did not compile; no verdict is "
                         "reported (input or compiler error)\n";
+        return 2;
+    }
+
+    if (collector.hasContractError()) {
+        llvm::errs() << "cand: invalid trusted contract; no verdict is reported\n";
         return 2;
     }
 

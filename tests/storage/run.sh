@@ -19,6 +19,7 @@ PYJSON
 )"
   base="$(basename "$source")"
   case "$base" in
+    pointer_parameter_access_incomplete.c) [[ "$rc" == 0 && "$result" == pass ]] || { echo "expected supported parameter read: $source"; cat "$work/cand.json"; exit 1; } ;;
     *incomplete*) [[ ("$rc" == 3 && "$result" == incomplete) || ("$rc" == 1 && "$result" == fail) ]] || { echo "expected fail-closed result: $source"; cat "$work/cand.json"; cat "$work/cand.err"; exit 1; } ;;
     *uaf*|*double_free*) [[ "$rc" == 1 && "$result" == fail ]] || { echo "expected fail: $source"; cat "$work/cand.json"; cat "$work/cand.err"; exit 1; } ;;
     *) [[ "$rc" == 0 && "$result" == pass ]] || { echo "expected pass: $source"; cat "$work/cand.json"; cat "$work/cand.err"; exit 1; } ;;

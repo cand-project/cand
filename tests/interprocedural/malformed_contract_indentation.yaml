@@ -1,0 +1,8 @@
+schema: cand.api-contract/v1
+name: bad-indent
+version: "1"
+symbols:
+  - symbol: vendor_create
+      kind: function
+      returns:
+        ownership: owned
