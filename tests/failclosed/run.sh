@@ -114,23 +114,21 @@ PY
 
 expect_fail tests/failclosed/struct_member_uaf.c CAND-T002
 expect_fail tests/failclosed/array_element_uaf.c CAND-T002
-expect_incomplete tests/failclosed/wrapper_return_uaf.c \
-    unknown-pointer-return-ownership
+expect_fail tests/failclosed/wrapper_return_uaf.c CAND-T002
 
 # --- Fail-closed semantics ----------------------------------------------------
 
-expect_incomplete tests/failclosed/pointer_param_free.c free-untracked-pointer
+expect_pass tests/failclosed/pointer_param_free.c
 expect_incomplete tests/failclosed/stack_pointer_return.c stack-pointer-return
 expect_incomplete tests/failclosed/stack_pointer_variable_return.c stack-pointer-return
 expect_incomplete tests/failclosed/aggregate_initializer.c \
     allocation-to-untracked-storage
 expect_incomplete tests/failclosed/aggregate_initializer_unknown.c \
-    unknown-pointer-return-ownership
+    allocation-to-untracked-storage
 expect_incomplete tests/failclosed/statement_expression.c statement-expression
 expect_incomplete tests/failclosed/inline_asm.c inline-asm
 expect_pass tests/p0/alias_unsupported.c
-expect_incomplete tests/p0/unknown_call_unsupported.c \
-    unknown-call-with-tracked-pointer
+expect_pass tests/p0/unknown_call_unsupported.c
 
 # --- Known-safe cases that must stay PASS -------------------------------------
 

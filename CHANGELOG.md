@@ -4,6 +4,16 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### P0.4 — Interprocedural ownership summaries and trusted contracts
+
+- added conservative same-translation-unit summaries for allocator, destructor,
+  borrowed-return, read-only parameter, and supported ownership-transfer
+  wrappers;
+- added explicit trusted SPEC-0003 v1 YAML loading with fail-closed malformed
+  contracts and body/contract conflict handling;
+- added conservative recursion/cycle regressions and a 472-line natural packet
+  router comparison (116 P0.3 unsupported operations versus 53 in P0.4).
+
 ### P0.2 — CFG-based flow-sensitive ownership
 
 - added ADR-0011: ownership state is attached to CFG program points and propagated with a worklist fixed point over upstream `clang::CFG` (no fork, no new parser);

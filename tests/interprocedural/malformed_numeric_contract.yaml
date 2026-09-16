@@ -1,0 +1,9 @@
+schema: cand.api-contract/v1
+name: malformed
+version: "1"
+symbols:
+  - symbol: vendor_create
+    kind: function
+    params:
+      - index: 0junk
+        effect: destroys

@@ -1,0 +1,18 @@
+schema: cand.api-contract/v1
+name: vendor-lifetimes
+version: "1"
+symbols:
+  - symbol: vendor_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: vendor_view
+    kind: function
+    params:
+      - index: 0
+        effect: borrow_shared
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0

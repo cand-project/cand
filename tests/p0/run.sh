@@ -110,7 +110,7 @@ expect_failure CAND-T002 tests/proof/temporal/use_after_free_unsafe.c
 expect_failure CAND-T002 tests/proof/temporal/use_after_free_annotated_unsafe.c
 expect_failure CAND-T003 tests/proof/temporal/double_free_unsafe.c
 expect_pass tests/p0/alias_unsupported.c
-expect_incomplete tests/p0/unknown_call_unsupported.c unknown-call-with-tracked-pointer
+expect_pass tests/p0/unknown_call_unsupported.c
 expect_pass tests/proof/temporal/use_after_free_fixed.c
 expect_pass tests/proof/temporal/double_free_fixed.c
 

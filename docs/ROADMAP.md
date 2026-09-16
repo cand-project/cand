@@ -129,13 +129,18 @@ Deliver:
 - storage corpus with ordinary compiler and ASan differential checks.
 
 Still incomplete by design: dynamic indexes, unresolved pointee storage,
-ambiguous alias targets, unknown calls, pointer-return wrappers, leaks, moves,
-and all Rust-like borrow rules.
+ambiguous alias targets, unknown calls or return provenance, unsupported
+pointer-to-pointer effects, leaks, moves, and all Rust-like borrow rules.
 
-## P0.4 — Interprocedural Ownership Summaries and Contracts (planned)
+## P0.4 — Interprocedural Ownership Summaries and Contracts (implemented slice)
 
 Function summaries and reviewed ownership contracts follow the storage/alias
-foundation. P1 unique ownership and P2 borrowing/lifetimes remain later phases.
+foundation. P0.4 supports same-TU allocator/destructor and simple borrowed
+return wrappers, verified pointer-parameter reads, conservative ownership
+transfer, and trusted SPEC-0003 v1 YAML via `--contracts=PATH`. Recursive
+unknowns, ambiguous effects, retention, callbacks, `realloc`, and cross-TU
+body analysis remain INCOMPLETE. P1 unique ownership and P2
+borrowing/lifetimes remain later phases.
 
 ## P1 — C&1 unique ownership + first autonomous repair loop
 
