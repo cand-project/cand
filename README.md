@@ -55,7 +55,8 @@ This lets the human role move upward. Instead of manually maintaining every owne
 - semantic repairs that change behavior;
 - architecture and requirements.
 
-C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. In agent mode, adding `unsafe`, lowering the safety level, reducing checked scope, changing trusted contracts or adding suppressions is a **proof-policy change**, not an ordinary repair, and must be reported separately and policy-controlled.
+C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. A trusted runner must provide `CAND_TRUSTED_BASE_SHA` from outside the agent-controlled change; local agent output is not a CI attestation.
+Changing that policy is a proof-policy change, not an implementation repair.
 
 The core loop is model-neutral:
 
@@ -277,7 +278,7 @@ A baseline or suppression is never proof.
 
 A generated-code workflow must distinguish a **repair** from a **weaker claim**.
 
-C& should support a configurable safety budget such as:
+C& `--agent` currently enforces the repository's generated policy:
 
 ```text
 new unsafe boundaries:      0
@@ -287,24 +288,26 @@ checked coverage decrease:  0
 trusted contract changes:   review required
 ```
 
-An agent may freely rewrite implementation code to satisfy the existing policy. It may propose policy changes, but those changes are surfaced separately and do not silently count as a successful repair.
+An agent may rewrite implementation code to satisfy the existing policy. Policy or trusted-contract changes are surfaced as weakening or `REVIEW_REQUIRED`, never silently counted as a successful repair. Intentional changes require a human-reviewed base-policy update.
 
 ## Machine-facing verifier API
 
 Structured output is a core C& interface, not a convenience feature. An agent should not have to scrape human prose.
 
-Conceptually:
+The implemented P0.5 interface is:
 
 ```bash
-cand check --profile generated --level cand1 --format json
-cand check --agent --base origin/main --format json
+cand check --agent --base origin/main --policy cand-policy.json \
+  --emit-evidence evidence.json examples/ownership.c -- -std=c11 -Iinclude
 cand policy diff --base origin/main --format json
-cand evidence --format json
+cand evidence verify evidence.json
 ```
 
-Findings should include stable diagnostic/rule IDs, source ranges, abstract ownership state, relevant object/borrow origins, state transitions, repair class and proof-policy impact.
+The current generated profile supports only `p0-temporal-lifecycle` and the exact compiler arguments pinned by policy. It refuses unsupported safety levels and argument changes. Policy differences are classified as `NO_CHANGE`, `PROOF_STRENGTHENING`, `PROOF_WEAKENING`, or `REVIEW_REQUIRED`.
 
-A successful strict run should emit an evidence artifact binding the source identity, C& version, safety level, checked scope, contract digests/trust classes, unsafe/unsupported scope and effective proof policy.
+Agent output keeps `semantic_result` separate from `policy_result`; policy weakening cannot become a verified success. Evidence binds source and project-local included-file contents, executable `cand` binary digest, frontend identity/arguments, trusted base commit, policy digest, checked scope, and used trusted-contract hashes. `cand evidence verify` validates hashes and replays the recorded check. Its SHA-256 is an integrity/reproducibility mechanism, not a signature: CI must run a trusted verifier against a runner-supplied base SHA. Evidence is not a mathematical proof or a universal statement about C memory safety.
+
+Schemas: [policy](contracts/schema/cand-policy.schema.json), [agent-check](contracts/schema/cand-agent-check.schema.json), [evidence](contracts/schema/cand-evidence.schema.json). The executable policy is [cand-policy.json](cand-policy.json).
 
 ## Architecture authority
 
@@ -314,6 +317,7 @@ The initial design is defined by:
 - [ADR-0001 — Pipeline safety layer, not a C compiler](docs/adr/ADR-0001-pipeline-safety-layer.md)
 - [ADR-0008 — LLM-first synthesis and verification](docs/adr/ADR-0008-llm-first-synthesis-and-verification.md)
 - [ADR-0009 — Agent proof policy](docs/adr/ADR-0009-agent-proof-policy.md)
+- [ADR-0014 — Agent verification evidence and policy authority](docs/adr/ADR-0014-agent-verification-evidence.md)
 - [SPEC-0001 — Ownership and borrowing semantics](docs/spec/SPEC-0001-ownership-and-borrowing.md)
 - [SPEC-0002 — Analysis pipeline and toolchain interoperability](docs/spec/SPEC-0002-analysis-pipeline-and-interoperability.md)
 - [SPEC-0003 — External API contract format](docs/spec/SPEC-0003-contract-format.md)

@@ -142,6 +142,23 @@ unknowns, ambiguous effects, retention, callbacks, `realloc`, and cross-TU
 body analysis remain INCOMPLETE. P1 unique ownership and P2
 borrowing/lifetimes remain later phases.
 
+## P0.5 — Agent verification authority and evidence (implemented slice)
+
+`cand check --agent` uses the versioned generated profile and effective
+`cand.policy/v1` JSON configuration. It pins checked source scope and frontend
+arguments, rejects unsupported levels and unsafe/suppression markers, compares
+policy against `origin/main`, and reports semantic and policy results
+separately. Trusted contract contents must match explicit policy digests and
+trust classes. Candidate contracts never support a verified result.
+
+`cand.evidence/v1` binds source/project-local include hashes, the executable
+verifier hash, frontend identity and arguments, policy, trusted base commit,
+scope, and used contract hashes. `cand evidence verify` checks those inputs and
+replays the analysis. A trusted CI runner must supply `CAND_TRUSTED_BASE_SHA`
+outside the agent-controlled change; evidence is not signed and is not a proof
+of general C memory safety. Current generated mode supports only
+`p0-temporal-lifecycle` and C11 with explicitly policy-pinned extra arguments.
+
 ## P1 — C&1 unique ownership + first autonomous repair loop
 
 Deliver:
@@ -157,9 +174,8 @@ Deliver:
 - libc allocation-family models;
 - structured ownership-state traces in diagnostics;
 - machine-readable repair classes;
-- generated-code strict mode;
-- initial `cand evidence` output;
-- reference model-neutral agent loop for mandatory temporal fixtures.
+- broader ownership-language generated-code mode;
+- reference model-neutral agent loop over the expanding temporal suite.
 
 Exit gate:
 

@@ -1,0 +1,27 @@
+{
+  "schema": "cand.policy/v1",
+  "profile": "generated",
+  "safety_level": "p0-temporal-lifecycle",
+  "base_ref": "origin/main",
+  "budgets": {
+    "new_unsafe_boundaries": 0,
+    "new_suppressions": 0,
+    "safety_level_reductions": 0,
+    "checked_scope_decrease": 0,
+    "unsupported_scope_increase": 0
+  },
+  "unsupported": {
+    "allow_in_verified_success": false
+  },
+  "contracts": {
+    "trusted_changes_require_review": true,
+    "trusted": []
+  },
+  "scope": {
+    "files": ["examples/ownership.c"]
+  },
+  "frontend": {
+    "standard": "c11",
+    "arguments": ["-Iinclude"]
+  }
+}

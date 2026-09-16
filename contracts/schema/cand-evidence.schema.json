@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cand-project.github.io/cand/schema/cand-evidence-v1.json",
+  "title": "C& verification evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "result", "cand", "source", "frontend", "verification", "analysis", "contracts", "proof_policy_delta", "semantic_result", "integrity_sha256"],
+  "properties": {
+    "schema": {"const": "cand.evidence/v1"},
+    "result": {"enum": ["pass", "fail", "incomplete", "fail-policy", "review-required"]},
+    "semantic_result": {"enum": ["pass", "fail", "incomplete", "internal-error"]},
+    "cand": {"type": "object", "required": ["version", "build_identity", "commit", "binary_sha256"], "properties": {
+      "version": {"type": "string"}, "build_identity": {"type": "string"}, "commit": {"type": "string"}, "binary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+    "source": {"type": "object", "required": ["files"], "properties": {"files": {"type": "array", "items": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}}}},
+    "frontend": {"type": "object", "required": ["compiler", "version", "llvm_version", "arguments"], "properties": {"compiler": {"type": "string"}, "version": {"type": "string"}, "llvm_version": {"type": "string"}, "arguments": {"type": "array", "items": {"type": "string"}}}},
+    "verification": {"type": "object", "required": ["profile", "safety_level", "policy_path", "base_ref", "trusted_base_sha", "effective_policy_sha256", "checked_scope"], "properties": {"profile": {"type": "string"}, "safety_level": {"type": "string"}, "policy_path": {"type": "string"}, "base_ref": {"type": "string"}, "trusted_base_sha": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"}, "effective_policy_sha256": {"type": "string"}, "checked_scope": {"type": "array", "items": {"type": "string"}}}},
+    "analysis": {"type": "object", "required": ["functions_analyzed", "tracked_heap_objects", "unsupported_ownership_operations", "unsafe_boundaries", "suppressions"], "properties": {"functions_analyzed": {"type": "integer", "minimum": 0}, "tracked_heap_objects": {"type": "integer", "minimum": 0}, "unsupported_ownership_operations": {"type": "integer", "minimum": 0}, "unsafe_boundaries": {"type": "integer", "minimum": 0}, "suppressions": {"type": "integer", "minimum": 0}}},
+    "contracts": {"type": "array"},
+    "proof_policy_delta": {"type": "object", "required": ["weakened", "review_required", "changes"], "properties": {"weakened": {"type": "boolean"}, "review_required": {"type": "boolean"}, "changes": {"type": "array"}}},
+    "integrity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

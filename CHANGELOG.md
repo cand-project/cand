@@ -4,6 +4,19 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### P0.5 — Agent verification authority and reproducible evidence
+
+- added strict `cand check --agent` mode with generated policy, trusted-base
+  input, checked-scope and compiler-argument pins, and separate semantic/policy
+  outcomes;
+- added deterministic policy-diff classifications and trusted-contract
+  digest/trust-class checks that prevent candidate self-promotion;
+- added `cand.evidence/v1`, binding source, policy, contracts, frontend, base,
+  and verifier identity, with stale-input checks and exact analysis replay;
+- added adversarial checks for proof weakening, scope/compiler substitutions,
+  fake trust, source/policy/contract/binary mutation, and recomputed evidence
+  forgery; no general C memory-safety or C&1 claim is introduced.
+
 ### P0.4 — Interprocedural ownership summaries and trusted contracts
 
 - added conservative same-translation-unit summaries for allocator, destructor,
