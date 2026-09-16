@@ -2882,10 +2882,16 @@ void addIncludedFiles(llvm::json::Array &sources, const Collector &collector,
             state.policy_errors.push_back("cannot inspect frontend dependency " + logical);
             continue;
         }
-        state.unsafe_boundaries += countToken(content, "CAND_UNSAFE");
-        state.suppressions += countToken(content, "CAND_SUPPRESS") +
-                              countToken(content, "CAND_BASELINE") +
-                              countToken(content, "cand: ignore");
+        // The public annotation header defines the marker macros; counting
+        // those definitions as candidate unsafe operations would make every
+        // normal annotated translation unit fail its generated-code policy.
+        // The header remains content-bound and verifier-surface protected.
+        if (logical != "include/cand/cand.h") {
+            state.unsafe_boundaries += countToken(content, "CAND_UNSAFE");
+            state.suppressions += countToken(content, "CAND_SUPPRESS") +
+                                  countToken(content, "CAND_BASELINE") +
+                                  countToken(content, "cand: ignore");
+        }
         std::string digest, error;
         if (!cand::sha256File(input, digest, error)) {
             state.policy_failed = true;
