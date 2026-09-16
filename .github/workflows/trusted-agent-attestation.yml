@@ -24,9 +24,10 @@ jobs:
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-      # This list is authority owned by the protected base workflow. Keep it
-      # aligned with the repository's verifier CODEOWNER authority.
-      CAND_TRUSTED_REVIEWERS: senolcolak
+      # Authority owned by the protected base workflow. Both entries currently
+      # have repository admin authority; an author may never approve their own
+      # exact-head verification-surface change.
+      CAND_TRUSTED_REVIEWERS: senolcolak,zoorpha
 
     steps:
       - name: Checkout protected base verifier source
