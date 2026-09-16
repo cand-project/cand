@@ -16,6 +16,11 @@ echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \
   contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/agent-policy.yaml
 
+echo "==> Trusted attestation driver syntax"
+python3 -m py_compile .github/trusted/attest.py
+grep -Fq 'pull_request_target:' .github/workflows/trusted-agent-attestation.yml
+grep -Fq 'persist-credentials: false' .github/workflows/trusted-agent-attestation.yml
+
 echo "==> SVG syntax and canonical assets"
 python3 - <<'PY'
 from pathlib import Path
