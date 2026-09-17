@@ -46,13 +46,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check protected-base attestation driver
+        id: driver
+        run: |
+          set -euo pipefail
+          if test -f trusted/.github/trusted/attest.py &&
+             test -f trusted/.github/trusted/verifier-surface.json; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "P0.5.1 bootstrap: protected base does not contain the trusted driver yet."
+            echo "This implementation PR must land before trusted attestation can execute from main."
+          fi
+
       - name: Install trusted verifier dependencies
+        if: steps.driver.outputs.available == 'true'
         run: >-
           sudo apt-get update &&
           sudo apt-get install -y
           clang gcc ruby python3 python3-jsonschema cmake ninja-build llvm-dev libclang-dev
 
       - name: Build verifier only from protected base
+        if: steps.driver.outputs.available == 'true'
         run: |
           set -euo pipefail
           cmake -S trusted -B trusted-build -G Ninja \
@@ -61,6 +76,7 @@ jobs:
           cmake --build trusted-build
 
       - name: Pin candidate origin/main to trusted PR base
+        if: steps.driver.outputs.available == 'true'
         run: |
           set -euo pipefail
           git -C candidate fetch --no-tags origin "$BASE_SHA"
@@ -69,6 +85,7 @@ jobs:
           test "$(git -C candidate rev-parse HEAD)" = "$HEAD_SHA"
 
       - name: Run base-built trusted attestation
+        if: steps.driver.outputs.available == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -91,10 +108,13 @@ jobs:
           {
             echo '## C& trusted agent attestation'
             echo
-            if test -f "$RUNNER_TEMP/cand-attestation/attestation-summary.json"; then
+            if test "${{ steps.driver.outputs.available }}" = true &&
+               test -f "$RUNNER_TEMP/cand-attestation/attestation-summary.json"; then
               echo '```json'
               cat "$RUNNER_TEMP/cand-attestation/attestation-summary.json"
               echo '```'
+            elif test "${{ steps.driver.outputs.available }}" = false; then
+              echo 'Bootstrap pending: the protected base does not yet contain the trusted driver.'
             else
               echo 'Trusted attestation did not reach an accepted result. See the job log.'
             fi
