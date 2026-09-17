@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <cand/cand.h>
 
+/* protected-main attestation smoke change */
+
 typedef struct Packet {
     size_t len;
 } Packet;
