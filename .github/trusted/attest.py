@@ -24,6 +24,7 @@ PATH_FLAGS = {"-I", "-iquote", "-isystem", "-idirafter", "-include", "-imacros"}
 FORBIDDEN_FRONTEND_FLAGS = {
     "-Xclang", "-load", "-fplugin", "-fplugin-file", "-fmodule-map-file",
     "-fmodule-file", "-fmodules-cache-path", "-resource-dir", "-working-directory", "-isysroot",
+    "-fpass-plugin", "-load-pass-plugin", "-mllvm", "-include-pch", "-fpch-preprocess",
 }
 
 
@@ -93,6 +94,8 @@ def validate_frontend_paths(root: Path, arguments: list[str]) -> None:
         if argument.startswith("@") or argument in FORBIDDEN_FRONTEND_FLAGS:
             raise AttestationError(f"frontend argument is not permitted in trusted attestation: {argument}")
         if any(argument.startswith(flag + "=") for flag in FORBIDDEN_FRONTEND_FLAGS):
+            raise AttestationError(f"frontend argument is not permitted in trusted attestation: {argument}")
+        if argument.startswith("-fmodule") or argument.startswith("-fpass-plugin") or argument.startswith("-load-pass-plugin"):
             raise AttestationError(f"frontend argument is not permitted in trusted attestation: {argument}")
         if pending_path_flag is not None:
             if pending_path_flag in {"-include", "-imacros"}:

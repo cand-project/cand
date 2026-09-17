@@ -3425,7 +3425,11 @@ void validateAgentFrontendArguments(const llvm::json::Array &arguments,
         if (argument == "-isysroot" || llvm::StringRef(argument).starts_with("-isysroot=") ||
             llvm::StringRef(argument).starts_with("--sysroot=") || llvm::StringRef(argument).starts_with("@") ||
             argument == "-Xclang" || argument == "-load" || llvm::StringRef(argument).starts_with("-fplugin") ||
-            llvm::StringRef(argument).starts_with("-fmodule-") || llvm::StringRef(argument).starts_with("-resource-dir") ||
+            llvm::StringRef(argument).starts_with("-fmodule") ||
+            llvm::StringRef(argument).starts_with("-fpass-plugin") ||
+            llvm::StringRef(argument).starts_with("-load-pass-plugin") || argument == "-mllvm" ||
+            argument == "-include-pch" || argument == "-fpch-preprocess" ||
+            llvm::StringRef(argument).starts_with("-resource-dir") ||
             llvm::StringRef(argument).starts_with("-working-directory")) {
             reject("frontend argument is not permitted in generated verification: " + argument);
             continue;
