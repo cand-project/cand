@@ -44,6 +44,8 @@ seed_repo "$dir"
 expect_result fail "$dir" app.c
 cp "$repo/tests/agent/app-good.c" "$dir/app.c"
 expect_result pass "$dir" app.c --emit-evidence evidence-a.json
+run_check "$dir" app.c --emit-evidence evidence-a.json > "$dir/agent-check.json"
+python3 "$repo/tests/agent/schema_test.py" "$dir/evidence-a.json" "$dir/agent-check.json"
 cp "$dir/evidence-a.json" "$dir/evidence-b.json"
 expect_result pass "$dir" app.c --emit-evidence evidence-b.json
 cmp -s "$dir/evidence-a.json" "$dir/evidence-b.json"
@@ -119,6 +121,21 @@ set -e
 jq -e '.result == "fail-policy"' "$dir/frontend.json" >/dev/null
 echo 'frontend argument substitution: BLOCKED'
 
+cp "$repo/tests/agent/policy-template.json" "$dir/cand-policy.json"
+jq '.frontend.arguments = ["-I/tmp"]' "$dir/cand-policy.json" > "$dir/policy.next"
+mv "$dir/policy.next" "$dir/cand-policy.json"
+expect_result fail-policy "$dir" app.c
+echo 'external include path: BLOCKED'
+
+cp "$repo/tests/agent/policy-template.json" "$dir/cand-policy.json"
+set +e
+(cd "$dir" && CPATH=/tmp CAND_TRUSTED_BASE_SHA="$(git rev-parse origin/main)" "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > env.json)
+env_rc=$?
+set -e
+[[ "$env_rc" == 4 ]]
+jq -e '.result == "fail-policy"' "$dir/env.json" >/dev/null
+echo 'ambient include environment: BLOCKED'
+
 jq '.base_ref = "HEAD"' "$dir/cand-policy.json" > "$dir/policy.next"
 mv "$dir/policy.next" "$dir/cand-policy.json"
 expect_result fail-policy "$dir" app.c
@@ -151,8 +168,8 @@ set +e
 run_verify "$dir" evidence-forged.json > "$dir/forged.json"
 forged_rc=$?
 set -e
-[[ "$forged_rc" == 1 ]]
-jq -e '.result == "stale" and (.detail | contains("replayed verification"))' "$dir/forged.json" >/dev/null
+[[ "$forged_rc" == 2 ]]
+jq -e '.result == "tampered"' "$dir/forged.json" >/dev/null
 echo 'recomputed evidence forgery: DETECTED'
 
 cp "$cand_bin" "$dir/cand-mutated"

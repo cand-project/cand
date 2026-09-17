@@ -121,7 +121,7 @@ Illustrative shape:
   "schema": "cand.check/v1",
   "cand_version": "0.x.y",
   "result": "pass",
-  "safety_level": "cand1",
+  "safety_level": "p0-temporal-lifecycle",
   "profile": "generated",
   "source_identity": "...",
   "findings": [],
@@ -132,7 +132,9 @@ Illustrative shape:
 }
 ```
 
-The exact JSON Schema will be versioned separately once implementation begins.
+The current machine safety level is `p0-temporal-lifecycle`. The stable
+`cand1.*` rule-ID namespace is retained for compatibility only and is not a
+C&1 claim. C&1 remains gated exclusively by issue #11.
 
 ## 6. Finding object
 
@@ -172,7 +174,7 @@ policy escape information
   "id": "CAND-T002",
   "rule_id": "cand1.no-use-after-death",
   "severity": "error",
-  "safety_level": "cand1",
+  "safety_level": "p0-temporal-lifecycle",
   "primary_location": {
     "file": "src/foo.c",
     "line": 42,

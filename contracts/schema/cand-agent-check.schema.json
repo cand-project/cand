@@ -11,7 +11,7 @@
     "policy_result": {"enum": ["pass", "fail", "review_required"]},
     "profile": {"type": "string"}, "safety_level": {"type": "string"},
     "policy_delta": {"type": "object"}, "analysis": {"type": "object"},
-    "effective_policy": {"type": "object"}, "evidence": {"$ref": "cand-evidence-v1.json"},
+    "effective_policy": {"type": "object"}, "evidence": {"$ref": "https://cand-project.github.io/cand/schema/cand-evidence-v1.json"},
     "evidence_path": {"type": "string"}
   }
 }

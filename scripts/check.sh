@@ -11,10 +11,19 @@ python3 -m json.tool contracts/schema/cand-policy.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-evidence.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-agent-check.schema.json >/dev/null
 python3 -m json.tool cand-policy.json >/dev/null
+python3 -c 'import jsonschema' >/dev/null
 
 echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \
   contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/agent-policy.yaml
+
+echo "==> Trusted attestation driver syntax"
+python3 -m py_compile .github/trusted/attest.py
+python3 tests/agent/attestation_test.py
+test -f .github/trusted/verifier-surface.json
+python3 -m json.tool .github/trusted/verifier-surface.json >/dev/null
+grep -Fq 'pull_request_target:' .github/workflows/trusted-agent-attestation.yml
+grep -Fq 'persist-credentials: false' .github/workflows/trusted-agent-attestation.yml
 
 echo "==> SVG syntax and canonical assets"
 python3 - <<'PY'
@@ -51,6 +60,8 @@ grep -Fq 'does **not** claim that C&1' README.md
 grep -Fq 'LLMs synthesize. C& verifies.' README.md
 grep -Fq 'The LLM is **not** part of the trusted computing base.' README.md
 grep -Fq 'proof-policy change' README.md
+! grep -Fq 'obj["safety_level"] = "cand1"' src/cand.cpp
+grep -Fq 'stable `cand1.*` rule-ID namespace is retained' README.md
 test -f docs/adr/ADR-0008-llm-first-synthesis-and-verification.md
 test -f docs/adr/ADR-0009-agent-proof-policy.md
 test -f docs/spec/SPEC-0004-machine-agent-protocol.md

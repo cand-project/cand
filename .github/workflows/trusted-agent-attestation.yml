@@ -1,0 +1,130 @@
+name: Trusted Agent Attestation
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: trusted-agent-attestation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-agent-attestation:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      # Authority owned by the protected base workflow. Both entries currently
+      # have repository admin authority; an author may never approve their own
+      # exact-head verification-surface change.
+      CAND_TRUSTED_REVIEWERS: senolcolak,zoorpha
+
+    steps:
+      - name: Checkout protected base verifier source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout candidate as untrusted data
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check protected-base attestation driver
+        id: driver
+        run: |
+          set -euo pipefail
+          if test -f trusted/.github/trusted/attest.py &&
+             test -f trusted/.github/trusted/verifier-surface.json; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "P0.5.1 bootstrap: protected base does not contain the trusted driver yet."
+            echo "This implementation PR must land before trusted attestation can execute from main."
+          fi
+
+      - name: Install trusted verifier dependencies
+        if: steps.driver.outputs.available == 'true'
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          clang gcc ruby python3 python3-jsonschema cmake ninja-build llvm-dev libclang-dev
+
+      - name: Build verifier only from protected base
+        if: steps.driver.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          cmake -S trusted -B trusted-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build trusted-build
+
+      - name: Pin candidate origin/main to trusted PR base
+        if: steps.driver.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          git -C candidate fetch --no-tags origin "$BASE_SHA"
+          git -C candidate update-ref refs/remotes/origin/main "$BASE_SHA"
+          test "$(git -C candidate rev-parse --verify 'origin/main^{commit}')" = "$BASE_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$HEAD_SHA"
+
+      - name: Run base-built trusted attestation
+        if: steps.driver.outputs.available == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cand-attestation"
+          python3 trusted/.github/trusted/attest.py \
+            --candidate candidate \
+            --cand trusted-build/cand \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --pr-author "$PR_AUTHOR" \
+            --trusted-reviewers "$CAND_TRUSTED_REVIEWERS" \
+            --output-dir "$RUNNER_TEMP/cand-attestation"
+
+      - name: Publish trusted attestation summary
+        if: always()
+        run: |
+          {
+            echo '## C& trusted agent attestation'
+            echo
+            if test "${{ steps.driver.outputs.available }}" = true &&
+               test -f "$RUNNER_TEMP/cand-attestation/attestation-summary.json"; then
+              echo '```json'
+              cat "$RUNNER_TEMP/cand-attestation/attestation-summary.json"
+              echo '```'
+            elif test "${{ steps.driver.outputs.available }}" = false; then
+              echo 'Bootstrap pending: the protected base does not yet contain the trusted driver.'
+            else
+              echo 'Trusted attestation did not reach an accepted result. See the job log.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload trusted evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cand-trusted-attestation-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/cand-attestation/
+          if-no-files-found: ignore
+          retention-days: 14

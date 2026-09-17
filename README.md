@@ -57,6 +57,9 @@ This lets the human role move upward. Instead of manually maintaining every owne
 
 C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. A trusted runner must provide `CAND_TRUSTED_BASE_SHA` from outside the agent-controlled change; local agent output is not a CI attestation.
 Changing that policy is a proof-policy change, not an implementation repair.
+The stable `cand1.*` rule-ID namespace is retained for diagnostic compatibility;
+it is not a claim that the C&1 safety gate has been achieved. Machine safety
+levels and evidence use only the implemented `p0-temporal-lifecycle` value.
 
 The core loop is model-neutral:
 
