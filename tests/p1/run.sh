@@ -41,6 +41,10 @@ check_result pass "" tests/p1/owned_return_after_move.c
 check_result incomplete "" tests/p1/move_named_identifier.c
 check_result incomplete "" tests/p1/owner_overwrite_incomplete.c
 check_result incomplete "" tests/p1/standalone_move_incomplete.c
+check_result incomplete "" tests/p1/missing_explicit_transfer_semantic.c
+check_result incomplete "" tests/p1/aggregate_move_incomplete.c
+check_result incomplete "" tests/p1/move_to_borrow_incomplete.c
+check_result fail CAND-O001 tests/p1/macro_move_use_after_move.c
 
 set +e
 generated_output="$($cand check --profile=generated --format=json tests/p1/missing_explicit_transfer.c -- -std=c11 -Iinclude 2>/dev/null)"

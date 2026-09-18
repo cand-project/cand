@@ -779,6 +779,23 @@ private:
     bool isExplicitMove(const Expr *expr) const {
         if (expr == nullptr) return false;
         if (!expr->getBeginLoc().isMacroID() && !expr->getEndLoc().isMacroID()) return false;
+        const auto hasMoveMacro = [this](SourceLocation loc) {
+            while (loc.isMacroID()) {
+                if (clang::Lexer::getImmediateMacroName(
+                        loc, source_manager_, context_.getLangOpts()) == "CAND_MOVE" ||
+                    clang::Lexer::getImmediateMacroNameForDiagnostics(
+                        loc, source_manager_, context_.getLangOpts()) == "CAND_MOVE") {
+                    return true;
+                }
+                loc = source_manager_.getImmediateMacroCallerLoc(loc);
+            }
+            return false;
+        };
+        // The end of an enclosing assignment/call may point into the macro
+        // expansion even when the expression itself is not a move. Only the
+        // beginning can identify a move operand without classifying its
+        // parent statement as a standalone move.
+        if (hasMoveMacro(expr->getBeginLoc())) return true;
         const std::string text = sourceText(expr->getSourceRange());
         if (text == "CAND_MOVE") return true;
         const std::size_t first = text.find_first_not_of(" \t\r\n");
@@ -1736,7 +1753,7 @@ private:
     }
 
     void transferBinding(const Expr *arg, const CallExpr &call, bool explicit_move,
-                         FlowState &state) {
+                         FlowState &state, bool require_explicit_move) {
         const auto storage = storageFor(arg);
         if (!storage) {
             markUnsupported(call, "transfer-untracked-pointer");
@@ -1761,6 +1778,11 @@ private:
                 noteOwnershipUnsupported(call, "missing-explicit-transfer");
             return;
         }
+        // CAND_TAKES is an explicit ownership boundary in every profile. The
+        // legacy profile may preserve old unannotated-call behavior, but it
+        // must not turn a missing CAND_MOVE into a verified PASS.
+        if (require_explicit_move)
+            markUnsupported(call, "missing-explicit-transfer");
         const auto object = state.objects.find(binding->second.object_id);
         if (object == state.objects.end() || object->second.state != ObjectState::Owned) {
             markUnsupported(call, "transfer-unknown-ownership-state");
@@ -1812,12 +1834,18 @@ private:
                            current_summary_->params[*parameter] == ParamEffect::TakeOwnership)))
                         destroyBinding(call.getArg(i), call, state);
                 }
-                else if (summary->params[i] == ParamEffect::Borrow) checkAccess(call.getArg(i), call.getExprLoc(), state);
+                else if (summary->params[i] == ParamEffect::Borrow) {
+                    if (isExplicitMove(call.getArg(i)))
+                        markUnsupported(call, "move-to-non-consuming-parameter");
+                    else
+                        checkAccess(call.getArg(i), call.getExprLoc(), state);
+                }
                 else if (summary->params[i] == ParamEffect::TakeOwnership &&
                          (containsTrackedStorage(call.getArg(i), state) ||
                           isExplicitMove(call.getArg(i))))
                     transferBinding(call.getArg(i), call,
-                                    isExplicitMove(call.getArg(i)), state);
+                                    isExplicitMove(call.getArg(i)), state,
+                                    summary->origin == SummaryOrigin::BodyVerified);
                 else if (isExplicitMove(call.getArg(i)))
                     markUnsupported(call, "move-to-non-consuming-parameter");
                 else if (summary->params[i] == ParamEffect::Unknown && containsTrackedStorage(call.getArg(i), state))
@@ -2029,6 +2057,14 @@ private:
         const bool lhs_is_pointer =
             lhs->getType()->isPointerType() ||
             (var != nullptr && var->getType()->isPointerType());
+
+        // P1 models local pointer storage only. A move into an aggregate
+        // field or array element must not silently disappear.
+        if (isExplicitMove(rhs) && lhs_is_pointer &&
+            (var == nullptr || !var->getType()->isPointerType())) {
+            noteOwnershipUnsupported(binary, "move-unsupported-destination-storage");
+            return;
+        }
 
         if (containsGlobalStorage(lhs) &&
             (lhs_is_pointer || containsAllocationCall(rhs) ||
