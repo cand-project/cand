@@ -2302,7 +2302,7 @@ private:
                 } else if (var->getType()->isAtomicType() &&
                            containsTrackedStorage(init, state)) {
                     markUnsupported(decl_stmt, "atomic-pointer-storage");
-                } else if (var->getType()->isRecordType() &&
+                } else if ((var->getType()->isRecordType() || var->getType()->isArrayType()) &&
                            containsTrackedStorage(init, state)) {
                     markUnsupported(decl_stmt, "aggregate-copy-with-tracked-pointer");
                 } else if (containsUnknownPointerCall(init)) {
