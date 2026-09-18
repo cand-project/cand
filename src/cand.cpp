@@ -1968,6 +1968,11 @@ private:
             if (call) noteOwnershipUnsupported(*call, "move-unknown-ownership-state");
             return false;
         }
+        if (state.borrows.count(*source)) {
+            markUnsupportedAt(move_loc, "move-borrowed-storage");
+            if (emitting_) collector_.noteUnsupportedBorrow();
+            return false;
+        }
         StorageBinding &binding = source_it->second;
         if (binding.object_id == kNullObjectId && binding.relation == PointerRelation::Null) {
             if (destination) state.storages[*destination] =
@@ -2237,6 +2242,8 @@ private:
             return;
         }
         if (summary->return_effect == ReturnEffect::Owned) {
+            if (containsLoopAllocation(&call))
+                markUnsupported(call, "loop-allocation-site");
             const unsigned id = objectIdForAllocation(&call);
             state.storages[storage] = {id, PointerRelation::Owner, location(call.getExprLoc())};
             auto &object = state.objects[id];
@@ -2308,6 +2315,11 @@ private:
                                                 hasCandAnnotation(var, "cand:borrow");
             const bool explicit_mutable_borrow = hasCandAnnotation(var, "cand:borrow_mut");
             if (explicit_shared_borrow || explicit_mutable_borrow) {
+                if (isExplicitMove(init)) {
+                    markUnsupported(decl_stmt, "move-borrowed-storage");
+                    if (emitting_) collector_.noteUnsupportedBorrow();
+                    continue;
+                }
                 if (const auto *call = asCall(init); call && summaryFor(*call) &&
                     summaryFor(*call)->return_effect == ReturnEffect::BorrowFromArg) {
                     bindSummaryReturn(storage, *call, state);
@@ -2695,7 +2707,10 @@ private:
                                       isa<WhileStmt>(stmt) || isa<DoStmt>(stmt);
         if (inside_loop) {
             if (const auto *call = dyn_cast<CallExpr>(stmt)) {
-                if (isAllocatorCall(*call)) loop_allocation_sites_.insert(call);
+                const FunctionSummary *summary = summaryFor(*call);
+                if (isAllocatorCall(*call) || call->getType()->isPointerType() ||
+                    (summary && summary->return_effect == ReturnEffect::Owned))
+                    loop_allocation_sites_.insert(call);
             }
         }
         for (const Stmt *child : stmt->children()) {

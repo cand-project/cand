@@ -72,6 +72,8 @@ check_result incomplete "" tests/p2/cast_transport.c
 check_result incomplete "" tests/p2/cast_live.c
 check_result incomplete "" tests/p2/union_transport.c
 check_result incomplete "" tests/p2/realloc_borrow.c
+check_result incomplete "" tests/p2/move_borrowed_storage.c
+check_result incomplete "" tests/p2/loop_wrapper_allocation.c
 
 for source in tests/p2/*.c; do
     cc -std=c11 -Wall -Wextra -Werror -Iinclude -fsyntax-only "$source"
