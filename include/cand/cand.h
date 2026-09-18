@@ -16,6 +16,8 @@
 #define CAND_RETURNS_BORROW CAND_ANNOTATE("cand:returns_borrow")
 #define CAND_SAFE CAND_ANNOTATE("cand:safe")
 #define CAND_UNSAFE CAND_ANNOTATE("cand:unsafe")
+/* Analysis records CAND_MOVE as an ownership transition; production C sees
+ * exactly the original expression and no runtime move operation. */
 #define CAND_MOVE(x) (x)
 
 #endif

@@ -1,4 +1,4 @@
-// C& — P0.3 storage-identity and alias-aware temporal analysis.
+// C& — P1 explicit unique-ownership and move-aware temporal analysis.
 //
 // Design: ownership state is attached to program points (CFG basic blocks)
 // rather than to source-order statements. A standard worklist computes the
@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -30,6 +31,7 @@
 #include "clang/Analysis/CFG.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -38,8 +40,10 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "clang/Lex/Lexer.h"
 #include "clang/Basic/Version.h"
 #include "clang/Tooling/CommonOptionsParser.h"
+#include "clang/Tooling/ArgumentsAdjusters.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
@@ -60,6 +64,7 @@ namespace {
 
 using clang::ASTConsumer;
 using clang::ASTContext;
+using clang::AnnotateAttr;
 using clang::ArraySubscriptExpr;
 using clang::AsmStmt;
 using clang::BinaryOperator;
@@ -175,6 +180,9 @@ struct Finding {
     std::string object_id;
     std::string access_storage;
     std::string destroy_storage;
+    std::string owner_storage;
+    std::string transition;
+    Location move_location;
     Location primary;
     std::vector<TraceEvent> trace;
 };
@@ -197,6 +205,15 @@ struct FunctionSummary {
     SummaryOrigin origin = SummaryOrigin::Unknown;
     bool conflict = false;
 };
+
+bool hasCandAnnotation(const clang::Decl *decl, llvm::StringRef name) {
+    if (decl == nullptr) return false;
+    for (const clang::Attr *attr : decl->attrs()) {
+        const auto *annotate = dyn_cast<AnnotateAttr>(attr);
+        if (annotate && annotate->getAnnotation() == name) return true;
+    }
+    return false;
+}
 
 class SummaryStore {
 public:
@@ -252,6 +269,9 @@ public:
     void noteTrackedHeapObjects(std::size_t count) {
         tracked_heap_objects_ += static_cast<unsigned>(count);
     }
+
+    void noteOwnershipTransition() { ++ownership_transitions_; }
+    void noteUnsupportedOwnershipTransfer() { ++unsupported_ownership_transfers_; }
 
     unsigned nextObjectId() { return next_object_id_++; }
 
@@ -328,6 +348,15 @@ public:
             if (!finding.destroy_storage.empty()) {
                 obj["destroy_storage"] = finding.destroy_storage;
             }
+            if (!finding.owner_storage.empty()) {
+                obj["owner_storage"] = finding.owner_storage;
+            }
+            if (!finding.transition.empty()) {
+                obj["transition"] = finding.transition;
+            }
+            if (!finding.move_location.file.empty()) {
+                obj["move_location"] = locationJson(finding.move_location);
+            }
             if (!finding.state_before.empty()) {
                 obj["state_before_access"] = finding.state_before;
             }
@@ -365,6 +394,10 @@ public:
             static_cast<std::int64_t>(tracked_heap_objects_);
         coverage["unsupported_ownership_operations"] =
             static_cast<std::int64_t>(unsupported_.size());
+        coverage["ownership_transitions"] =
+            static_cast<std::int64_t>(ownership_transitions_);
+        coverage["unsupported_ownership_transfers"] =
+            static_cast<std::int64_t>(unsupported_ownership_transfers_);
         root["coverage"] = std::move(coverage);
 
         return root;
@@ -395,6 +428,8 @@ private:
     bool contract_error_ = false;
     unsigned functions_analyzed_ = 0;
     unsigned tracked_heap_objects_ = 0;
+    unsigned ownership_transitions_ = 0;
+    unsigned unsupported_ownership_transfers_ = 0;
     unsigned next_object_id_ = 1;
 };
 
@@ -407,6 +442,10 @@ private:
 //   Dead       object destroyed on every represented path
 //   MaybeDead  alive on some represented paths, destroyed on others
 //   Unknown    C& cannot soundly model this storage's ownership state
+//
+// Moved/MaybeMoved are storage capabilities in PointerRelation, not heap
+// lifetime states: a moved-from storage can share a live object with its new
+// authoritative owner without making that object dead.
 //
 // Order (bottom to top): Untracked/Owned/Dead < MaybeDead < Unknown.
 // join is componentwise and deterministic.
@@ -443,7 +482,11 @@ struct StorageId {
     }
 };
 
-enum class PointerRelation { Owner, Alias, Null, MaybeNull, Unknown };
+// PointerRelation also carries the per-storage ownership capability. The
+// heap object's lifetime remains in ObjectInfo; Moved means this storage is
+// no longer the authoritative owner while another storage may still own the
+// same live object.
+enum class PointerRelation { Owner, Alias, Moved, MaybeMoved, Null, MaybeNull, Unknown };
 
 constexpr unsigned kNullObjectId = 0;
 constexpr unsigned kUnknownObjectId = std::numeric_limits<unsigned>::max();
@@ -553,6 +596,13 @@ StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
         if (a.relation == PointerRelation::MaybeNull ||
             b.relation == PointerRelation::MaybeNull) {
             return {a.object_id, PointerRelation::MaybeNull, relation_location};
+        }
+        const auto moved = [](PointerRelation relation) {
+            return relation == PointerRelation::Moved ||
+                   relation == PointerRelation::MaybeMoved;
+        };
+        if (moved(a.relation) || moved(b.relation)) {
+            return {a.object_id, PointerRelation::MaybeMoved, relation_location};
         }
         return {a.object_id, PointerRelation::Unknown, relation_location};
     }
@@ -674,6 +724,72 @@ private:
             return {"<unknown>", 0, 0};
         }
         return {presumed.getFilename(), presumed.getLine(), presumed.getColumn()};
+    }
+
+    std::string sourceText(clang::SourceRange range) const {
+        if (range.isInvalid()) return {};
+        const SourceLocation begin = source_manager_.getExpansionLoc(range.getBegin());
+        const SourceLocation end = source_manager_.getExpansionLoc(range.getEnd());
+        if (begin.isInvalid() || end.isInvalid()) return {};
+        return clang::Lexer::getSourceText(
+                   clang::CharSourceRange::getTokenRange(begin, end), source_manager_,
+                   context_.getLangOpts())
+            .str();
+    }
+
+    bool sourceContainsMove(clang::SourceRange range) const {
+        const std::string text = sourceText(range);
+        bool line_comment = false, block_comment = false, string = false, character = false;
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            const char c = text[i];
+            const char next = i + 1 < text.size() ? text[i + 1] : '\0';
+            if (line_comment) {
+                if (c == '\n') line_comment = false;
+                continue;
+            }
+            if (block_comment) {
+                if (c == '*' && next == '/') { block_comment = false; ++i; }
+                continue;
+            }
+            if (string) {
+                if (c == '\\') { ++i; continue; }
+                if (c == '"') string = false;
+                continue;
+            }
+            if (character) {
+                if (c == '\\') { ++i; continue; }
+                if (c == '\'') character = false;
+                continue;
+            }
+            if (c == '/' && next == '/') { line_comment = true; ++i; continue; }
+            if (c == '/' && next == '*') { block_comment = true; ++i; continue; }
+            if (c == '"') { string = true; continue; }
+            if (c == '\'') { character = true; continue; }
+            constexpr llvm::StringLiteral marker = "CAND_MOVE";
+            if (text.compare(i, marker.size(), marker.data()) != 0) continue;
+            const bool left_boundary = i == 0 ||
+                !(std::isalnum(static_cast<unsigned char>(text[i - 1])) || text[i - 1] == '_');
+            std::size_t j = i + marker.size();
+            while (j < text.size() && std::isspace(static_cast<unsigned char>(text[j]))) ++j;
+            if (left_boundary && j < text.size() && text[j] == '(') return true;
+        }
+        return false;
+    }
+
+    bool isExplicitMove(const Expr *expr) const {
+        if (expr == nullptr) return false;
+        if (!expr->getBeginLoc().isMacroID() && !expr->getEndLoc().isMacroID()) return false;
+        const std::string text = sourceText(expr->getSourceRange());
+        if (text == "CAND_MOVE") return true;
+        const std::size_t first = text.find_first_not_of(" \t\r\n");
+        return first != std::string::npos &&
+               sourceContainsMove(clang::SourceRange(expr->getBeginLoc(), expr->getEndLoc())) &&
+               text.compare(first, std::strlen("CAND_MOVE"), "CAND_MOVE") == 0;
+    }
+
+    void noteOwnershipUnsupported(const Stmt &stmt, llvm::StringRef kind) {
+        if (emitting_) collector_.noteUnsupportedOwnershipTransfer();
+        markUnsupported(stmt, kind);
     }
 
     const VarDecl *resolveVar(const Expr *expr) const {
@@ -1202,6 +1318,72 @@ private:
         emitFinding(std::move(finding));
     }
 
+    void reportUseAfterMove(const StorageBinding &binding, const ObjectInfo &object,
+                            const StorageId &access, SourceLocation use_loc,
+                            const FlowState &state, bool possible) {
+        Finding finding;
+        finding.id = "CAND-O001";
+        finding.rule_id = "ownership.no-use-after-move";
+        finding.message = possible ? "possible use after move" : "use after move";
+        finding.repair_class = "SEMANTIC_REPAIR";
+        finding.certainty = possible ? "possible" : "definite";
+        finding.state_before = possible ? "MaybeMoved" : "Moved";
+        finding.object_id = objectName(binding.object_id);
+        finding.access_storage = storageName(access);
+        finding.transition = "move";
+        finding.move_location = binding.relation_location;
+        for (const auto &entry : state.storages) {
+            if (entry.second.object_id == binding.object_id &&
+                entry.second.relation == PointerRelation::Owner) {
+                finding.owner_storage = storageName(entry.first);
+                break;
+            }
+        }
+        finding.primary = location(use_loc);
+        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        if (!binding.relation_location.file.empty())
+            finding.trace.push_back({"move", possible ? "MaybeMoved" : "Moved",
+                                     binding.relation_location});
+        finding.trace.push_back({"invalid-access", finding.state_before, location(use_loc)});
+        emitFinding(std::move(finding));
+    }
+
+    void reportOwnershipViolation(const char *id, const char *rule, const char *message,
+                                  const StorageBinding &binding, const ObjectInfo &object,
+                                  const StorageId &storage, SourceLocation loc,
+                                  const FlowState &state, bool possible = false) {
+        Finding finding;
+        finding.id = id;
+        finding.rule_id = rule;
+        finding.message = message;
+        finding.repair_class = "SEMANTIC_REPAIR";
+        finding.certainty = possible ? "possible" : "definite";
+        finding.state_before = binding.relation == PointerRelation::MaybeMoved
+                                   ? "MaybeMoved"
+                                   : binding.relation == PointerRelation::Moved
+                                         ? "Moved"
+                                         : stateName(object.state);
+        finding.object_id = objectName(binding.object_id);
+        finding.access_storage = storageName(storage);
+        finding.destroy_storage = storageName(storage);
+        finding.transition = "ownership";
+        finding.move_location = binding.relation_location;
+        for (const auto &entry : state.storages) {
+            if (entry.second.object_id == binding.object_id &&
+                entry.second.relation == PointerRelation::Owner) {
+                finding.owner_storage = storageName(entry.first);
+                break;
+            }
+        }
+        finding.primary = location(loc);
+        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        if (!binding.relation_location.file.empty())
+            finding.trace.push_back({"move", "Moved", binding.relation_location});
+        finding.trace.push_back({"invalid-ownership-operation", finding.state_before,
+                                 location(loc)});
+        emitFinding(std::move(finding));
+    }
+
     void reportDoubleDestroy(const StorageBinding &binding, const ObjectInfo &object,
                              const StorageId &destroy, SourceLocation destroy_loc,
                              bool definite) {
@@ -1251,7 +1433,8 @@ private:
         if (binding == nullptr) {
             if (auto index = currentParameter(pointer_expr); index &&
                 *index < current_summary_->params.size() &&
-                current_summary_->params[*index] == ParamEffect::Borrow) return;
+                (current_summary_->params[*index] == ParamEffect::Borrow ||
+                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
             if (containsParameterStorage(pointer_expr)) {
                 emitUnsupported({"unmodelled-pointer-parameter", "",
                                  location(access_loc)});
@@ -1272,6 +1455,16 @@ private:
         const ObjectInfo *object = objectFor(binding, state);
         if (object == nullptr) {
             emitUnsupported({"access-unknown-ownership-state", "", location(access_loc)});
+            return;
+        }
+        if (binding->relation == PointerRelation::Moved ||
+            binding->relation == PointerRelation::MaybeMoved) {
+            if (access_storage) {
+                reportUseAfterMove(*binding, *object, *access_storage, access_loc, state,
+                                   binding->relation == PointerRelation::MaybeMoved);
+            } else {
+                emitUnsupported({"unresolved-access-storage", "", location(access_loc)});
+            }
             return;
         }
         if (object->state == ObjectState::Dead || object->state == ObjectState::MaybeDead) {
@@ -1305,7 +1498,8 @@ private:
         const auto destroy_storage = storageFor(arg);
         if (!destroy_storage) {
             if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
-                current_summary_->params[*index] == ParamEffect::Destroy) return;
+                (current_summary_->params[*index] == ParamEffect::Destroy ||
+                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
             const Expr *base = arg->IgnoreParenCasts();
             if (isa<ArraySubscriptExpr>(base)) {
                 emitUnsupported({untrackedStorageKind(base), "", location(call.getExprLoc())});
@@ -1324,7 +1518,8 @@ private:
         auto it = state.storages.find(*destroy_storage);
         if (it == state.storages.end()) {
             if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
-                current_summary_->params[*index] == ParamEffect::Destroy) return;
+                (current_summary_->params[*index] == ParamEffect::Destroy ||
+                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
         }
         if (it == state.storages.end()) {
             emitUnsupported(
@@ -1347,6 +1542,15 @@ private:
             return;
         }
         ObjectInfo *object = &object_it->second;
+        if (binding.relation == PointerRelation::Moved ||
+            binding.relation == PointerRelation::MaybeMoved) {
+            reportOwnershipViolation(
+                "CAND-O003", "ownership.destroy-from-non-owner",
+                "destruction attempted through a moved-from owner", binding, *object,
+                *destroy_storage, call.getExprLoc(), state,
+                binding.relation == PointerRelation::MaybeMoved);
+            return;
+        }
         if (binding.relation == PointerRelation::MaybeNull) {
             if (object->state == ObjectState::Owned) {
                 object->state = ObjectState::MaybeDead;
@@ -1408,6 +1612,15 @@ private:
             return;
         }
         ObjectInfo &object = object_it->second;
+        if (binding.relation == PointerRelation::Moved ||
+            binding.relation == PointerRelation::MaybeMoved) {
+            reportOwnershipViolation(
+                "CAND-O003", "ownership.destroy-from-non-owner",
+                "destruction attempted through a moved-from owner", binding, object,
+                *storage, call.getExprLoc(), state,
+                binding.relation == PointerRelation::MaybeMoved);
+            return;
+        }
         if (object.state == ObjectState::Owned) {
             object.state = ObjectState::Dead;
             object.destruction = location(call.getExprLoc());
@@ -1420,7 +1633,110 @@ private:
         }
     }
 
-    void transferBinding(const Expr *arg, const CallExpr &call, FlowState &state) {
+    void reportMissingMove(const StorageBinding &binding, const ObjectInfo &object,
+                           const StorageId &storage, const CallExpr &call,
+                           const FlowState &) {
+        Finding finding;
+        finding.id = "CAND-O005";
+        finding.rule_id = "ownership.missing-explicit-transfer";
+        finding.message = "consuming call requires CAND_MOVE";
+        finding.repair_class = "SEMANTIC_REPAIR";
+        finding.object_id = objectName(binding.object_id);
+        finding.access_storage = storageName(storage);
+        finding.primary = location(call.getExprLoc());
+        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({"missing-move", "Owned", location(call.getExprLoc())});
+        emitFinding(std::move(finding));
+    }
+
+    bool moveBinding(const Expr *arg, const StorageId *destination,
+                     SourceLocation move_loc, const CallExpr *call,
+                     FlowState &state) {
+        const auto source = storageFor(arg);
+        if (!source) {
+            if (call) noteOwnershipUnsupported(*call, "move-untracked-pointer");
+            return false;
+        }
+        auto source_it = state.storages.find(*source);
+        if (source_it == state.storages.end() ||
+            source_it->second.object_id == kUnknownObjectId) {
+            if (call) noteOwnershipUnsupported(*call, "move-unknown-ownership-state");
+            return false;
+        }
+        StorageBinding &binding = source_it->second;
+        if (binding.object_id == kNullObjectId && binding.relation == PointerRelation::Null) {
+            if (destination) state.storages[*destination] =
+                {kNullObjectId, PointerRelation::Null, location(move_loc)};
+            return true;
+        }
+        auto object_it = state.objects.find(binding.object_id);
+        if (object_it == state.objects.end()) {
+            if (call) noteOwnershipUnsupported(*call, "move-unknown-ownership-state");
+            return false;
+        }
+        ObjectInfo &object = object_it->second;
+        if (binding.relation == PointerRelation::Moved ||
+            binding.relation == PointerRelation::MaybeMoved) {
+            reportOwnershipViolation(
+                "CAND-O002", "ownership.double-move", "object moved more than once",
+                binding, object, *source, move_loc, state,
+                binding.relation == PointerRelation::MaybeMoved);
+            return false;
+        }
+        if (object.state == ObjectState::Dead || object.state == ObjectState::MaybeDead) {
+            reportOwnershipViolation(
+                "CAND-O003", "ownership.move-from-dead", "move attempted from a dead object",
+                binding, object, *source, move_loc, state,
+                object.state == ObjectState::MaybeDead);
+            return false;
+        }
+        if (binding.relation != PointerRelation::Owner) {
+            reportOwnershipViolation(
+                "CAND-O004", "ownership.conflicting-owner",
+                "ownership move requires the authoritative owner", binding, object,
+                *source, move_loc, state, false);
+            return false;
+        }
+        if (destination) {
+            if (*destination == *source) {
+                reportOwnershipViolation(
+                    "CAND-O004", "ownership.conflicting-owner",
+                    "an owner cannot move into the same storage", binding, object,
+                    *source, move_loc, state);
+                return false;
+            }
+            auto destination_it = state.storages.find(*destination);
+            if (destination_it != state.storages.end() &&
+                destination_it->second.object_id != kNullObjectId) {
+                const ObjectInfo *old = objectFor(&destination_it->second, state);
+                if (old && (old->state == ObjectState::Owned ||
+                            old->state == ObjectState::MaybeDead ||
+                            old->state == ObjectState::Unknown)) {
+                    reportOwnershipViolation(
+                        "CAND-O004", "ownership.conflicting-owner",
+                        "owner storage overwritten while its object is live",
+                        destination_it->second, *old, *destination, move_loc, state,
+                        old->state == ObjectState::MaybeDead);
+                    return false;
+                }
+            }
+        }
+        binding.relation = PointerRelation::Moved;
+        binding.relation_location = location(move_loc);
+        if (destination) {
+            state.storages[*destination] =
+                {binding.object_id, PointerRelation::Owner, location(move_loc)};
+        }
+        if (emitting_) collector_.noteOwnershipTransition();
+        return true;
+    }
+
+    bool strictOwnershipProfile() const {
+        return AgentMode || ProfileName == "generated";
+    }
+
+    void transferBinding(const Expr *arg, const CallExpr &call, bool explicit_move,
+                         FlowState &state) {
         const auto storage = storageFor(arg);
         if (!storage) {
             markUnsupported(call, "transfer-untracked-pointer");
@@ -1433,6 +1749,18 @@ private:
         }
         if (binding->second.object_id == kNullObjectId &&
             binding->second.relation == PointerRelation::Null) return;
+        if (explicit_move) {
+            moveBinding(arg, nullptr, call.getExprLoc(), &call, state);
+            return;
+        }
+        if (strictOwnershipProfile()) {
+            const auto object = state.objects.find(binding->second.object_id);
+            if (object != state.objects.end())
+                reportMissingMove(binding->second, object->second, *storage, call, state);
+            else
+                noteOwnershipUnsupported(call, "missing-explicit-transfer");
+            return;
+        }
         const auto object = state.objects.find(binding->second.object_id);
         if (object == state.objects.end() || object->second.state != ObjectState::Owned) {
             markUnsupported(call, "transfer-unknown-ownership-state");
@@ -1480,13 +1808,18 @@ private:
                 if (summary->params[i] == ParamEffect::Destroy) {
                     const auto parameter = currentParameter(call.getArg(i));
                     if (!(parameter && current_summary_ && *parameter < current_summary_->params.size() &&
-                          current_summary_->params[*parameter] == ParamEffect::Destroy))
+                          (current_summary_->params[*parameter] == ParamEffect::Destroy ||
+                           current_summary_->params[*parameter] == ParamEffect::TakeOwnership)))
                         destroyBinding(call.getArg(i), call, state);
                 }
                 else if (summary->params[i] == ParamEffect::Borrow) checkAccess(call.getArg(i), call.getExprLoc(), state);
                 else if (summary->params[i] == ParamEffect::TakeOwnership &&
-                         containsTrackedStorage(call.getArg(i), state))
-                    transferBinding(call.getArg(i), call, state);
+                         (containsTrackedStorage(call.getArg(i), state) ||
+                          isExplicitMove(call.getArg(i))))
+                    transferBinding(call.getArg(i), call,
+                                    isExplicitMove(call.getArg(i)), state);
+                else if (isExplicitMove(call.getArg(i)))
+                    markUnsupported(call, "move-to-non-consuming-parameter");
                 else if (summary->params[i] == ParamEffect::Unknown && containsTrackedStorage(call.getArg(i), state))
                     markUnsupported(call, "unknown-call-with-tracked-pointer");
             }
@@ -1634,7 +1967,12 @@ private:
                 continue;
             }
             const StorageId storage{StorageKind::LocalVariable, var, {}, -1};
-            if (isNullConstant(init)) {
+            if (isExplicitMove(init)) {
+                if (!storageFor(init) ||
+                    !moveBinding(init, &storage, init->getExprLoc(), nullptr, state)) {
+                    if (!storageFor(init)) noteOwnershipUnsupported(decl_stmt, "move-untracked-pointer");
+                }
+            } else if (isNullConstant(init)) {
                 state.storages[storage] =
                     {kNullObjectId, PointerRelation::Null, location(init->getExprLoc())};
             } else if (isAllocationOrNull(init)) {
@@ -1653,8 +1991,23 @@ private:
                     state.storages[storage] =
                         {kNullObjectId, PointerRelation::Null, location(init->getExprLoc())};
                 } else {
+                    const PointerRelation relation =
+                        it->second.relation == PointerRelation::Moved
+                            ? PointerRelation::Moved
+                            : it->second.relation == PointerRelation::MaybeMoved
+                                  ? PointerRelation::MaybeMoved
+                                  : PointerRelation::Alias;
+                    if (hasCandAnnotation(var, "cand:own") &&
+                        relation != PointerRelation::Owner) {
+                        const auto object = state.objects.find(it->second.object_id);
+                        if (object != state.objects.end())
+                            reportOwnershipViolation(
+                                "CAND-O004", "ownership.conflicting-owner",
+                                "CAND_OWN requires an explicit ownership move",
+                                it->second, object->second, *source, init->getExprLoc(), state);
+                    }
                     state.storages[storage] =
-                        {it->second.object_id, PointerRelation::Alias,
+                        {it->second.object_id, relation,
                          location(init->getExprLoc())};
                 }
             } else if (containsTrackedStorage(init, state)) {
@@ -1696,7 +2049,12 @@ private:
 
         if (var != nullptr && var->getType()->isPointerType()) {
             auto it = lhs_storage ? state.storages.find(*lhs_storage) : state.storages.end();
-            if (isNullConstant(rhs)) {
+            if (isExplicitMove(rhs)) {
+                if (!lhs_storage || !moveBinding(rhs, &*lhs_storage, rhs->getExprLoc(), nullptr, state)) {
+                    if (!lhs_storage || !storageFor(rhs))
+                        noteOwnershipUnsupported(binary, "move-untracked-pointer");
+                }
+            } else if (isNullConstant(rhs)) {
                 // Releasing an owned pointer into NULL: the object may leak
                 // (not modeled in P0.2) but no lifetime bug is introduced,
                 // and a later free(NULL) is a defined no-op.
@@ -1713,6 +2071,12 @@ private:
                 }
                 if (lhs_storage) bindAllocation(*lhs_storage, rhs, state);
             } else if (const auto *call = asCall(rhs); call != nullptr && summaryFor(*call) != nullptr) {
+                const ObjectInfo *old = it == state.storages.end() ? nullptr
+                    : objectFor(&it->second, state);
+                if (old && (old->state == ObjectState::Owned ||
+                            old->state == ObjectState::MaybeDead ||
+                            old->state == ObjectState::Unknown))
+                    markUnsupported(binary, "tracked-owner-overwrite");
                 if (lhs_storage) bindSummaryReturn(*lhs_storage, *call, state);
             } else {
                 if (const auto source = storageFor(rhs)) {
@@ -1728,8 +2092,14 @@ private:
                             {kNullObjectId, PointerRelation::Null,
                              location(binary.getExprLoc())};
                     } else if (lhs_storage) {
+                        const PointerRelation relation =
+                            source_it->second.relation == PointerRelation::Moved
+                                ? PointerRelation::Moved
+                                : source_it->second.relation == PointerRelation::MaybeMoved
+                                      ? PointerRelation::MaybeMoved
+                                      : PointerRelation::Alias;
                         state.storages[*lhs_storage] =
-                            {source_it->second.object_id, PointerRelation::Alias,
+                            {source_it->second.object_id, relation,
                              location(binary.getExprLoc())};
                     }
                 } else if (containsTrackedStorage(rhs, state)) {
@@ -1770,8 +2140,14 @@ private:
                         {kNullObjectId, PointerRelation::Null,
                          location(binary.getExprLoc())};
                 } else {
+                    const PointerRelation relation =
+                        source_it->second.relation == PointerRelation::Moved
+                            ? PointerRelation::Moved
+                            : source_it->second.relation == PointerRelation::MaybeMoved
+                                  ? PointerRelation::MaybeMoved
+                                  : PointerRelation::Alias;
                     state.storages[*lhs_storage] =
-                        {source_it->second.object_id, PointerRelation::Alias,
+                        {source_it->second.object_id, relation,
                          location(binary.getExprLoc())};
                 }
             } else if (isAllocation(rhs)) {
@@ -2095,7 +2471,12 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     if (stmt == nullptr || !processed.insert(stmt).second) {
         return;
     }
-    if (unevaluated_.count(stmt) != 0) {
+        if (unevaluated_.count(stmt) != 0) {
+            return;
+        }
+
+    if (const auto *expr = dyn_cast<Expr>(stmt); expr && isExplicitMove(expr)) {
+        noteOwnershipUnsupported(*stmt, "standalone-move");
         return;
     }
 
@@ -2104,6 +2485,7 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
         for (const clang::Decl *decl : decl_stmt->decls()) {
             if (const auto *var = dyn_cast<VarDecl>(decl)) {
                 if (const Expr *init = var->getInit()) {
+                    if (isExplicitMove(init)) processed.insert(init);
                     processStmt(init, state, processed);
                 }
             }
@@ -2122,6 +2504,7 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     if (const auto *binary = dyn_cast<BinaryOperator>(stmt)) {
         if (binary->isAssignmentOp()) {
             handleAssignment(*binary, state);
+            if (isExplicitMove(binary->getRHS())) processed.insert(binary->getRHS());
             processStmt(binary->getLHS(), state, processed);
             processStmt(binary->getRHS(), state, processed);
             return;
@@ -2141,6 +2524,9 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
             handleFree(*call, state);
         } else {
             handleCall(*call, state);
+        }
+        for (const Expr *arg : call->arguments()) {
+            if (isExplicitMove(arg)) processed.insert(arg);
         }
         recurseChildren(*call, state, processed);
         return;
@@ -2247,6 +2633,19 @@ public:
         summary.function = &function;
         summary.origin = SummaryOrigin::BodyVerified;
         summary.params.assign(function.param_size(), ParamEffect::None);
+        if (hasCandAnnotation(&function, "cand:returns_own"))
+            summary.return_effect = ReturnEffect::Owned;
+        for (unsigned i = 0; i < function.param_size(); ++i) {
+            const ParmVarDecl *param = function.getParamDecl(i);
+            if (hasCandAnnotation(param, "cand:takes"))
+                summary.params[i] = ParamEffect::TakeOwnership;
+            else if (hasCandAnnotation(param, "cand:destroys"))
+                summary.params[i] = ParamEffect::Destroy;
+            else if (hasCandAnnotation(param, "cand:borrow") ||
+                     hasCandAnnotation(param, "cand:borrow_shared") ||
+                     hasCandAnnotation(param, "cand:borrow_mut"))
+                summary.params[i] = ParamEffect::Borrow;
+        }
         const Stmt *body = function.getBody();
         if (!body) return;
         scan(body, function, summary, false);
@@ -2348,7 +2747,11 @@ private:
                 value = value->IgnoreParenCasts();
                 std::optional<unsigned> borrow;
                 ReturnEffect effect = ReturnEffect::Unknown;
-                if ((borrow = parameterIndex(value, f))) effect = ReturnEffect::BorrowFromArg;
+                if ((borrow = parameterIndex(value, f))) {
+                    effect = s.params[*borrow] == ParamEffect::TakeOwnership
+                                 ? ReturnEffect::Owned
+                                 : ReturnEffect::BorrowFromArg;
+                }
                 else if (const auto *call = dyn_cast<CallExpr>(value)) {
                     effect = returnEffect(*call, old_, borrow);
                     if (effect == ReturnEffect::BorrowFromArg && borrow && *borrow < call->getNumArgs()) {
@@ -2407,7 +2810,12 @@ private:
                 if (name == "free" && call->getNumArgs() == 1) effect = ParamEffect::Destroy;
                 else if (callee && argument < callee->params.size()) effect = callee->params[argument];
                 if (conditional) effect = ParamEffect::Unknown;
-                if (s.params[current] == ParamEffect::None || s.params[current] == ParamEffect::Borrow) s.params[current] = effect;
+                if (s.params[current] == ParamEffect::TakeOwnership &&
+                    (effect == ParamEffect::TakeOwnership || effect == ParamEffect::Destroy)) {
+                    // A consuming parameter may be destroyed by the callee;
+                    // that is still one ownership-transfer summary, not a
+                    // contradictory second effect.
+                } else if (s.params[current] == ParamEffect::None || s.params[current] == ParamEffect::Borrow) s.params[current] = effect;
                 else if (effect != s.params[current]) s.params[current] = ParamEffect::Unknown;
             }
             if (name == "realloc") s.conflict = true;
@@ -2651,7 +3059,8 @@ public:
     }
 
     bool VisitFunctionDecl(FunctionDecl *function) {
-        if (function == nullptr || !function->hasBody()) {
+        if (function == nullptr || !function->hasBody() ||
+            !function->isThisDeclarationADefinition()) {
             return true;
         }
         SourceLocation loc =
@@ -3005,6 +3414,7 @@ llvm::json::Object buildEvidence(const Collector &collector,
     verification["effective_policy_sha256"] = state.policy.sha256;
     verification["checked_scope"] = state.policy.scope_files;
     verification["policy_revision"] = gitHead();
+    verification["ownership_rule_set"] = "p1-unique-ownership-v1";
     evidence["verification"] = std::move(verification);
     const llvm::json::Object analysis = collector.jsonObject();
     llvm::json::Object coverage;
@@ -3012,7 +3422,10 @@ llvm::json::Object buildEvidence(const Collector &collector,
         if (auto value = counts->getInteger("functions_analyzed")) coverage["functions_analyzed"] = *value;
         if (auto value = counts->getInteger("tracked_heap_objects")) coverage["tracked_heap_objects"] = *value;
         if (auto value = counts->getInteger("unsupported_ownership_operations")) coverage["unsupported_ownership_operations"] = *value;
+        if (auto value = counts->getInteger("ownership_transitions")) coverage["ownership_transitions"] = *value;
+        if (auto value = counts->getInteger("unsupported_ownership_transfers")) coverage["unsupported_ownership_transfers"] = *value;
     }
+    coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
     coverage["unsafe_boundaries"] = static_cast<std::int64_t>(state.unsafe_boundaries);
     coverage["suppressions"] = static_cast<std::int64_t>(state.suppressions);
     evidence["analysis"] = std::move(coverage);
@@ -3613,6 +4026,8 @@ int main(int argc, const char **argv) {
 
     clang::tooling::ClangTool tool(options_parser.getCompilations(),
                                    options_parser.getSourcePathList());
+    tool.appendArgumentsAdjuster(clang::tooling::getInsertArgumentAdjuster(
+        "-DCAND_ANALYSIS=1", clang::tooling::ArgumentInsertPosition::BEGIN));
 
     auto diagnostic_options = new clang::DiagnosticOptions();
     auto frontend_errors = std::make_shared<FrontendErrors>();

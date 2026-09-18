@@ -4,6 +4,17 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### P1 — Explicit unique ownership and move semantics
+
+- added the normative P1 unique-owner state model and analysis-only
+  `CAND_MOVE` transitions while preserving ordinary C ABI/runtime behavior;
+- added explicit `CAND_OWN`/`CAND_TAKES`/`CAND_RETURNS_OWN`/`CAND_DESTROYS`
+  integration with body summaries and trusted contracts;
+- added deterministic `CAND-O001`–`CAND-O005` ownership diagnostics, CFG
+  `MaybeMoved` joins, transition coverage, and GCC/Clang compatibility tests;
+- kept aggregate ownership copies, retention, callbacks, `realloc`, spatial
+  safety, and the C&1 claim outside this phase.
+
 ### P0.5 — Agent verification authority and reproducible evidence
 
 - added strict `cand check --agent` mode with generated policy, trusted-base

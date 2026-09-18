@@ -77,3 +77,7 @@ add_test(
     NAME cand-p0-5-agent-verification
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/agent/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand-p1-explicit-ownership
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/p1/run.sh $<TARGET_FILE:cand>
+)

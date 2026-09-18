@@ -159,7 +159,27 @@ outside the agent-controlled change; evidence is not signed and is not a proof
 of general C memory safety. Current generated mode supports only
 `p0-temporal-lifecycle` and C11 with explicitly policy-pinned extra arguments.
 
-## P1 — C&1 unique ownership + first autonomous repair loop
+## P1 — Explicit unique ownership and move semantics (implemented subset)
+
+P1 now checks a documented unique-owner subset without enabling a C&1 release
+claim. `CAND_MOVE` is an analysis-only transition: the old storage becomes
+`Moved`, the destination becomes the sole `Owner`, and the live object identity
+does not change. The implementation is specified by
+[SPEC-0006](spec/SPEC-0006-unique-ownership-and-move-semantics.md) and
+[ADR-0016](adr/ADR-0016-unique-ownership-and-move-semantics.md).
+
+Delivered in this slice:
+
+- explicit `CAND_OWN`, `CAND_MOVE`, `CAND_TAKES`, `CAND_RETURNS_OWN`, and
+  `CAND_DESTROYS` handling;
+- `CAND-O001` through `CAND-O005` ownership diagnostics and deterministic
+  ownership traces;
+- CFG joins for `Owner`/`Moved` as `MaybeMoved`;
+- wrapper/body-summary composition and ordinary-C compatibility fixtures;
+- P1 transition counters in check/evidence coverage.
+
+The remaining items below are future hardening and scope expansion, not claims
+that P1 already models all of them.
 
 Deliver:
 
