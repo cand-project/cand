@@ -76,9 +76,8 @@ A future contract/annotation layer may support conditional destruction or alloca
 
 ## Compatibility aliases
 
-During early development, the repository MAY temporarily contain older conceptual spellings in drafts. Before C&1 implementation is declared, SPEC-0001, `cand.h`, examples, and diagnostics documentation MUST converge on the canonical forms defined here.
-
-Compatibility aliases MAY exist for migration, but documentation SHALL name one canonical spelling.
+The repository uses the canonical forms above. No parameterless or alternate
+borrowed-return spelling is accepted as a P2 lifetime source.
 
 ## External contracts remain authoritative for complex APIs
 

@@ -131,7 +131,7 @@ For example:
 
 ```json
 {
-  "diagnostic": "CAND-T005",
+  "diagnostic": "CAND-B001",
   "repair_class": "SEMANTIC_REPAIR",
   "policy_escape_available": "unsafe-boundary",
   "policy_escape_requires_approval": true

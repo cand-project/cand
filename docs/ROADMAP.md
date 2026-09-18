@@ -206,28 +206,34 @@ Exit gate:
 - an agent can generate or repair the project-owned use-after-free/double-free fixtures using structured C& output and converge to a passing implementation;
 - the successful run emits evidence proving no new unsafe boundary/suppression was used to achieve the pass.
 
-## P2 — Borrowing, lifetimes and richer agent repair
+## P2 — Borrowing, lifetimes and richer agent repair (specification/contracts)
 
-Deliver:
+P2 is specified by [SPEC-0005](spec/SPEC-0005-p2-borrow-lifetimes.md) and
+[ADR-0017 (P2)](adr/ADR-0017-p2-borrow-lifetime-verification.md). This
+documentation/contracts slice defines the proof vocabulary without claiming
+that the analyzer implements it yet.
 
-- shared borrows;
-- mutable borrows;
-- owner/borrow lifetime graph;
-- borrowed return values;
-- interior pointer derivation;
-- borrow escape detection;
-- destruction/move blocked by live invalidated borrow;
-- field-sensitive support for common structs;
-- structured borrow-origin/lifetime traces;
-- safe annotation-only fix-its where mechanically provable;
-- semantic repair suggestions for lifetime/order problems without silent application.
+The first implementation slice is intentionally narrow:
+
+- explicit shared borrows and ObjectId-based parentage;
+- `CAND_RETURNS_BORROW_FROM(n)` and trusted `from_param` returns;
+- last-modeled-use lifetime with conservative CFG joins;
+- destruction-with-live-borrow and use-after-parent-death diagnostics;
+- known escape detection and fail-closed unknown retention;
+- structured borrow findings and `borrow_analysis` evidence counters.
+
+Mutable-borrow exclusivity, relocation, aggregate transport, callbacks,
+field-sensitive disjointness, and other unsupported operations remain
+`INCOMPLETE` until implemented and tested. P2 does not enable a C&1 or general
+C memory-safety claim.
 
 Exit gate:
 
-- real C library pilot with a meaningful borrowed-view API;
-- interprocedural lifetime fixtures;
-- no safety claim for unsupported constructs;
-- reference agent can resolve mandatory borrow fixtures without parsing human diagnostic prose.
+- implementation passes the documented P2 borrow corpus;
+- trusted contract and agent-attestation checks remain green;
+- no known false `PASS` exists in the claimed P2 subset;
+- an LLM repair loop converges without removing semantics or weakening policy;
+- independent review reports BLOCKER=0 and HIGH=0.
 
 ## P3 — Legacy/API integration + trusted contract workflow
 

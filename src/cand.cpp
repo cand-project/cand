@@ -182,6 +182,11 @@ struct Finding {
     std::string destroy_storage;
     std::string owner_storage;
     std::string transition;
+    std::string borrow_storage;
+    std::string borrow_kind;
+    std::string borrow_origin;
+    Location borrow_created;
+    Location parent_invalidated;
     Location move_location;
     Location primary;
     std::vector<TraceEvent> trace;
@@ -213,6 +218,24 @@ bool hasCandAnnotation(const clang::Decl *decl, llvm::StringRef name) {
         if (annotate && annotate->getAnnotation() == name) return true;
     }
     return false;
+}
+
+std::optional<unsigned> borrowReturnParameter(const FunctionDecl *function) {
+    if (!function) return std::nullopt;
+    constexpr llvm::StringLiteral prefix = "cand:returns_borrow_from:";
+    for (const FunctionDecl *decl = function; decl; decl = decl->getPreviousDecl()) {
+        for (const clang::Attr *attr : decl->attrs()) {
+            const auto *annotate = dyn_cast<AnnotateAttr>(attr);
+            if (!annotate) continue;
+            llvm::StringRef value = annotate->getAnnotation();
+            if (!value.consume_front(prefix)) continue;
+            unsigned index = 0;
+            if (value.empty()) return std::nullopt;
+            if (value.getAsInteger(10, index)) return std::nullopt;
+            return index;
+        }
+    }
+    return std::nullopt;
 }
 
 class SummaryStore {
@@ -272,6 +295,13 @@ public:
 
     void noteOwnershipTransition() { ++ownership_transitions_; }
     void noteUnsupportedOwnershipTransfer() { ++unsupported_ownership_transfers_; }
+    void noteBorrow(std::string kind) {
+        ++borrows_created_;
+        if (kind == "mutable") ++mutable_borrows_;
+        else ++shared_borrows_;
+    }
+    void noteBorrowInvalidated() { ++invalidated_borrows_; }
+    void noteUnsupportedBorrow() { ++unsupported_borrows_; }
 
     unsigned nextObjectId() { return next_object_id_++; }
 
@@ -354,6 +384,23 @@ public:
             if (!finding.transition.empty()) {
                 obj["transition"] = finding.transition;
             }
+            if (!finding.borrow_storage.empty()) {
+                llvm::json::Object borrow;
+                borrow["storage"] = finding.borrow_storage;
+                borrow["kind"] = finding.borrow_kind;
+                borrow["origin"] = finding.borrow_origin;
+                borrow["lifetime_source"] = "object:" + finding.object_id;
+                borrow["state"] = finding.parent_invalidated.file.empty() ? "Live" : "Invalid";
+                borrow["created_at"] = locationJson(finding.borrow_created);
+                obj["borrow"] = std::move(borrow);
+                obj["invalid_access"] = locationJson(finding.primary);
+            }
+            if (!finding.parent_invalidated.file.empty()) {
+                llvm::json::Object parent;
+                parent["object_id"] = finding.object_id;
+                parent["invalidated_at"] = locationJson(finding.parent_invalidated);
+                obj["parent"] = std::move(parent);
+            }
             if (!finding.move_location.file.empty()) {
                 obj["move_location"] = locationJson(finding.move_location);
             }
@@ -398,6 +445,15 @@ public:
             static_cast<std::int64_t>(ownership_transitions_);
         coverage["unsupported_ownership_transfers"] =
             static_cast<std::int64_t>(unsupported_ownership_transfers_);
+        coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
+        llvm::json::Object borrow_analysis;
+        borrow_analysis["borrows_created"] = static_cast<std::int64_t>(borrows_created_);
+        borrow_analysis["shared_borrows"] = static_cast<std::int64_t>(shared_borrows_);
+        borrow_analysis["mutable_borrows"] = static_cast<std::int64_t>(mutable_borrows_);
+        borrow_analysis["invalidated_borrows"] = static_cast<std::int64_t>(invalidated_borrows_);
+        borrow_analysis["unsupported_borrow_operations"] = static_cast<std::int64_t>(unsupported_borrows_);
+        borrow_analysis["rule_set"] = "p2-borrow-lifetime-v1";
+        root["borrow_analysis"] = std::move(borrow_analysis);
         root["coverage"] = std::move(coverage);
 
         return root;
@@ -430,6 +486,11 @@ private:
     unsigned tracked_heap_objects_ = 0;
     unsigned ownership_transitions_ = 0;
     unsigned unsupported_ownership_transfers_ = 0;
+    unsigned borrows_created_ = 0;
+    unsigned shared_borrows_ = 0;
+    unsigned mutable_borrows_ = 0;
+    unsigned invalidated_borrows_ = 0;
+    unsigned unsupported_borrows_ = 0;
     unsigned next_object_id_ = 1;
 };
 
@@ -481,6 +542,40 @@ struct StorageId {
                index == other.index;
     }
 };
+
+enum class BorrowKind { Shared, Mutable };
+enum class BorrowState { Live, Invalid, MaybeInvalid, Unknown };
+
+struct BorrowInfo {
+    unsigned parent_object_id = std::numeric_limits<unsigned>::max();
+    BorrowKind kind = BorrowKind::Shared;
+    BorrowState state = BorrowState::Unknown;
+    std::string origin;
+    std::string lifetime_source;
+    Location created;
+    Location invalidated;
+
+    bool operator==(const BorrowInfo &other) const {
+        return parent_object_id == other.parent_object_id && kind == other.kind &&
+               state == other.state && origin == other.origin &&
+               lifetime_source == other.lifetime_source && sameLocation(created, other.created) &&
+               sameLocation(invalidated, other.invalidated);
+    }
+};
+
+const char *borrowKindName(BorrowKind kind) {
+    return kind == BorrowKind::Mutable ? "mutable" : "shared";
+}
+
+const char *borrowStateName(BorrowState state) {
+    switch (state) {
+    case BorrowState::Live: return "Live";
+    case BorrowState::Invalid: return "Invalid";
+    case BorrowState::MaybeInvalid: return "MaybeInvalid";
+    case BorrowState::Unknown: return "Unknown";
+    }
+    return "Unknown";
+}
 
 // PointerRelation also carries the per-storage ownership capability. The
 // heap object's lifetime remains in ObjectInfo; Moved means this storage is
@@ -624,11 +719,20 @@ StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
 struct FlowState {
     std::map<StorageId, StorageBinding> storages;
     std::map<unsigned, ObjectInfo> objects;
+    std::map<StorageId, BorrowInfo> borrows;
 
     bool operator==(const FlowState &other) const {
-        return storages == other.storages && objects == other.objects;
+        return storages == other.storages && objects == other.objects && borrows == other.borrows;
     }
 };
+
+BorrowState joinBorrowState(BorrowState a, BorrowState b) {
+    if (a == b) return a;
+    if (a == BorrowState::Unknown || b == BorrowState::Unknown) return BorrowState::Unknown;
+    if (a == BorrowState::Live && b == BorrowState::Live) return BorrowState::Live;
+    if (a == BorrowState::Invalid && b == BorrowState::Invalid) return BorrowState::Invalid;
+    return BorrowState::MaybeInvalid;
+}
 
 FlowState joinFlow(const FlowState &a, const FlowState &b) {
     FlowState result;
@@ -647,6 +751,18 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
                 (it->second.destruction_storage.empty() ||
                  entry.second.destruction_storage < it->second.destruction_storage))
                 it->second.destruction_storage = entry.second.destruction_storage;
+        }
+    }
+    result.borrows = a.borrows;
+    for (const auto &entry : b.borrows) {
+        auto it = result.borrows.find(entry.first);
+        if (it == result.borrows.end()) {
+            result.borrows.emplace(entry.first, entry.second);
+        } else {
+            it->second.state = joinBorrowState(it->second.state, entry.second.state);
+            it->second.created = minLocation(it->second.created, entry.second.created);
+            if (!entry.second.invalidated.file.empty())
+                it->second.invalidated = minLocation(it->second.invalidated, entry.second.invalidated);
         }
     }
     for (const auto &entry : a.storages) {
@@ -1295,6 +1411,10 @@ private:
         emitUnsupported({kind.str(), "", location(stmt.getBeginLoc())});
     }
 
+    void markUnsupportedAt(SourceLocation loc, llvm::StringRef kind) {
+        emitUnsupported({kind.str(), "", location(loc)});
+    }
+
     std::string objectName(unsigned id) const {
         return "obj:" + std::to_string(id);
     }
@@ -1428,10 +1548,150 @@ private:
         emitFinding(std::move(finding));
     }
 
-    // ---- transfer functions -------------------------------------------
+    // ---- borrow helpers and transfer functions ------------------------
+
+    const BorrowInfo *borrowFor(const Expr *expr, const FlowState &state) const {
+        const auto storage = storageFor(expr);
+        if (!storage) return nullptr;
+        const auto it = state.borrows.find(*storage);
+        return it == state.borrows.end() ? nullptr : &it->second;
+    }
+
+    bool isBorrowCast(const Expr *expr, const FlowState &state) const {
+        const Expr *candidate = expr ? expr->IgnoreParens() : nullptr;
+        const auto *cast = candidate ? dyn_cast<clang::ExplicitCastExpr>(candidate) : nullptr;
+        return cast != nullptr && borrowFor(cast->getSubExpr(), state) != nullptr;
+    }
+
+    void reportBorrowFinding(const char *id, const char *rule, const char *message,
+                             const StorageId &storage, const BorrowInfo &borrow,
+                             SourceLocation primary, const FlowState &state) {
+        Finding finding;
+        finding.id = id;
+        finding.rule_id = rule;
+        finding.message = message;
+        finding.repair_class = "SEMANTIC_REPAIR";
+        finding.object_id = objectName(borrow.parent_object_id);
+        finding.access_storage = storageName(storage);
+        finding.borrow_storage = storageName(storage);
+        finding.borrow_kind = borrowKindName(borrow.kind);
+        finding.borrow_origin = borrow.origin;
+        finding.borrow_created = borrow.created;
+        finding.parent_invalidated = borrow.invalidated;
+        finding.primary = location(primary);
+        finding.trace.push_back({"borrow-created", borrowStateName(borrow.state), borrow.created});
+        const auto object = state.objects.find(borrow.parent_object_id);
+        if (object != state.objects.end()) {
+            finding.trace.push_back({"parent", stateName(object->second.state), object->second.allocation});
+            if (object->second.destruction_known)
+                finding.trace.push_back({"parent-destroyed", "Invalid", object->second.destruction});
+        }
+        finding.trace.push_back({"borrow-access", borrowStateName(borrow.state), location(primary)});
+        emitFinding(std::move(finding));
+    }
+
+    bool createBorrow(const StorageId &storage, unsigned parent, BorrowKind kind,
+                      llvm::StringRef origin, llvm::StringRef lifetime_source,
+                      SourceLocation created_loc, FlowState &state) {
+        const auto object = state.objects.find(parent);
+        if (parent == kUnknownObjectId || object == state.objects.end() ||
+            object->second.state == ObjectState::Dead || object->second.state == ObjectState::MaybeDead) {
+            markUnsupportedAt(created_loc, "borrow-unknown-parent");
+            if (emitting_) collector_.noteUnsupportedBorrow();
+            return false;
+        }
+        for (const auto &entry : state.borrows) {
+            if (entry.first == storage || entry.second.parent_object_id != parent ||
+                entry.second.state != BorrowState::Live) continue;
+            if (kind == BorrowKind::Mutable || entry.second.kind == BorrowKind::Mutable) {
+                reportBorrowFinding("CAND-B004", "p2-borrow-lifetime-v1",
+                                    "conflicting mutable borrow", entry.first, entry.second,
+                                    created_loc, state);
+                return false;
+            }
+        }
+        BorrowInfo info;
+        info.parent_object_id = parent;
+        info.kind = kind;
+        info.state = BorrowState::Live;
+        info.origin = origin.str();
+        info.lifetime_source = lifetime_source.str();
+        info.created = location(created_loc);
+        state.borrows[storage] = std::move(info);
+        if (emitting_) collector_.noteBorrow(borrowKindName(kind));
+        return true;
+    }
+
+    void invalidateBorrows(unsigned parent, SourceLocation loc, FlowState &state) {
+        for (auto &entry : state.borrows) {
+            if (entry.second.parent_object_id != parent || entry.second.state != BorrowState::Live) continue;
+            entry.second.state = BorrowState::Invalid;
+            entry.second.invalidated = location(loc);
+            if (emitting_) collector_.noteBorrowInvalidated();
+        }
+    }
+
+    void expireBorrowUses(const Stmt *stmt, FlowState &state) {
+        if (!stmt) return;
+        std::set<StorageId> used;
+        std::function<void(const Stmt *)> visit = [&](const Stmt *node) {
+            if (!node) return;
+            if (const auto *expr = dyn_cast<Expr>(node)) {
+                if (const auto storage = storageFor(expr); storage && state.borrows.count(*storage))
+                    used.insert(*storage);
+            }
+            for (const Stmt *child : node->children()) visit(child);
+        };
+        visit(stmt);
+        // A borrow is lexical only until its last modeled use. Unknown calls
+        // are handled separately and remain incomplete before this release.
+        for (const StorageId &storage : used) state.borrows.erase(storage);
+    }
+
+    bool borrowUsedAfter(const StorageId &storage, SourceLocation point) const {
+        const Location boundary = location(point);
+        bool found = false;
+        std::function<void(const Stmt *)> visit = [&](const Stmt *node) {
+            if (!node || found) return;
+            if (const auto *expr = dyn_cast<Expr>(node)) {
+                const auto expr_storage = storageFor(expr);
+                if (expr_storage && *expr_storage == storage &&
+                    locationLess(boundary, location(expr->getExprLoc()))) {
+                    found = true;
+                    return;
+                }
+            }
+            for (const Stmt *child : node->children()) visit(child);
+        };
+        visit(current_summary_ && current_summary_->function ? current_summary_->function->getBody() : nullptr);
+        return found;
+    }
+
+    bool checkBorrowAccess(const Expr *pointer_expr, SourceLocation access_loc,
+                           const FlowState &state) {
+        const auto storage = storageFor(pointer_expr);
+        if (!storage) return false;
+        const auto it = state.borrows.find(*storage);
+        if (it == state.borrows.end()) return false;
+        const BorrowInfo &borrow = it->second;
+        const auto object = state.objects.find(borrow.parent_object_id);
+        if (borrow.state == BorrowState::Invalid || borrow.state == BorrowState::MaybeInvalid ||
+            (object != state.objects.end() &&
+             (object->second.state == ObjectState::Dead || object->second.state == ObjectState::MaybeDead))) {
+            reportBorrowFinding("CAND-B002", "p2-borrow-lifetime-v1",
+                                "borrow used after parent death", *storage, borrow, access_loc, state);
+            return true;
+        } else if (borrow.state == BorrowState::Unknown) {
+            markUnsupportedAt(access_loc, "unknown-borrow-state");
+            if (emitting_) collector_.noteUnsupportedBorrow();
+            return true;
+        }
+        return false;
+    }
 
     void checkAccess(const Expr *pointer_expr, SourceLocation access_loc,
                      const FlowState &state) {
+        if (checkBorrowAccess(pointer_expr, access_loc, state)) return;
         if (containsGlobalStorage(pointer_expr)) {
             emitUnsupported({"global-or-static-pointer-storage", "", location(access_loc)});
             return;
@@ -1560,6 +1820,17 @@ private:
             return;
         }
         ObjectInfo *object = &object_it->second;
+        for (const auto &entry : state.borrows) {
+            if (entry.second.parent_object_id == binding.object_id &&
+                entry.second.state == BorrowState::Live &&
+                borrowUsedAfter(entry.first, call.getExprLoc())) {
+                BorrowInfo borrow = entry.second;
+                borrow.invalidated = location(call.getExprLoc());
+                reportBorrowFinding("CAND-B001", "p2-borrow-lifetime-v1",
+                                    "owner destroyed with live borrow", entry.first, borrow,
+                                    call.getExprLoc(), state);
+            }
+        }
         if (binding.relation == PointerRelation::Moved ||
             binding.relation == PointerRelation::MaybeMoved) {
             reportOwnershipViolation(
@@ -1592,6 +1863,7 @@ private:
             object->destruction = location(call.getExprLoc());
             object->destruction_known = true;
             object->destruction_storage = storageName(*destroy_storage);
+            invalidateBorrows(binding.object_id, call.getExprLoc(), state);
             return;
         case ObjectState::Dead:
             reportDoubleDestroy(binding, *object, *destroy_storage, call.getExprLoc(), true);
@@ -1639,11 +1911,23 @@ private:
                 binding.relation == PointerRelation::MaybeMoved);
             return;
         }
+        for (const auto &entry : state.borrows) {
+            if (entry.second.parent_object_id == binding.object_id &&
+                entry.second.state == BorrowState::Live &&
+                borrowUsedAfter(entry.first, call.getExprLoc())) {
+                BorrowInfo borrow = entry.second;
+                borrow.invalidated = location(call.getExprLoc());
+                reportBorrowFinding("CAND-B001", "p2-borrow-lifetime-v1",
+                                    "owner destroyed with live borrow", entry.first, borrow,
+                                    call.getExprLoc(), state);
+            }
+        }
         if (object.state == ObjectState::Owned) {
             object.state = ObjectState::Dead;
             object.destruction = location(call.getExprLoc());
             object.destruction_known = true;
             object.destruction_storage = storageName(*storage);
+            invalidateBorrows(binding.object_id, call.getExprLoc(), state);
         } else if (object.state == ObjectState::Dead || object.state == ObjectState::MaybeDead) {
             reportDoubleDestroy(binding, object, *storage, call.getExprLoc(), object.state == ObjectState::Dead);
         } else {
@@ -1858,10 +2142,12 @@ private:
             noteUnknownPointerCall(call);
         }
         bool tracked_argument = false;
+        bool borrowed_argument = false;
         bool global_argument = false;
         bool pointer_output_argument = false;
         for (const Expr *arg : call.arguments()) {
             tracked_argument = tracked_argument || containsTrackedStorage(arg, state);
+            borrowed_argument = borrowed_argument || borrowFor(arg, state) != nullptr;
             global_argument = global_argument || containsGlobalStorage(arg);
             pointer_output_argument = pointer_output_argument || mayWritePointerStorage(arg);
             if (asUnknownPointerCall(arg) != nullptr) {
@@ -1885,6 +2171,15 @@ private:
                 kind += ":indirect";
             }
             markUnsupported(call, kind);
+            if (borrowed_argument) {
+                std::string retention = "unknown-call-borrow-retention";
+                if (const FunctionDecl *callee = call.getDirectCallee())
+                    retention += ":" + callee->getNameAsString();
+                else
+                    retention += ":indirect";
+                markUnsupported(call, retention);
+                if (emitting_) collector_.noteUnsupportedBorrow();
+            }
         }
     }
 
@@ -1955,6 +2250,11 @@ private:
                 if (it != state.storages.end() && it->second.object_id != kUnknownObjectId) {
                     state.storages[storage] = {it->second.object_id, PointerRelation::Alias,
                                                location(call.getExprLoc())};
+                    const std::string origin = "verified-summary:" +
+                        (call.getDirectCallee() ? call.getDirectCallee()->getNameAsString() : "unknown");
+                    createBorrow(storage, it->second.object_id, BorrowKind::Shared,
+                                 origin, "object:" + objectName(it->second.object_id),
+                                 call.getExprLoc(), state);
                     return;
                 }
             }
@@ -1969,6 +2269,11 @@ private:
                 continue;
             }
             const Expr *init = var->getInit();
+            if (var->getType()->isPointerType() && isBorrowCast(init, state)) {
+                markUnsupported(decl_stmt, "borrow-cast-transport");
+                if (emitting_) collector_.noteUnsupportedBorrow();
+                continue;
+            }
             if (var->hasGlobalStorage() &&
                 (var->getType()->isPointerType() || var->getType()->isAtomicType() ||
                  containsAllocationCall(init) || containsTrackedStorage(init, state) ||
@@ -1996,6 +2301,38 @@ private:
                 continue;
             }
             const StorageId storage{StorageKind::LocalVariable, var, {}, -1};
+            const bool explicit_shared_borrow = hasCandAnnotation(var, "cand:borrow_shared") ||
+                                                hasCandAnnotation(var, "cand:borrow");
+            const bool explicit_mutable_borrow = hasCandAnnotation(var, "cand:borrow_mut");
+            if (explicit_shared_borrow || explicit_mutable_borrow) {
+                if (const auto *call = asCall(init); call && summaryFor(*call) &&
+                    summaryFor(*call)->return_effect == ReturnEffect::BorrowFromArg) {
+                    bindSummaryReturn(storage, *call, state);
+                    if (explicit_mutable_borrow && state.borrows.count(storage)) {
+                        state.borrows.erase(storage);
+                        const auto parent = state.storages[storage].object_id;
+                        createBorrow(storage, parent, BorrowKind::Mutable, "explicit-annotation",
+                                     "object:" + objectName(parent), init->getExprLoc(), state);
+                    }
+                    continue;
+                }
+                if (const auto source = storageFor(init)) {
+                    const auto it = state.storages.find(*source);
+                    if (it != state.storages.end() && it->second.object_id != kUnknownObjectId &&
+                        it->second.object_id != kNullObjectId) {
+                        state.storages[storage] = {it->second.object_id, PointerRelation::Alias,
+                                                   location(init->getExprLoc())};
+                        createBorrow(storage, it->second.object_id,
+                                     explicit_mutable_borrow ? BorrowKind::Mutable : BorrowKind::Shared,
+                                     "explicit-annotation", "object:" + objectName(it->second.object_id),
+                                     init->getExprLoc(), state);
+                        continue;
+                    }
+                }
+                markUnsupported(decl_stmt, "borrow-unknown-parent");
+                if (emitting_) collector_.noteUnsupportedBorrow();
+                continue;
+            }
             if (isExplicitMove(init)) {
                 if (!storageFor(init) ||
                     !moveBinding(init, &storage, init->getExprLoc(), nullptr, state)) {
@@ -2059,12 +2396,30 @@ private:
             lhs->getType()->isPointerType() ||
             (var != nullptr && var->getType()->isPointerType());
 
+        if (lhs_is_pointer && isBorrowCast(rhs, state)) {
+            markUnsupported(binary, "borrow-cast-transport");
+            if (emitting_) collector_.noteUnsupportedBorrow();
+            return;
+        }
+
         // P1 models local pointer storage only. A move into an aggregate
         // field or array element must not silently disappear.
         if (isExplicitMove(rhs) && lhs_is_pointer &&
             (var == nullptr || !var->getType()->isPointerType())) {
             noteOwnershipUnsupported(binary, "move-unsupported-destination-storage");
             return;
+        }
+
+        if (containsGlobalStorage(lhs)) {
+            if (const BorrowInfo *borrow = borrowFor(rhs, state)) {
+                const auto storage = storageFor(rhs);
+                if (storage) {
+                    reportBorrowFinding("CAND-B003", "p2-borrow-lifetime-v1",
+                                        "borrow escapes into global or static storage",
+                                        *storage, *borrow, binary.getExprLoc(), state);
+                    return;
+                }
+            }
         }
 
         if (containsGlobalStorage(lhs) &&
@@ -2232,6 +2587,18 @@ private:
     void handleReturn(const ReturnStmt &return_stmt, const FlowState &state) {
         const Expr *ret = return_stmt.getRetValue();
         if (ret == nullptr) return;
+        if (const BorrowInfo *borrow = borrowFor(ret, state)) {
+            if (!(current_summary_ &&
+                  current_summary_->return_effect == ReturnEffect::BorrowFromArg)) {
+                const auto storage = storageFor(ret);
+                if (storage) {
+                    reportBorrowFinding("CAND-B003", "p2-borrow-lifetime-v1",
+                                        "borrow escapes through an undeclared return",
+                                        *storage, *borrow, return_stmt.getReturnLoc(), state);
+                    return;
+                }
+            }
+        }
         if (ret->getType()->isPointerType() && containsParameterStorage(ret) && !storageFor(ret) &&
             !(current_summary_ && current_summary_->return_effect == ReturnEffect::BorrowFromArg)) {
             markUnsupported(return_stmt, "unmodelled-pointer-parameter");
@@ -2564,10 +2931,11 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
         }
         for (const Expr *arg : call->arguments()) {
             if (isExplicitMove(arg)) processed.insert(arg);
+            }
+            recurseChildren(*call, state, processed);
+            expireBorrowUses(call, state);
+            return;
         }
-        recurseChildren(*call, state, processed);
-        return;
-    }
 
     if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
         if (unary->getOpcode() == clang::UO_Deref) {
@@ -2585,12 +2953,14 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
             }
         }
         recurseChildren(*unary, state, processed);
+        expireBorrowUses(unary, state);
         return;
     }
 
     if (const auto *subscript = dyn_cast<ArraySubscriptExpr>(stmt)) {
         checkAccess(subscript->getBase(), subscript->getExprLoc(), state);
         recurseChildren(*subscript, state, processed);
+        expireBorrowUses(subscript, state);
         return;
     }
 
@@ -2599,6 +2969,7 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
             checkAccess(member->getBase(), member->getExprLoc(), state);
         }
         recurseChildren(*member, state, processed);
+        expireBorrowUses(member, state);
         return;
     }
 
@@ -2672,6 +3043,14 @@ public:
         summary.params.assign(function.param_size(), ParamEffect::None);
         if (hasCandAnnotation(&function, "cand:returns_own"))
             summary.return_effect = ReturnEffect::Owned;
+        if (const auto borrow = borrowReturnParameter(&function)) {
+            if (*borrow < function.param_size()) {
+                summary.return_effect = ReturnEffect::BorrowFromArg;
+                summary.return_borrow_arg = *borrow;
+            } else {
+                summary.conflict = true;
+            }
+        }
         for (unsigned i = 0; i < function.param_size(); ++i) {
             const ParmVarDecl *param = function.getParamDecl(i);
             if (hasCandAnnotation(param, "cand:takes"))
@@ -3074,6 +3453,11 @@ public:
                 if (indent != 4) { collector_.noteContractError(); return; }
             } else if (t == "lifetime:") {
                 if (indent != 6) { collector_.noteContractError(); return; }
+            } else if (t.rfind("borrow_kind:", 0) == 0) {
+                if (indent != 6 || trim(t.substr(12)) != "shared") {
+                    collector_.noteContractError();
+                    return;
+                }
             } else if (t == "conditional_effects:" || t == "callbacks:") {
                 if (indent != 4) { collector_.noteContractError(); return; }
             } else if (t.rfind("notes:", 0) == 0) {
@@ -3452,6 +3836,7 @@ llvm::json::Object buildEvidence(const Collector &collector,
     verification["checked_scope"] = state.policy.scope_files;
     verification["policy_revision"] = gitHead();
     verification["ownership_rule_set"] = "p1-unique-ownership-v1";
+    verification["borrow_rule_set"] = "p2-borrow-lifetime-v1";
     evidence["verification"] = std::move(verification);
     const llvm::json::Object analysis = collector.jsonObject();
     llvm::json::Object coverage;
@@ -3463,6 +3848,11 @@ llvm::json::Object buildEvidence(const Collector &collector,
         if (auto value = counts->getInteger("unsupported_ownership_transfers")) coverage["unsupported_ownership_transfers"] = *value;
     }
     coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
+    if (const auto *borrows = analysis.getObject("borrow_analysis")) {
+        llvm::json::Object borrow_copy;
+        for (const auto &entry : *borrows) borrow_copy[entry.first] = entry.second;
+        coverage["borrow_analysis"] = std::move(borrow_copy);
+    }
     coverage["unsafe_boundaries"] = static_cast<std::int64_t>(state.unsafe_boundaries);
     coverage["suppressions"] = static_cast<std::int64_t>(state.suppressions);
     evidence["analysis"] = std::move(coverage);

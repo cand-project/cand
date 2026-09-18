@@ -88,10 +88,10 @@ The initial proof corpus SHALL cover at least the stable temporal diagnostics de
 - `CAND-T002` use-after-destroy;
 - `CAND-T003` double-destroy;
 - `CAND-T004` destroy-non-owner;
-- `CAND-T005` owner-destroyed-with-live-borrow;
+- `CAND-B001` owner-destroyed-with-live-borrow;
 - `CAND-T006` owner-lost;
-- `CAND-T007` borrow-escapes-owner;
-- `CAND-T008` conflicting-mutable-borrow;
+- `CAND-B003` borrow-escapes-parent-lifetime;
+- `CAND-B004` conflicting-mutable-borrow;
 - `CAND-T009` unknown-ownership-boundary;
 - `CAND-U001` unsupported construct fail-closed behavior.
 

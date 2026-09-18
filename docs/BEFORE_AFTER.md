@@ -114,7 +114,7 @@ packet_free(p)
 Expected diagnostic:
 
 ```text
-CAND-T005 owner-destroyed-with-live-borrow
+CAND-B001 owner-destroyed-with-live-borrow
 ```
 
 The diagnostic should point to owner creation, borrow creation, destruction, and the later borrow use.

@@ -11,13 +11,20 @@
     "profile",
     "findings",
     "unsupported",
-    "coverage"
+    "coverage",
+    "borrow_analysis"
   ],
   "properties": {
     "schema": { "const": "cand.check/v1" },
     "cand_version": { "type": "string" },
     "result": { "enum": ["pass", "fail", "incomplete"] },
-    "safety_level": { "const": "p0-temporal-lifecycle" },
+    "safety_level": {
+      "enum": [
+        "p0-temporal-lifecycle",
+        "p1-unique-ownership",
+        "p2-borrow-lifetime"
+      ]
+    },
     "profile": { "type": "string" },
     "findings": {
       "type": "array",
@@ -41,7 +48,13 @@
           "severity": { "enum": ["error", "warning", "note"] },
           "certainty": { "enum": ["definite", "possible"] },
           "state_before_access": { "type": "string" },
-          "safety_level": { "const": "p0-temporal-lifecycle" },
+          "safety_level": {
+            "enum": [
+              "p0-temporal-lifecycle",
+              "p1-unique-ownership",
+              "p2-borrow-lifetime"
+            ]
+          },
           "message_key": { "type": "string" },
           "message": { "type": "string" },
           "repair_class": {
@@ -59,6 +72,9 @@
           "destroy_storage": { "type": "string" },
           "owner_storage": { "type": "string" },
           "transition": { "type": "string" },
+          "borrow": { "$ref": "#/$defs/borrow" },
+          "parent": { "$ref": "#/$defs/borrowParent" },
+          "invalid_access": { "$ref": "#/$defs/location" },
           "move_location": { "$ref": "#/$defs/location" },
           "primary_location": { "$ref": "#/$defs/location" },
           "state_trace": {
@@ -104,9 +120,66 @@
         "ownership_rule_set": { "const": "p1-unique-ownership-v1" }
       },
       "additionalProperties": false
+    },
+    "borrow_analysis": {
+      "type": "object",
+      "required": [
+        "borrows_created",
+        "shared_borrows",
+        "mutable_borrows",
+        "invalidated_borrows",
+        "unsupported_borrow_operations"
+      ],
+      "properties": {
+        "borrows_created": { "type": "integer", "minimum": 0 },
+        "shared_borrows": { "type": "integer", "minimum": 0 },
+        "mutable_borrows": { "type": "integer", "minimum": 0 },
+        "invalidated_borrows": { "type": "integer", "minimum": 0 },
+        "unsupported_borrow_operations": { "type": "integer", "minimum": 0 },
+        "rule_set": { "const": "p2-borrow-lifetime-v1" }
+      },
+      "additionalProperties": false
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"safety_level": {"const": "p2-borrow-lifetime"}}},
+      "then": {"required": ["borrow_analysis"]}
+    }
+  ],
   "$defs": {
+    "borrow": {
+      "type": "object",
+      "required": [
+        "storage",
+        "kind",
+        "origin",
+        "lifetime_source",
+        "state",
+        "created_at"
+      ],
+      "properties": {
+        "storage": { "type": "string" },
+        "storage_id": { "type": "string" },
+        "kind": { "enum": ["shared", "mutable"] },
+        "origin": { "type": "string" },
+        "lifetime_source": { "type": "string" },
+        "state": {
+          "enum": ["Live", "Invalid", "MaybeInvalid", "Unknown"]
+        },
+        "created_at": { "$ref": "#/$defs/location" }
+      },
+      "additionalProperties": false
+    },
+    "borrowParent": {
+      "type": "object",
+      "required": ["object_id"],
+      "properties": {
+        "object_id": { "type": "string" },
+        "invalidated_at": { "$ref": "#/$defs/location" }
+      },
+      "additionalProperties": false
+    },
     "location": {
       "type": "object",
       "required": ["file", "line", "column"],
