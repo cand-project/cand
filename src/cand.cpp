@@ -1368,7 +1368,8 @@ private:
     void reportOwnershipViolation(const char *id, const char *rule, const char *message,
                                   const StorageBinding &binding, const ObjectInfo &object,
                                   const StorageId &storage, SourceLocation loc,
-                                  const FlowState &state, bool possible = false) {
+                                  const FlowState &state, bool possible = false,
+                                  std::optional<SourceLocation> operation_loc = std::nullopt) {
         Finding finding;
         finding.id = id;
         finding.rule_id = rule;
@@ -1384,7 +1385,7 @@ private:
         finding.access_storage = storageName(storage);
         finding.destroy_storage = storageName(storage);
         finding.transition = "ownership";
-        finding.move_location = binding.relation_location;
+        finding.move_location = operation_loc ? location(*operation_loc) : binding.relation_location;
         for (const auto &entry : state.storages) {
             if (entry.second.object_id == binding.object_id &&
                 entry.second.relation == PointerRelation::Owner) {
@@ -1394,8 +1395,8 @@ private:
         }
         finding.primary = location(loc);
         finding.trace.push_back({"allocation", "Owned", object.allocation});
-        if (!binding.relation_location.file.empty())
-            finding.trace.push_back({"move", "Moved", binding.relation_location});
+        if (!finding.move_location.file.empty())
+            finding.trace.push_back({"move", "Moved", finding.move_location});
         finding.trace.push_back({"invalid-ownership-operation", finding.state_before,
                                  location(loc)});
         emitFinding(std::move(finding));
@@ -1697,21 +1698,21 @@ private:
             reportOwnershipViolation(
                 "CAND-O002", "ownership.double-move", "object moved more than once",
                 binding, object, *source, move_loc, state,
-                binding.relation == PointerRelation::MaybeMoved);
+                binding.relation == PointerRelation::MaybeMoved, move_loc);
             return false;
         }
         if (object.state == ObjectState::Dead || object.state == ObjectState::MaybeDead) {
             reportOwnershipViolation(
                 "CAND-O003", "ownership.move-from-dead", "move attempted from a dead object",
                 binding, object, *source, move_loc, state,
-                object.state == ObjectState::MaybeDead);
+                object.state == ObjectState::MaybeDead, move_loc);
             return false;
         }
         if (binding.relation != PointerRelation::Owner) {
             reportOwnershipViolation(
                 "CAND-O004", "ownership.conflicting-owner",
                 "ownership move requires the authoritative owner", binding, object,
-                *source, move_loc, state, false);
+                *source, move_loc, state, false, move_loc);
             return false;
         }
         if (destination) {
@@ -1719,7 +1720,7 @@ private:
                 reportOwnershipViolation(
                     "CAND-O004", "ownership.conflicting-owner",
                     "an owner cannot move into the same storage", binding, object,
-                    *source, move_loc, state);
+                    *source, move_loc, state, false, move_loc);
                 return false;
             }
             auto destination_it = state.storages.find(*destination);
@@ -1733,7 +1734,7 @@ private:
                         "CAND-O004", "ownership.conflicting-owner",
                         "owner storage overwritten while its object is live",
                         destination_it->second, *old, *destination, move_loc, state,
-                        old->state == ObjectState::MaybeDead);
+                        old->state == ObjectState::MaybeDead, move_loc);
                     return false;
                 }
             }
@@ -2086,7 +2087,7 @@ private:
         if (var != nullptr && var->getType()->isPointerType()) {
             auto it = lhs_storage ? state.storages.find(*lhs_storage) : state.storages.end();
             if (isExplicitMove(rhs)) {
-                if (!lhs_storage || !moveBinding(rhs, &*lhs_storage, rhs->getExprLoc(), nullptr, state)) {
+                if (!lhs_storage || !moveBinding(rhs, &*lhs_storage, binary.getOperatorLoc(), nullptr, state)) {
                     if (!lhs_storage || !storageFor(rhs))
                         noteOwnershipUnsupported(binary, "move-untracked-pointer");
                 }

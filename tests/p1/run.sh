@@ -36,6 +36,24 @@ check_result fail CAND-O002 tests/p1/double_move.c
 check_result fail CAND-O003 tests/p1/stale_owner_destroy.c
 check_result fail CAND-O001 tests/p1/conditional_move.c
 check_result fail CAND-O004 tests/p1/self_move.c
+set +e
+self_move_output="$($cand check --format=json tests/p1/self_move.c -- -std=c11 -Iinclude 2>/dev/null)"
+self_move_rc=$?
+set -e
+python3 - "$self_move_rc" "$self_move_output" <<'PY'
+import json
+import sys
+data = json.loads(sys.argv[2])
+if int(sys.argv[1]) != 1:
+    raise SystemExit(f"self-move returned {sys.argv[1]}")
+finding = next((item for item in data.get("findings", []) if item.get("id") == "CAND-O004"), None)
+if finding is None:
+    raise SystemExit(f"missing self-move finding: {data}")
+primary = finding.get("primary_location", {})
+move = finding.get("move_location", {})
+if move.get("line") != primary.get("line"):
+    raise SystemExit(f"self-move location drift: {finding}")
+PY
 check_result pass "" tests/p1/move_safe.c
 check_result pass "" tests/p1/owned_return_after_move.c
 check_result incomplete "" tests/p1/move_named_identifier.c
