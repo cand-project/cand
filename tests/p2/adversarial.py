@@ -140,7 +140,59 @@ released:
     return h->type + {i};
 }}''')
 
-    assert len(cases) == 105
+    # CFG-focused negative mutations added for the P2.1 liveness pass.
+    for i in range(5):
+        cases.append(f'''int main(void) {{
+    Packet *p CAND_OWN = make_packet();
+    Header *h CAND_BORROW = packet_header(p);
+    if ({i} & 1) {{ free(p); return h->type; }}
+    free(p);
+    return h->type;
+}}''')
+    for i in range(5):
+        cases.append(f'''int main(void) {{
+    Packet *p CAND_OWN = make_packet();
+    Header *h CAND_BORROW = packet_header(p);
+    if ({i} & 1) goto use;
+    free(p);
+    return h->type;
+use:
+    free(p);
+    return h->type;
+}}''')
+    for i in range(5):
+        cases.append(f'''int main(void) {{
+    Packet *p CAND_OWN = make_packet();
+    Header *h CAND_BORROW = packet_header(p);
+    switch ({i} % 3) {{
+    case 0: free(p); break;
+    case 1: free(p); break;
+    default: free(p); break;
+    }}
+    return h->type;
+}}''')
+    for i in range(5):
+        cases.append(f'''int main(void) {{
+    Packet *p CAND_OWN = make_packet();
+    Header *h CAND_BORROW = packet_header(p);
+    for (int n = 0; n <= {i % 2}; ++n) {{
+        if (n == 0) free(p);
+    }}
+    return h->type;
+}}''')
+    for i in range(5):
+        cases.append(f'''int main(void) {{
+    Packet *p CAND_OWN = make_packet();
+    Header *h CAND_BORROW = packet_header(p);
+    if ({i} & 1) {{
+        free(p);
+        if ({i} & 2) return h->type;
+    }}
+    free(p);
+    return h->type;
+}}''')
+
+    assert len(cases) == 130
     false_pass = []
     with tempfile.TemporaryDirectory(prefix="cand-p2-adversarial-") as directory:
         directory = Path(directory)

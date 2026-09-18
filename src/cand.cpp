@@ -1618,6 +1618,7 @@ private:
         info.lifetime_source = lifetime_source.str();
         info.created = location(created_loc);
         state.borrows[storage] = std::move(info);
+        known_borrow_storages_.insert(storage);
         if (emitting_) collector_.noteBorrow(borrowKindName(kind));
         return true;
     }
@@ -1631,40 +1632,23 @@ private:
         }
     }
 
-    void expireBorrowUses(const Stmt *stmt, FlowState &state) {
-        if (!stmt) return;
-        std::set<StorageId> used;
-        std::function<void(const Stmt *)> visit = [&](const Stmt *node) {
-            if (!node) return;
-            if (const auto *expr = dyn_cast<Expr>(node)) {
-                if (const auto storage = storageFor(expr); storage && state.borrows.count(*storage))
-                    used.insert(*storage);
-            }
-            for (const Stmt *child : node->children()) visit(child);
-        };
-        visit(stmt);
-        // A borrow is lexical only until its last modeled use. Unknown calls
-        // are handled separately and remain incomplete before this release.
-        for (const StorageId &storage : used) state.borrows.erase(storage);
+    bool borrowLiveAfter(const StorageId &storage, const Stmt *point) const {
+        const auto it = borrow_live_after_stmt_.find(point);
+        if (it == borrow_live_after_stmt_.end()) {
+            // Missing a program point is an analysis implementation gap. Keep
+            // the destruction check fail-closed instead of assuming the
+            // borrow is dead.
+            return true;
+        }
+        return it->second.count(storage) != 0;
     }
 
-    bool borrowUsedAfter(const StorageId &storage, SourceLocation point) const {
-        const Location boundary = location(point);
-        bool found = false;
-        std::function<void(const Stmt *)> visit = [&](const Stmt *node) {
-            if (!node || found) return;
-            if (const auto *expr = dyn_cast<Expr>(node)) {
-                const auto expr_storage = storageFor(expr);
-                if (expr_storage && *expr_storage == storage &&
-                    locationLess(boundary, location(expr->getExprLoc()))) {
-                    found = true;
-                    return;
-                }
-            }
-            for (const Stmt *child : node->children()) visit(child);
-        };
-        visit(current_summary_ && current_summary_->function ? current_summary_->function->getBody() : nullptr);
-        return found;
+    void expireBorrowUses(const Stmt *stmt, FlowState &state) {
+        if (stmt == nullptr) return;
+        for (auto it = state.borrows.begin(); it != state.borrows.end();) {
+            if (!borrowLiveAfter(it->first, stmt)) it = state.borrows.erase(it);
+            else ++it;
+        }
     }
 
     bool checkBorrowAccess(const Expr *pointer_expr, SourceLocation access_loc,
@@ -1823,7 +1807,7 @@ private:
         for (const auto &entry : state.borrows) {
             if (entry.second.parent_object_id == binding.object_id &&
                 entry.second.state == BorrowState::Live &&
-                borrowUsedAfter(entry.first, call.getExprLoc())) {
+                borrowLiveAfter(entry.first, &call)) {
                 BorrowInfo borrow = entry.second;
                 borrow.invalidated = location(call.getExprLoc());
                 reportBorrowFinding("CAND-B001", "p2-borrow-lifetime-v1",
@@ -1914,7 +1898,7 @@ private:
         for (const auto &entry : state.borrows) {
             if (entry.second.parent_object_id == binding.object_id &&
                 entry.second.state == BorrowState::Live &&
-                borrowUsedAfter(entry.first, call.getExprLoc())) {
+                borrowLiveAfter(entry.first, &call)) {
                 BorrowInfo borrow = entry.second;
                 borrow.invalidated = location(call.getExprLoc());
                 reportBorrowFinding("CAND-B001", "p2-borrow-lifetime-v1",
@@ -2740,6 +2724,210 @@ private:
         return a.column < b.column;
     }
 
+    using BorrowLiveSet = std::set<StorageId>;
+
+    void collectBorrowUses(const Expr *expr, BorrowLiveSet &uses) const {
+        if (expr == nullptr) return;
+        if (const auto storage = storageFor(expr);
+            storage && known_borrow_storages_.count(*storage)) {
+            uses.insert(*storage);
+        }
+        for (const Stmt *child : expr->children()) {
+            if (const auto *child_expr = dyn_cast<Expr>(child))
+                collectBorrowUses(child_expr, uses);
+        }
+    }
+
+    void collectBorrowUses(const Stmt *stmt, BorrowLiveSet &uses) const {
+        if (stmt == nullptr) return;
+        if (const auto *expr = dyn_cast<Expr>(stmt)) {
+            collectBorrowUses(expr, uses);
+            return;
+        }
+        if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
+            for (const clang::Decl *item : decl->decls()) {
+                if (const auto *var = dyn_cast<VarDecl>(item))
+                    collectBorrowUses(var->getInit(), uses);
+            }
+            return;
+        }
+        if (const auto *ret = dyn_cast<ReturnStmt>(stmt)) {
+            collectBorrowUses(ret->getRetValue(), uses);
+            return;
+        }
+        if (const auto *if_stmt = dyn_cast<IfStmt>(stmt)) {
+            collectBorrowUses(if_stmt->getCond(), uses);
+            return;
+        }
+        if (const auto *switch_stmt = dyn_cast<SwitchStmt>(stmt)) {
+            collectBorrowUses(switch_stmt->getCond(), uses);
+            return;
+        }
+        if (const auto *while_stmt = dyn_cast<WhileStmt>(stmt)) {
+            collectBorrowUses(while_stmt->getCond(), uses);
+            return;
+        }
+        if (const auto *for_stmt = dyn_cast<ForStmt>(stmt)) {
+            collectBorrowUses(for_stmt->getInit(), uses);
+            collectBorrowUses(for_stmt->getCond(), uses);
+            collectBorrowUses(for_stmt->getInc(), uses);
+            return;
+        }
+        if (const auto *do_stmt = dyn_cast<DoStmt>(stmt)) {
+            collectBorrowUses(do_stmt->getCond(), uses);
+        }
+    }
+
+    void collectBorrowKills(const Stmt *stmt, BorrowLiveSet &kills) const {
+        if (stmt == nullptr) return;
+        if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
+            for (const clang::Decl *item : decl->decls()) {
+                const auto *var = dyn_cast<VarDecl>(item);
+                if (var == nullptr || !var->getType()->isPointerType()) continue;
+                const StorageId storage{StorageKind::LocalVariable, var, {}, -1};
+                if (known_borrow_storages_.count(storage)) kills.insert(storage);
+            }
+            return;
+        }
+        if (const auto *binary = dyn_cast<BinaryOperator>(stmt)) {
+            if (!binary->isAssignmentOp()) return;
+            const auto storage = storageFor(binary->getLHS());
+            if (storage && known_borrow_storages_.count(*storage)) kills.insert(*storage);
+            return;
+        }
+        if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
+            if (unary->getOpcode() == clang::UO_PreInc ||
+                unary->getOpcode() == clang::UO_PostInc ||
+                unary->getOpcode() == clang::UO_PreDec ||
+                unary->getOpcode() == clang::UO_PostDec) {
+                const auto storage = storageFor(unary->getSubExpr());
+                if (storage && known_borrow_storages_.count(*storage)) kills.insert(*storage);
+            }
+        }
+    }
+
+    void collectBorrowLivenessEvents(const Stmt *stmt,
+                                     std::vector<const Stmt *> &events) const {
+        if (stmt == nullptr) return;
+        if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
+            events.push_back(decl);
+            return;
+        }
+        if (const auto *ret = dyn_cast<ReturnStmt>(stmt)) {
+            events.push_back(ret);
+            return;
+        }
+        if (const auto *if_stmt = dyn_cast<IfStmt>(stmt)) {
+            events.push_back(if_stmt->getCond());
+            return;
+        }
+        if (const auto *switch_stmt = dyn_cast<SwitchStmt>(stmt)) {
+            events.push_back(switch_stmt->getCond());
+            return;
+        }
+        if (const auto *while_stmt = dyn_cast<WhileStmt>(stmt)) {
+            events.push_back(while_stmt->getCond());
+            return;
+        }
+        if (const auto *for_stmt = dyn_cast<ForStmt>(stmt)) {
+            events.push_back(for_stmt->getInit());
+            events.push_back(for_stmt->getCond());
+            events.push_back(for_stmt->getInc());
+            return;
+        }
+        if (const auto *do_stmt = dyn_cast<DoStmt>(stmt)) {
+            events.push_back(do_stmt->getCond());
+            return;
+        }
+        if (isa<CompoundStmt>(stmt) || isa<GotoStmt>(stmt) ||
+            isa<IndirectGotoStmt>(stmt)) return;
+        if (const auto *expr = dyn_cast<Expr>(stmt)) {
+            // CFG wrappers contain the real expression. Keep call/member/
+            // assignment nodes as individual program points so destruction
+            // can query liveness immediately after the operation.
+            if (isa<CallExpr>(expr) || isa<BinaryOperator>(expr) ||
+                isa<MemberExpr>(expr) || isa<ArraySubscriptExpr>(expr) ||
+                isa<UnaryOperator>(expr) || isa<ConditionalOperator>(expr)) {
+                events.push_back(expr);
+                return;
+            }
+            bool nested = false;
+            for (const Stmt *child : expr->children()) {
+                if (child != nullptr) {
+                    nested = true;
+                    collectBorrowLivenessEvents(child, events);
+                }
+            }
+            if (!nested) events.push_back(expr);
+            return;
+        }
+        events.push_back(stmt);
+    }
+
+    BorrowLiveSet borrowLivenessTransfer(const CFGBlock &block,
+                                         BorrowLiveSet live,
+                                         bool record) {
+        std::vector<const Stmt *> events;
+        for (CFGBlock::const_iterator it = block.begin(); it != block.end(); ++it) {
+            const CFGElement &element = *it;
+            if (element.getKind() != CFGElement::Statement) continue;
+            const std::optional<CFGStmt> cfg_stmt = element.getAs<CFGStmt>();
+            if (cfg_stmt) collectBorrowLivenessEvents(cfg_stmt->getStmt(), events);
+        }
+        if (const Stmt *terminator = block.getTerminatorStmt()) {
+            collectBorrowLivenessEvents(terminator, events);
+        }
+        for (auto it = events.rbegin(); it != events.rend(); ++it) {
+            const Stmt *event = *it;
+            if (event == nullptr) continue;
+            if (record) borrow_live_after_stmt_[event] = live;
+            BorrowLiveSet uses;
+            BorrowLiveSet kills;
+            collectBorrowUses(event, uses);
+            collectBorrowKills(event, kills);
+            for (const StorageId &storage : kills) live.erase(storage);
+            live.insert(uses.begin(), uses.end());
+        }
+        return live;
+    }
+
+    void computeBorrowLiveness() {
+        borrow_live_in_.clear();
+        borrow_live_out_.clear();
+        borrow_live_after_stmt_.clear();
+        bool changed = false;
+        do {
+            changed = false;
+            for (CFG::const_iterator it = cfg_->begin(); it != cfg_->end(); ++it) {
+                const CFGBlock *block = *it;
+                if (block == nullptr) continue;
+                BorrowLiveSet out;
+                for (CFGBlock::const_succ_iterator si = block->succ_begin();
+                     si != block->succ_end(); ++si) {
+                    const CFGBlock *successor = *si;
+                    if (successor == nullptr) continue;
+                    const BorrowLiveSet &successor_in = borrow_live_in_[successor->getBlockID()];
+                    out.insert(successor_in.begin(), successor_in.end());
+                }
+                const BorrowLiveSet in = borrowLivenessTransfer(*block, out, false);
+                if (borrow_live_out_[block->getBlockID()] != out) {
+                    borrow_live_out_[block->getBlockID()] = out;
+                    changed = true;
+                }
+                if (borrow_live_in_[block->getBlockID()] != in) {
+                    borrow_live_in_[block->getBlockID()] = in;
+                    changed = true;
+                }
+            }
+        } while (changed);
+
+        for (CFG::const_iterator it = cfg_->begin(); it != cfg_->end(); ++it) {
+            const CFGBlock *block = *it;
+            if (block == nullptr) continue;
+            borrowLivenessTransfer(*block, borrow_live_out_[block->getBlockID()], true);
+        }
+    }
+
     void run() {
         std::map<unsigned, FlowState> in_states;
         std::map<unsigned, FlowState> out_states;
@@ -2796,6 +2984,8 @@ private:
                 worklist.insert(sid);
             }
         }
+
+        computeBorrowLiveness();
 
         // Emit diagnostics from the converged state only.
         emitting_ = true;
@@ -2859,6 +3049,10 @@ private:
     std::map<const CallExpr *, unsigned> allocation_sites_;
     std::map<const Expr *, unsigned> synthetic_allocation_sites_;
     std::set<const CallExpr *> loop_allocation_sites_;
+    std::set<StorageId> known_borrow_storages_;
+    std::map<unsigned, BorrowLiveSet> borrow_live_in_;
+    std::map<unsigned, BorrowLiveSet> borrow_live_out_;
+    std::map<const Stmt *, BorrowLiveSet> borrow_live_after_stmt_;
     unsigned next_fallback_id_ = 1;
     std::set<unsigned> bound_objects_;
     std::set<const VarDecl *> stack_pointers_;
@@ -3034,7 +3228,8 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
 
 class SummaryBuilder {
 public:
-    SummaryBuilder(const SummaryStore &old, SummaryStore &out) : old_(old), out_(out) {}
+    SummaryBuilder(const SummaryStore &old, SummaryStore &out, ASTContext &context)
+        : old_(old), out_(out), context_(context) {}
 
     void build(const FunctionDecl &function) {
         FunctionSummary summary;
@@ -3096,6 +3291,25 @@ private:
         return false;
     }
 
+    static std::optional<unsigned> borrowedParameterIndex(const Expr *expr,
+                                                          const FunctionDecl &f) {
+        expr = expr ? expr->IgnoreParenCasts() : nullptr;
+        if (!expr) return std::nullopt;
+        if (const auto direct = parameterIndex(expr, f)) return direct;
+        if (const auto *unary = dyn_cast<UnaryOperator>(expr);
+            unary && unary->getOpcode() == clang::UO_AddrOf) {
+            for (unsigned i = 0; i < f.param_size(); ++i) {
+                if (containsParameter(unary->getSubExpr(), f, i)) return i;
+            }
+        }
+        if (expr->getType()->isPointerType()) {
+            for (unsigned i = 0; i < f.param_size(); ++i) {
+                if (containsParameter(expr, f, i)) return i;
+            }
+        }
+        return std::nullopt;
+    }
+
     static ReturnEffect returnEffect(const CallExpr &call, const SummaryStore &store,
                                      std::optional<unsigned> &borrow) {
         if (call.getDirectCallee() && (call.getDirectCallee()->getNameAsString() == "malloc" ||
@@ -3128,6 +3342,11 @@ private:
         return false;
     }
 
+    bool nullPointerValue(const Expr *expr) const {
+        return expr && expr->isNullPointerConstant(
+            context_, Expr::NPC_ValueDependentIsNotNull);
+    }
+
     static bool ownedLocal(const Stmt *stmt, const VarDecl *var, const SummaryStore &store) {
         if (!stmt) return false;
         if (const auto *decl = dyn_cast<DeclStmt>(stmt)) {
@@ -3144,7 +3363,9 @@ private:
                               std::optional<unsigned> borrow) {
         if (effect == ReturnEffect::None) return;
         if (s.return_effect == ReturnEffect::None) { s.return_effect = effect; s.return_borrow_arg = borrow; return; }
-        if (s.return_effect != effect || (effect == ReturnEffect::BorrowFromArg && s.return_borrow_arg != borrow)) s.conflict = true;
+        if (s.return_effect != effect || (effect == ReturnEffect::BorrowFromArg && s.return_borrow_arg != borrow)) {
+            s.conflict = true;
+        }
     }
 
     void scan(const Stmt *stmt, const FunctionDecl &f, FunctionSummary &s, bool conditional) {
@@ -3161,9 +3382,10 @@ private:
             const Expr *value = ret->getRetValue();
             if (value && value->getType()->isPointerType()) {
                 value = value->IgnoreParenCasts();
+                if (nullPointerValue(value)) return;
                 std::optional<unsigned> borrow;
                 ReturnEffect effect = ReturnEffect::Unknown;
-                if ((borrow = parameterIndex(value, f))) {
+                if ((borrow = borrowedParameterIndex(value, f))) {
                     effect = s.params[*borrow] == ParamEffect::TakeOwnership
                                  ? ReturnEffect::Owned
                                  : ReturnEffect::BorrowFromArg;
@@ -3243,6 +3465,7 @@ private:
     }
     const SummaryStore &old_;
     SummaryStore &out_;
+    ASTContext &context_;
 };
 
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {
@@ -3269,7 +3492,8 @@ public:
         }
         for (unsigned round = 0; round < functions.size() + 1; ++round) {
             SummaryStore next;
-            for (const FunctionDecl *function : functions) SummaryBuilder(summaries_, next).build(*function);
+            for (const FunctionDecl *function : functions)
+                SummaryBuilder(summaries_, next, context_).build(*function);
             summaries_ = std::move(next);
         }
         loadContracts();
@@ -3281,7 +3505,7 @@ public:
             for (const FunctionDecl *function : functions) {
                 const FunctionSummary *existing = summaries_.find(function);
                 if (existing && existing->conflict) continue;
-                SummaryBuilder(summaries_, next).build(*function);
+                SummaryBuilder(summaries_, next, context_).build(*function);
             }
             summaries_ = std::move(next);
         }

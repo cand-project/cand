@@ -42,11 +42,18 @@ check_result pass "" tests/p2/shared_borrowed_return.c
 check_result pass "" tests/p2/move_preserves_borrow.c
 check_result pass "" tests/p2/last_use_then_destroy.c
 check_result pass "" tests/p2/wrapper_borrowed_return.c
+check_result pass "" tests/p2/borrowed_field_return.c
 check_result pass "" tests/p2/cfg_branch_last_use.c
+check_result pass "" tests/p2/cfg_switch_exclusive.c
+check_result pass "" tests/p2/cfg_early_return.c
+check_result pass "" tests/p2/cfg_goto_exclusive.c
+check_result pass "" tests/p2/cfg_loop_last_use.c
 
 # Lifetime and exclusivity failures.
 check_result fail CAND-B001 tests/p2/destroy_with_live_borrow.c
 check_result fail CAND-B002 tests/p2/use_after_parent_death.c
+check_result fail CAND-B002 tests/p2/cfg_loop_after_death.c
+check_result fail CAND-B002 tests/p2/cfg_branch_after_death.c
 check_result fail CAND-B003 tests/p2/direct_global_escape.c
 check_result fail CAND-B003 tests/p2/undeclared_borrow_return.c
 check_result fail CAND-B004 tests/p2/mutable_conflict.c
@@ -72,5 +79,28 @@ for source in tests/p2/*.c; do
 done
 
 python3 tests/p2/adversarial.py "$cand"
+
+set +e
+natural_output="$($cand check --format=json tests/interprocedural/natural_router.c -- -std=c11 -Iinclude 2>/dev/null)"
+natural_rc=$?
+set -e
+if [[ "$natural_rc" != 3 ]]; then
+    echo "natural_router.c: expected exit 3, got $natural_rc" >&2
+    exit 1
+fi
+python3 - "$natural_output" <<'PY'
+import json
+import sys
+
+report = json.loads(sys.argv[1])
+analysis = report.get("borrow_analysis", {})
+if report.get("result") != "incomplete":
+    raise SystemExit(f"natural_router.c: expected INCOMPLETE, got {report.get('result')}")
+if analysis.get("borrows_created", 0) < 1:
+    raise SystemExit(f"natural_router.c: no borrow relations recorded: {analysis}")
+if analysis.get("unsupported_borrow_operations") != 0:
+    raise SystemExit(f"natural_router.c: unsupported borrow operation: {analysis}")
+print("P2 natural borrowed-view demo: INCOMPLETE with modeled borrows and zero unsupported borrow operations")
+PY
 
 echo "C& P2 borrow/lifetime corpus passed."

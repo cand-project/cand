@@ -8,10 +8,38 @@
  */
 #include <stddef.h>
 #include <stdlib.h>
+#include "cand/cand.h"
 
 #define ROUTER_BATCH_CAPACITY 12
 #define PACKET_PAYLOAD_CAPACITY 80
 #define ROUTE_COUNT 4
+
+typedef struct EthernetHeader {
+    unsigned char destination[6];
+    unsigned char source[6];
+    unsigned short ether_type;
+} EthernetHeader;
+
+typedef struct IPv4Header {
+    unsigned char version;
+    unsigned char ttl;
+    unsigned char protocol;
+    unsigned int source;
+    unsigned int destination;
+} IPv4Header;
+
+typedef struct TcpHeader {
+    unsigned short source_port;
+    unsigned short destination_port;
+    unsigned int sequence;
+    unsigned int acknowledgement;
+    unsigned char flags;
+} TcpHeader;
+
+typedef struct PayloadView {
+    const unsigned char *bytes;
+    size_t length;
+} PayloadView;
 
 typedef struct Packet {
     unsigned id;
@@ -19,6 +47,10 @@ typedef struct Packet {
     unsigned retry_count;
     size_t length;
     unsigned char payload[PACKET_PAYLOAD_CAPACITY];
+    EthernetHeader ethernet;
+    IPv4Header ipv4;
+    TcpHeader tcp;
+    PayloadView payload_view;
 } Packet;
 
 typedef struct RouteRule {
@@ -43,6 +75,10 @@ typedef enum RouteDecision {
     ROUTE_ACCEPT = 1,
     ROUTE_RETRY = 2
 } RouteDecision;
+
+static void packet_initialize_protocol_headers(Packet *packet,
+                                                unsigned route,
+                                                unsigned id);
 
 static const RouteRule DEFAULT_RULES[ROUTE_COUNT] = {
     {0u, 1u, PACKET_PAYLOAD_CAPACITY, 2u, 1u},
@@ -81,19 +117,18 @@ static unsigned payload_hash(const unsigned char *bytes, size_t length)
     return hash;
 }
 
-static Packet *packet_create(unsigned id, unsigned route,
-                             const unsigned char *payload, size_t length)
+CAND_RETURNS_OWN Packet *packet_create(unsigned id, unsigned route,
+                                       const unsigned char *payload, size_t length)
 {
-    Packet *packet;
+    Packet *packet = (Packet *)malloc(sizeof(*packet));
     size_t index;
 
     if (payload == NULL || length == 0u ||
         length > PACKET_PAYLOAD_CAPACITY) {
-        return NULL;
+        abort();
     }
-    packet = (Packet *)malloc(sizeof(*packet));
     if (packet == NULL) {
-        return NULL;
+        abort();
     }
     packet->id = id;
     packet->route = clamp_route(route);
@@ -105,12 +140,182 @@ static Packet *packet_create(unsigned id, unsigned route,
     for (; index < PACKET_PAYLOAD_CAPACITY; ++index) {
         packet->payload[index] = 0u;
     }
+    packet_initialize_protocol_headers(packet, route, id);
     return packet;
 }
 
-static void packet_destroy(Packet *packet)
+static void packet_destroy(Packet *packet CAND_DESTROYS)
 {
     free(packet);
+}
+
+/* The packet owns these protocol records; the accessors expose views only. */
+CAND_RETURNS_BORROW_FROM(0) EthernetHeader *packet_ethernet(Packet *packet)
+{
+    return &packet->ethernet;
+}
+
+CAND_RETURNS_BORROW_FROM(0) IPv4Header *packet_ipv4(Packet *packet)
+{
+    return &packet->ipv4;
+}
+
+CAND_RETURNS_BORROW_FROM(0) TcpHeader *packet_tcp(Packet *packet)
+{
+    return &packet->tcp;
+}
+
+CAND_RETURNS_BORROW_FROM(0) PayloadView *packet_payload(Packet *packet)
+{
+    return &packet->payload_view;
+}
+
+static void packet_initialize_protocol_headers(Packet *packet,
+                                                unsigned route,
+                                                unsigned id)
+{
+    size_t index;
+
+    packet->ethernet.ether_type = 0x0800u;
+    for (index = 0; index < 6u; ++index) {
+        packet->ethernet.destination[index] =
+            (unsigned char)(route * 7u + index);
+        packet->ethernet.source[index] =
+            (unsigned char)(id + index * 3u);
+    }
+    packet->ipv4.version = 4u;
+    packet->ipv4.ttl = (unsigned char)(32u + route * 8u);
+    packet->ipv4.protocol = 6u;
+    packet->ipv4.source = 0x0a000001u + id;
+    packet->ipv4.destination = 0xc0000201u + route;
+    packet->tcp.source_port = (unsigned short)(10000u + id % 1000u);
+    packet->tcp.destination_port = (unsigned short)(80u + route);
+    packet->tcp.sequence = id * 17u;
+    packet->tcp.acknowledgement = id * 19u;
+    packet->tcp.flags = 0x18u;
+    packet->payload_view.bytes = packet->payload;
+    packet->payload_view.length = packet->length;
+}
+
+static unsigned ethernet_view_score(const EthernetHeader *header CAND_BORROW)
+{
+    unsigned score = header->ether_type;
+    size_t index;
+
+    for (index = 0; index < 6u; ++index) {
+        score ^= (unsigned)header->destination[index] << (index % 4u);
+        score += header->source[index];
+    }
+    return score;
+}
+
+static unsigned ipv4_view_score(const IPv4Header *header CAND_BORROW)
+{
+    if (header->version != 4u || header->ttl == 0u) {
+        return 0u;
+    }
+    return header->source ^ header->destination ^
+           ((unsigned)header->protocol << 8u) ^ header->ttl;
+}
+
+static unsigned tcp_view_score(const TcpHeader *header CAND_BORROW)
+{
+    return (unsigned)header->source_port +
+           (unsigned)header->destination_port +
+           header->sequence + header->acknowledgement + header->flags;
+}
+
+static unsigned payload_view_score(const PayloadView *view CAND_BORROW)
+{
+    unsigned score = 0u;
+    size_t index;
+
+    if (view->bytes == NULL) {
+        return 0u;
+    }
+    for (index = 0; index < view->length; ++index) {
+        score = (score << 5u) ^ view->bytes[index] ^ (score >> 2u);
+    }
+    return score;
+}
+
+static unsigned inspect_packet_views(const EthernetHeader *ethernet CAND_BORROW,
+                                     const IPv4Header *ipv4 CAND_BORROW,
+                                     const TcpHeader *tcp CAND_BORROW,
+                                     const PayloadView *payload CAND_BORROW)
+{
+    if (ethernet == NULL || ipv4 == NULL || tcp == NULL || payload == NULL) {
+        return 0u;
+    }
+    return ethernet_view_score(ethernet) ^ ipv4_view_score(ipv4) ^
+           tcp_view_score(tcp) ^ payload_view_score(payload);
+}
+
+static int packet_views_are_consistent(const IPv4Header *ipv4 CAND_BORROW,
+                                       const PayloadView *payload CAND_BORROW)
+{
+    return ipv4 != NULL && ipv4->version == 4u &&
+           payload != NULL && payload->bytes != NULL && payload->length != 0u;
+}
+
+static void decrement_packet_ttl(IPv4Header *ipv4 CAND_BORROW_MUT)
+{
+    if (ipv4 != NULL && ipv4->ttl > 0u) {
+        --ipv4->ttl;
+    }
+}
+
+static unsigned route_protocol_views(const EthernetHeader *ethernet CAND_BORROW,
+                                     const IPv4Header *ipv4 CAND_BORROW,
+                                     const TcpHeader *tcp CAND_BORROW,
+                                     const PayloadView *payload CAND_BORROW,
+                                     unsigned route, unsigned retry_count)
+{
+    unsigned score = inspect_packet_views(ethernet, ipv4, tcp, payload);
+
+    if (!packet_views_are_consistent(ipv4, payload)) {
+        return 0u;
+    }
+    return score ^ route ^ retry_count;
+}
+
+static int run_protocol_view_demo(void)
+{
+    static const unsigned char payload[] = {9u, 2u, 6u, 5u, 3u, 5u};
+    Packet *packet CAND_OWN = packet_create(909u, 1u, payload, sizeof(payload));
+    unsigned score;
+
+    if (packet == NULL) {
+        return 0;
+    }
+    {
+        EthernetHeader *ethernet CAND_BORROW = packet_ethernet(packet);
+        IPv4Header *ip CAND_BORROW = packet_ipv4(packet);
+        TcpHeader *tcp CAND_BORROW = packet_tcp(packet);
+        PayloadView *view CAND_BORROW = packet_payload(packet);
+
+        score = route_protocol_views(ethernet, ip, tcp, view,
+                                     packet->route, packet->retry_count);
+        if (ip == NULL || view == NULL || score == 0u || ip->ttl == 0u) {
+            packet_destroy(packet);
+            return 0;
+        }
+    }
+
+    {
+        IPv4Header *edit CAND_BORROW_MUT = packet_ipv4(packet);
+        decrement_packet_ttl(edit);
+        if (edit == NULL || edit->ttl == 0u) {
+            packet_destroy(packet);
+            return 0;
+        }
+    }
+    if (score == 0u) {
+        packet_destroy(packet);
+        return 0;
+    }
+    packet_destroy(packet);
+    return 1;
 }
 
 static int packet_has_valid_shape(const Packet *packet)
@@ -438,6 +643,9 @@ static int run_demo(void)
     unsigned priority;
 
     metrics_init(&metrics);
+    if (!run_protocol_view_demo()) {
+        return 0;
+    }
     if (!build_demo_batch(batch, ROUTER_BATCH_CAPACITY, &used)) {
         return 0;
     }
