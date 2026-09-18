@@ -21,6 +21,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0013](ADR-0013-interprocedural-ownership-summaries.md) | Calls require verified summaries or explicitly trusted contracts | Accepted (P0.4) |
 | [ADR-0014](ADR-0014-agent-verification-evidence.md) | Agent output is accepted only under runner-authorized policy and replayable input-bound evidence | Accepted (P0.5 slice) |
 | [ADR-0015](ADR-0015-trusted-agent-attestation.md) | Authoritative agent verification uses a protected base-built verifier, not candidate-controlled CI | Proposed (P0.5.1) |
+| [ADR-0016](ADR-0016-unique-ownership-and-move-semantics.md) | Explicit moves transfer one ownership capability without changing ordinary C runtime semantics | Accepted (P1) |
 
 ## Design chain
 

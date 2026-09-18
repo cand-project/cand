@@ -149,6 +149,14 @@ Outside an analysis invocation, annotations reduce to code-generation-neutral no
 
 In an LLM-first workflow these annotations are not primarily manual ceremony. They are machine-maintained ownership intent that the verifier checks against actual control/data flow.
 
+The implemented P1 subset checks explicit unique-owner moves. `CAND_MOVE(p)`
+invalidates `p` for C& analysis and transfers the same live object identity to
+the receiving owner; it does not set `p` to NULL or change runtime behavior.
+Use-after-move, double-move, and destruction through a moved-from owner are
+reported with stable `CAND-O00x` diagnostics. Aggregate copies, callbacks,
+retention, `realloc`, complex casts and borrow exclusivity remain unsupported.
+This is not a C&1 release claim.
+
 ## Safety levels
 
 C& does not use “memory-safe C” as an unqualified promise. Safety claims are explicit and scoped:

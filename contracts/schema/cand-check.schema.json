@@ -57,6 +57,9 @@
           "object_id": { "type": "string" },
           "access_storage": { "type": "string" },
           "destroy_storage": { "type": "string" },
+          "owner_storage": { "type": "string" },
+          "transition": { "type": "string" },
+          "move_location": { "$ref": "#/$defs/location" },
           "primary_location": { "$ref": "#/$defs/location" },
           "state_trace": {
             "type": "array",
@@ -95,7 +98,10 @@
       "properties": {
         "functions_analyzed": { "type": "integer", "minimum": 0 },
         "tracked_heap_objects": { "type": "integer", "minimum": 0 },
-        "unsupported_ownership_operations": { "type": "integer", "minimum": 0 }
+        "unsupported_ownership_operations": { "type": "integer", "minimum": 0 },
+        "ownership_transitions": { "type": "integer", "minimum": 0 },
+        "unsupported_ownership_transfers": { "type": "integer", "minimum": 0 },
+        "ownership_rule_set": { "const": "p1-unique-ownership-v1" }
       },
       "additionalProperties": false
     }

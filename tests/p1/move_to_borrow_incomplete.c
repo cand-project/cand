@@ -1,0 +1,21 @@
+#include <stdlib.h>
+#include <cand/cand.h>
+
+typedef struct Packet { int value; } Packet;
+
+CAND_RETURNS_OWN Packet *packet_new(void)
+{
+    return malloc(sizeof(Packet));
+}
+
+void inspect(Packet *packet)
+{
+    (void)packet->value;
+}
+
+int main(void)
+{
+    Packet *packet CAND_OWN = packet_new();
+    inspect(CAND_MOVE(packet));
+    return packet->value;
+}
