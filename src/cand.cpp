@@ -1673,9 +1673,28 @@ private:
         return false;
     }
 
+    void checkMutableOwnerAccess(const Expr *pointer_expr,
+                                 SourceLocation access_loc,
+                                 const FlowState &state) {
+        const auto storage = storageFor(pointer_expr);
+        if (!storage || state.borrows.count(*storage)) return;
+        const StorageBinding *binding = bindingFor(pointer_expr, state);
+        if (binding == nullptr || binding->relation != PointerRelation::Owner) return;
+        for (const auto &entry : state.borrows) {
+            if (entry.second.parent_object_id != binding->object_id ||
+                entry.second.kind != BorrowKind::Mutable ||
+                entry.second.state != BorrowState::Live ||
+                !borrowLiveAfter(entry.first, pointer_expr)) continue;
+            reportBorrowFinding("CAND-B004", "p2-borrow-lifetime-v1",
+                                "owner access conflicts with live mutable borrow",
+                                entry.first, entry.second, access_loc, state);
+        }
+    }
+
     void checkAccess(const Expr *pointer_expr, SourceLocation access_loc,
                      const FlowState &state) {
         if (checkBorrowAccess(pointer_expr, access_loc, state)) return;
+        checkMutableOwnerAccess(pointer_expr, access_loc, state);
         if (containsGlobalStorage(pointer_expr)) {
             emitUnsupported({"global-or-static-pointer-storage", "", location(access_loc)});
             return;

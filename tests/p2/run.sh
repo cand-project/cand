@@ -57,6 +57,7 @@ check_result fail CAND-B002 tests/p2/cfg_branch_after_death.c
 check_result fail CAND-B003 tests/p2/direct_global_escape.c
 check_result fail CAND-B003 tests/p2/undeclared_borrow_return.c
 check_result fail CAND-B004 tests/p2/mutable_conflict.c
+check_result fail CAND-B004 tests/p2/mutable_owner_write.c
 
 # These boundaries are deliberately fail-closed until retention/escape
 # summaries are available.
