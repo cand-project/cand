@@ -136,6 +136,12 @@ The current machine safety level is `p0-temporal-lifecycle`. The stable
 `cand1.*` rule-ID namespace is retained for compatibility only and is not a
 C&1 claim. C&1 remains gated exclusively by issue #11.
 
+P1 ownership diagnostics use the additional rule-set identifier
+`p1-unique-ownership-v1` in coverage/evidence. This identifies explicit unique
+ownership checking; it does not change the safety-level claim or enable C&1.
+`CAND-O001` through `CAND-O005` include storage/object identity and a
+deterministic ownership transition trace where applicable.
+
 ## 6. Finding object
 
 Every enforcement finding MUST contain at least:

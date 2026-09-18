@@ -1,0 +1,9 @@
+schema: cand.api-contract/v1
+name: p1-consumer
+version: "1"
+symbols:
+  - symbol: queue_push
+    kind: function
+    params:
+      - index: 0
+        effect: consumes
