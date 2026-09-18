@@ -14,6 +14,7 @@ Create a GitHub ruleset targeting the default branch `main` with:
 - require review from CODEOWNERS for paths covered by `.github/CODEOWNERS`;
 - require conversation resolution before merge;
 - require the `contract-and-compatibility` CI job to pass;
+- require the `trusted-agent-attestation` CI job to pass;
 - do not allow bypass except organization/repository administrators for emergency recovery;
 - keep direct pushes disabled for normal contributors.
 
