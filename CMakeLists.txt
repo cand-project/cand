@@ -81,3 +81,7 @@ add_test(
     NAME cand-p1-explicit-ownership
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/p1/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand-p2-borrow-lifetimes
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/p2/run.sh $<TARGET_FILE:cand>
+)

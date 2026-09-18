@@ -37,7 +37,22 @@
         "ownership": {"$ref": "#/$defs/ownership"},
         "allocation_family": {"type": "string"},
         "nullable": {"type": "boolean"},
-        "lifetime": {"type": "object"}
+        "borrow_kind": {"enum": ["shared", "mutable"]},
+        "lifetime": {"$ref": "#/$defs/lifetime"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"ownership": {"const": "borrowed"}}},
+          "then": {"required": ["lifetime"]}
+        }
+      ]
+    },
+    "lifetime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_param"],
+      "properties": {
+        "from_param": {"type": "integer", "minimum": 0}
       }
     },
     "param": {

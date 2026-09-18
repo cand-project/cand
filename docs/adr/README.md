@@ -22,6 +22,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0014](ADR-0014-agent-verification-evidence.md) | Agent output is accepted only under runner-authorized policy and replayable input-bound evidence | Accepted (P0.5 slice) |
 | [ADR-0015](ADR-0015-trusted-agent-attestation.md) | Authoritative agent verification uses a protected base-built verifier, not candidate-controlled CI | Proposed (P0.5.1) |
 | [ADR-0016](ADR-0016-unique-ownership-and-move-semantics.md) | Explicit moves transfer one ownership capability without changing ordinary C runtime semantics | Accepted (P1) |
+| [ADR-0017](ADR-0017-p2-borrow-lifetime-verification.md) | Explicit borrow relationships derive their lifetime from an ObjectId parent and fail closed after invalidation | Proposed (P2) |
 
 ## Design chain
 
@@ -29,4 +30,4 @@ Together the ADRs define the project in one sentence:
 
 > C& analyzes ordinary C before the existing compiler, treats LLMs and humans as untrusted code producers, derives or consumes reviewed ownership contracts, rejects invalid ownership/lifetime states in checked scope, gives machines structured proof obligations and humans focused trust-boundary review, prevents agents from silently weakening the safety claim, and proves its claims with paired unsafe/safe evidence.
 
-The implementation specifications under `../spec/` define the lower-level semantic contracts, including [SPEC-0004 — Machine-Agent Verification Protocol](../spec/SPEC-0004-machine-agent-protocol.md).
+The implementation specifications under `../spec/` define the lower-level semantic contracts, including [SPEC-0004 — Machine-Agent Verification Protocol](../spec/SPEC-0004-machine-agent-protocol.md) and [SPEC-0005 — P2 Borrow Relationships and Lifetime Verification](../spec/SPEC-0005-p2-borrow-lifetimes.md).

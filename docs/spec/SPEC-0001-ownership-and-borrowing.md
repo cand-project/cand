@@ -67,7 +67,7 @@ C&1 defines the canonical conceptual vocabulary below. The implementation syntax
 | mutable borrow | `CAND_BORROW_MUT` | declaration is exclusive mutable borrow |
 | consumes argument | `CAND_TAKES` | callee receives owning capability |
 | owned return | `CAND_RETURNS_OWN` | caller receives owning capability |
-| borrowed return | contract / `CAND_RETURNS_BORROW(n)` | result lifetime depends on argument `n` |
+| borrowed return | contract / `CAND_RETURNS_BORROW_FROM(n)` | result lifetime depends on argument `n` |
 | free/destructor | contract / `CAND_FREES(n)` | call destroys object from argument `n` |
 | explicit move | `CAND_MOVE(x)` | intent to transfer owning capability |
 | safe boundary | `CAND_SAFE` | function is checked under active safety level |

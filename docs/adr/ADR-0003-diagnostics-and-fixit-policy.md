@@ -50,7 +50,7 @@ Every ownership diagnostic SHOULD provide:
 Example:
 
 ```text
-error[CAND-T005]: owner `packet` is destroyed while borrow `header` is still live
+error[CAND-B001]: owner `packet` is destroyed while borrow `header` is still live
   --> src/request.c:91:5
    |
 72 | Packet *packet CAND_OWN = packet_new();
