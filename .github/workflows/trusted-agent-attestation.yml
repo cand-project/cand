@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   trusted-agent-attestation:
+    name: trusted-agent-attestation-${{ github.event_name }}
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     env:

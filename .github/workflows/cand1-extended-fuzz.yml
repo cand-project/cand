@@ -1,0 +1,38 @@
+name: C&1 extended differential fuzzing
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extended-fuzz:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain dependencies
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          clang gcc ruby python3 python3-jsonschema cmake ninja-build llvm-dev libclang-dev
+      - name: Configure and build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++
+          && cmake --build build
+      - name: Run extended differential corpus
+        run: |
+          python3 tests/fuzz/runner.py --cand build/cand --mode extended --seed 12345 --output build/cand1-c-extended-12345
+          python3 tests/fuzz/runner.py --cand build/cand --mode extended --seed 67890 --output build/cand1-c-extended-67890
+      - name: Run independent exact-head corpus
+        run: python3 tests/fuzz/independent.py --cand build/cand
+      - name: Preserve reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: cand1-c-extended-reports
+          path: build/cand1-c-extended-*/report.json
