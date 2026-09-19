@@ -53,8 +53,8 @@ parent ObjectId, invalidation location, and invalid access location where
 applicable.
 
 P2 evidence SHALL use rule-set identity `p2-borrow-lifetime-v1` and include
-`borrow_analysis` counters. Existing agent-proof policy and trusted-attestation
-requirements remain in force.
+`borrow_analysis` counters. Existing agent-proof policy remains in force, with
+GitHub protected pull-request review as the active merge authority.
 
 ## Consequences
 
