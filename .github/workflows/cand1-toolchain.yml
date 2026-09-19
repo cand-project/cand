@@ -1,0 +1,28 @@
+name: C&1 supported toolchain qualification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cand1-v1-linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable reference environment
+        run: docker build -f toolchains/Dockerfile -t cand1-v1-toolchain .
+      - name: Clean-room build, test, and compatibility qualification
+        run: >-
+          docker run --rm -v "$GITHUB_WORKSPACE":/src/cand
+          -w /src/cand cand1-v1-toolchain sh -c
+          'cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++-18 && cmake --build build
+          && ctest --test-dir build --output-on-failure
+          && bash tests/toolchain/run.sh build/cand
+          && bash tests/toolchain/reproducible.sh'

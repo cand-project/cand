@@ -9,6 +9,7 @@ python3 -m json.tool contracts/schema/cand-api-contract.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-check.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-policy.schema.json >/dev/null
 python3 -m json.tool contracts/schema/cand-evidence.schema.json >/dev/null
+python3 -m json.tool toolchains/cand1-v1-linux-x86_64.json >/dev/null
 python3 -m json.tool contracts/schema/cand-agent-check.schema.json >/dev/null
 python3 -m json.tool cand-policy.json >/dev/null
 python3 -c 'import jsonschema' >/dev/null
