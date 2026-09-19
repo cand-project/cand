@@ -89,3 +89,7 @@ add_test(
     NAME cand1-a-profile-heap
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/cand1/heap/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand1-b-transport-boundary
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/cand1/transport/run.sh $<TARGET_FILE:cand>
+)
