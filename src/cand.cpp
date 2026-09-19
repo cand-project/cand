@@ -118,7 +118,7 @@ llvm::cl::opt<std::string> ProfileName(
     "profile", llvm::cl::desc("verification profile: semantic|generated"),
     llvm::cl::init("semantic"), llvm::cl::cat(CandCategory));
 llvm::cl::opt<std::string> SafetyLevel(
-    "level", llvm::cl::desc("implemented safety level: p0-temporal-lifecycle"),
+    "level", llvm::cl::desc("implemented safety level: p0-temporal-lifecycle|cand1"),
     llvm::cl::init("p0-temporal-lifecycle"), llvm::cl::cat(CandCategory));
 llvm::cl::opt<std::string> PolicyPath(
     "policy", llvm::cl::desc("effective proof policy JSON"),
@@ -209,6 +209,12 @@ struct FunctionSummary {
     std::vector<ParamEffect> params;
     SummaryOrigin origin = SummaryOrigin::Unknown;
     bool conflict = false;
+
+    bool operator==(const FunctionSummary &other) const {
+        return return_effect == other.return_effect &&
+               return_borrow_arg == other.return_borrow_arg && params == other.params &&
+               origin == other.origin && conflict == other.conflict;
+    }
 };
 
 bool hasCandAnnotation(const clang::Decl *decl, llvm::StringRef name) {
@@ -253,12 +259,17 @@ public:
         auto it = summaries_.find(name.str());
         return it == summaries_.end() ? nullptr : &it->second;
     }
+    bool operator==(const SummaryStore &other) const { return summaries_ == other.summaries_; }
 private:
     std::map<std::string, FunctionSummary> summaries_;
 };
 
 class Collector {
 public:
+    void setProfile(llvm::StringRef level) {
+        safety_level_ = level.str();
+        profile_ = level == "cand1" ? "cand1/v1" : "p0-semantic-core";
+    }
     // Findings are collected only during the post-convergence emission pass.
     // The map de-duplicates any repeated observation of the same program point.
     void addFinding(Finding finding) {
@@ -302,6 +313,7 @@ public:
     }
     void noteBorrowInvalidated() { ++invalidated_borrows_; }
     void noteUnsupportedBorrow() { ++unsupported_borrows_; }
+    void noteHeapWidening() { ++heap_widenings_; }
 
     unsigned nextObjectId() { return next_object_id_++; }
 
@@ -320,6 +332,7 @@ public:
 
     bool hasFindings() const { return !findings_list_.empty(); }
     bool hasUnsupported() const { return !unsupported_.empty(); }
+    unsigned unsupportedCount() const { return static_cast<unsigned>(unsupported_.size()); }
 
     int exitCode() const {
         if (hasFindings()) {
@@ -357,8 +370,8 @@ public:
         root["cand_version"] = "0.1.0-dev";
         root["result"] =
             hasFindings() ? "fail" : (hasUnsupported() ? "incomplete" : "pass");
-        root["safety_level"] = "p0-temporal-lifecycle";
-        root["profile"] = "p0-semantic-core";
+        root["safety_level"] = safety_level_;
+        root["profile"] = profile_;
 
         llvm::json::Array findings;
         for (const auto &finding : findings_list_) {
@@ -366,7 +379,7 @@ public:
             obj["id"] = finding.id;
             obj["rule_id"] = finding.rule_id;
             obj["severity"] = "error";
-            obj["safety_level"] = "p0-temporal-lifecycle";
+            obj["safety_level"] = safety_level_;
             obj["certainty"] = finding.certainty;
             obj["message_key"] = finding.id;
             obj["message"] = finding.message;
@@ -445,6 +458,7 @@ public:
             static_cast<std::int64_t>(ownership_transitions_);
         coverage["unsupported_ownership_transfers"] =
             static_cast<std::int64_t>(unsupported_ownership_transfers_);
+        coverage["heap_generation_widenings"] = static_cast<std::int64_t>(heap_widenings_);
         coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
         llvm::json::Object borrow_analysis;
         borrow_analysis["borrows_created"] = static_cast<std::int64_t>(borrows_created_);
@@ -491,7 +505,10 @@ private:
     unsigned mutable_borrows_ = 0;
     unsigned invalidated_borrows_ = 0;
     unsigned unsupported_borrows_ = 0;
+    unsigned heap_widenings_ = 0;
     unsigned next_object_id_ = 1;
+    std::string safety_level_ = "p0-temporal-lifecycle";
+    std::string profile_ = "p0-semantic-core";
 };
 
 // ---------------------------------------------------------------------------
@@ -720,9 +737,13 @@ struct FlowState {
     std::map<StorageId, StorageBinding> storages;
     std::map<unsigned, ObjectInfo> objects;
     std::map<StorageId, BorrowInfo> borrows;
+    std::map<unsigned, unsigned> allocation_generations;
+    std::set<unsigned> widened_allocation_sites;
 
     bool operator==(const FlowState &other) const {
-        return storages == other.storages && objects == other.objects && borrows == other.borrows;
+        return storages == other.storages && objects == other.objects && borrows == other.borrows &&
+               allocation_generations == other.allocation_generations &&
+               widened_allocation_sites == other.widened_allocation_sites;
     }
 };
 
@@ -736,6 +757,14 @@ BorrowState joinBorrowState(BorrowState a, BorrowState b) {
 
 FlowState joinFlow(const FlowState &a, const FlowState &b) {
     FlowState result;
+    result.allocation_generations = a.allocation_generations;
+    for (const auto &entry : b.allocation_generations) {
+        auto &generation = result.allocation_generations[entry.first];
+        generation = std::max(generation, entry.second);
+    }
+    result.widened_allocation_sites = a.widened_allocation_sites;
+    result.widened_allocation_sites.insert(b.widened_allocation_sites.begin(),
+                                           b.widened_allocation_sites.end());
     result.objects = a.objects;
     for (const auto &entry : b.objects) {
         auto it = result.objects.find(entry.first);
@@ -785,9 +814,10 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
 
 class FlowAnalyzer {
 public:
-    FlowAnalyzer(ASTContext &context, Collector &collector, const SummaryStore &summaries)
+    FlowAnalyzer(ASTContext &context, Collector &collector, const SummaryStore &summaries,
+                 bool cand1_profile)
         : context_(context), source_manager_(context.getSourceManager()),
-          collector_(collector), summaries_(summaries) {}
+          collector_(collector), summaries_(summaries), cand1_profile_(cand1_profile) {}
 
     void analyze(const FunctionDecl &function) {
         const Stmt *body = function.getBody();
@@ -2042,7 +2072,7 @@ private:
     }
 
     bool strictOwnershipProfile() const {
-        return AgentMode || ProfileName == "generated";
+        return AgentMode || ProfileName == "generated" || SafetyLevel == "cand1";
     }
 
     void transferBinding(const Expr *arg, const CallExpr &call, bool explicit_move,
@@ -2205,10 +2235,31 @@ private:
     }
 
     void bindAllocation(StorageId storage, const Expr *init, FlowState &state) {
-        if (containsLoopAllocation(init)) {
+        const unsigned site = allocationSiteFor(init);
+        unsigned generation = state.allocation_generations[site];
+        if (cand1_profile_ && state.widened_allocation_sites.count(site) != 0) {
+            state.storages[storage] =
+                {kUnknownObjectId, PointerRelation::Unknown, location(init->getExprLoc())};
+            markUnsupported(*init, "loop-heap-instance-widening");
+            if (emitting_) collector_.noteHeapWidening();
+            return;
+        }
+        if (cand1_profile_ && hasRetainedGenerationReference(site, storage, state)) {
+            if (generation >= 1) {
+                state.widened_allocation_sites.insert(site);
+                state.storages[storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown, location(init->getExprLoc())};
+                markUnsupported(*init, "loop-heap-instance-widening");
+                if (emitting_) collector_.noteHeapWidening();
+                return;
+            }
+            generation = 1;
+            state.allocation_generations[site] = generation;
+        }
+        if (!cand1_profile_ && containsLoopAllocation(init)) {
             markUnsupported(*init, "loop-allocation-site");
         }
-        const unsigned object_id = objectIdForAllocation(init);
+        const unsigned object_id = objectIdForAllocation(init, generation);
         state.storages[storage] =
             {object_id, PointerRelation::Owner, location(init->getExprLoc())};
         auto &object = state.objects[object_id];
@@ -2217,7 +2268,7 @@ private:
         bound_objects_.insert(object_id);
     }
 
-    unsigned objectIdForAllocation(const Expr *init) {
+    unsigned allocationSiteFor(const Expr *init) {
         const CallExpr *call = asCall(init);
         const auto it = allocation_sites_.find(call);
         if (it != allocation_sites_.end()) {
@@ -2234,6 +2285,35 @@ private:
         return id;
     }
 
+    unsigned objectIdForAllocation(const Expr *init, unsigned generation = 0) {
+        const unsigned site = allocationSiteFor(init);
+        // The stride keeps generation identities deterministic without adding
+        // another global allocator to the fixed-point state. Widening occurs
+        // before generation 2, so this remains a finite abstraction.
+        constexpr unsigned kGenerationStride = 1000000;
+        if (generation == 0) return site;
+        if (site > std::numeric_limits<unsigned>::max() / kGenerationStride)
+            return kUnknownObjectId;
+        return site + generation * kGenerationStride;
+    }
+
+    bool hasRetainedGenerationReference(unsigned site, const StorageId &destination,
+                                        const FlowState &state) const {
+        constexpr unsigned kGenerationStride = 1000000;
+        const auto belongsToSite = [site](unsigned object_id) {
+            if (object_id == kNullObjectId || object_id == kUnknownObjectId) return false;
+            return object_id % kGenerationStride == site;
+        };
+        for (const auto &entry : state.storages) {
+            if (entry.first == destination) continue;
+            if (belongsToSite(entry.second.object_id)) return true;
+        }
+        for (const auto &entry : state.borrows) {
+            if (belongsToSite(entry.second.parent_object_id)) return true;
+        }
+        return false;
+    }
+
     void bindSummaryReturn(const StorageId &storage, const CallExpr &call,
                            FlowState &state) {
         const FunctionSummary *summary = summaryFor(call);
@@ -2242,9 +2322,30 @@ private:
             return;
         }
         if (summary->return_effect == ReturnEffect::Owned) {
-            if (containsLoopAllocation(&call))
+            if (!cand1_profile_ && containsLoopAllocation(&call))
                 markUnsupported(call, "loop-allocation-site");
-            const unsigned id = objectIdForAllocation(&call);
+            const unsigned site = allocationSiteFor(&call);
+            unsigned generation = state.allocation_generations[site];
+            if (cand1_profile_ && state.widened_allocation_sites.count(site) != 0) {
+                state.storages[storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown, location(call.getExprLoc())};
+                markUnsupported(call, "loop-heap-instance-widening");
+                if (emitting_) collector_.noteHeapWidening();
+                return;
+            }
+            if (cand1_profile_ && hasRetainedGenerationReference(site, storage, state)) {
+                if (generation >= 1) {
+                    state.widened_allocation_sites.insert(site);
+                    state.storages[storage] =
+                        {kUnknownObjectId, PointerRelation::Unknown, location(call.getExprLoc())};
+                    markUnsupported(call, "loop-heap-instance-widening");
+                    if (emitting_) collector_.noteHeapWidening();
+                    return;
+                }
+                generation = 1;
+                state.allocation_generations[site] = generation;
+            }
+            const unsigned id = objectIdForAllocation(&call, generation);
             state.storages[storage] = {id, PointerRelation::Owner, location(call.getExprLoc())};
             auto &object = state.objects[id];
             object.state = ObjectState::Owned;
@@ -3092,6 +3193,7 @@ private:
     std::set<const VarDecl *> stack_pointers_;
     std::set<const Stmt *> unevaluated_;
     bool emitting_ = true;
+    bool cand1_profile_ = false;
     const FunctionSummary *current_summary_ = nullptr;
 };
 
@@ -3504,8 +3606,8 @@ private:
 
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {
 public:
-    TranslationUnitVisitor(ASTContext &context, Collector &collector)
-        : context_(context), collector_(collector) {}
+    TranslationUnitVisitor(ASTContext &context, Collector &collector, bool cand1_profile)
+        : context_(context), collector_(collector), cand1_profile_(cand1_profile) {}
 
     void prepare() {
         const SourceManager &source_manager = context_.getSourceManager();
@@ -3528,7 +3630,9 @@ public:
             SummaryStore next;
             for (const FunctionDecl *function : functions)
                 SummaryBuilder(summaries_, next, context_).build(*function);
+            const bool stable = next == summaries_;
             summaries_ = std::move(next);
+            if (stable) break;
         }
         loadContracts();
         // Contracts can seed bodies that wrap external APIs. Re-run the same
@@ -3541,7 +3645,9 @@ public:
                 if (existing && existing->conflict) continue;
                 SummaryBuilder(summaries_, next, context_).build(*function);
             }
+            const bool stable = next == summaries_;
             summaries_ = std::move(next);
+            if (stable) break;
         }
     }
 
@@ -3747,7 +3853,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_);
         analyzer.analyze(*function);
         return true;
     }
@@ -3764,7 +3870,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_);
         analyzer.analyzeGlobal(*var);
         return true;
     }
@@ -3773,12 +3879,13 @@ private:
     ASTContext &context_;
     Collector &collector_;
     SummaryStore summaries_;
+    bool cand1_profile_ = false;
 };
 
 class CandConsumer : public ASTConsumer {
 public:
-    CandConsumer(ASTContext &context, Collector &collector)
-        : visitor_(context, collector), collector_(collector) {}
+    CandConsumer(ASTContext &context, Collector &collector, bool cand1_profile)
+        : visitor_(context, collector, cand1_profile), collector_(collector) {}
 
     void HandleTranslationUnit(ASTContext &context) override {
         if (context.getDiagnostics().hasErrorOccurred()) {
@@ -3795,27 +3902,31 @@ private:
 
 class CandAction : public clang::ASTFrontendAction {
 public:
-    explicit CandAction(Collector &collector) : collector_(collector) {}
+    CandAction(Collector &collector, bool cand1_profile)
+        : collector_(collector), cand1_profile_(cand1_profile) {}
 
     std::unique_ptr<ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler,
                                                    llvm::StringRef) override {
-        return std::make_unique<CandConsumer>(compiler.getASTContext(), collector_);
+        return std::make_unique<CandConsumer>(compiler.getASTContext(), collector_, cand1_profile_);
     }
 
 private:
     Collector &collector_;
+    bool cand1_profile_ = false;
 };
 
 class CandActionFactory : public clang::tooling::FrontendActionFactory {
 public:
-    explicit CandActionFactory(Collector &collector) : collector_(collector) {}
+    CandActionFactory(Collector &collector, bool cand1_profile)
+        : collector_(collector), cand1_profile_(cand1_profile) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<CandAction>(collector_);
+        return std::make_unique<CandAction>(collector_, cand1_profile_);
     }
 
 private:
     Collector &collector_;
+    bool cand1_profile_ = false;
 };
 
 struct AgentPolicyState {
@@ -3828,6 +3939,23 @@ struct AgentPolicyState {
     unsigned unsafe_boundaries = 0;
     unsigned suppressions = 0;
 };
+
+// The only C&1 success authority. A semantic pass without trusted bindings is
+// deliberately not a C&1 pass; it is an ordinary analyzer result.
+bool canEmitCand1Pass(const Collector &collector, const AgentPolicyState &state,
+                      bool evidence_bound) {
+    if (collector.hasFindings() || collector.hasUnsupported() ||
+        collector.hasFrontendError() || collector.hasContractError()) return false;
+    if (!evidence_bound || state.policy_failed || state.review_required ||
+        state.delta.weakened || state.delta.review_required) return false;
+    if (state.policy.profile != "generated" || state.policy.safety_level != "cand1") return false;
+    if (state.policy.scope_files.empty() || state.policy.sha256.empty()) return false;
+    for (const auto &contract : state.contract_inputs) {
+        const std::string &trust = std::get<2>(contract);
+        if (trust != "builtin" && trust != "verified" && trust != "reviewed") return false;
+    }
+    return state.unsafe_boundaries == 0 && state.suppressions == 0;
+}
 
 std::string readFile(const std::string &path, std::string &error) {
     std::ifstream input(path, std::ios::binary);
@@ -4093,6 +4221,11 @@ llvm::json::Object buildEvidence(const Collector &collector,
     verification["effective_policy_sha256"] = state.policy.sha256;
     verification["checked_scope"] = state.policy.scope_files;
     verification["policy_revision"] = gitHead();
+    if (SafetyLevel == "cand1") {
+        verification["profile_version"] = "cand1/v1";
+        verification["acceptance_invariant"] = "can_emit_cand1_pass";
+        verification["heap_abstraction"] = "allocation-site-generation-v1";
+    }
     verification["ownership_rule_set"] = "p1-unique-ownership-v1";
     verification["borrow_rule_set"] = "p2-borrow-lifetime-v1";
     evidence["verification"] = std::move(verification);
@@ -4104,6 +4237,7 @@ llvm::json::Object buildEvidence(const Collector &collector,
         if (auto value = counts->getInteger("unsupported_ownership_operations")) coverage["unsupported_ownership_operations"] = *value;
         if (auto value = counts->getInteger("ownership_transitions")) coverage["ownership_transitions"] = *value;
         if (auto value = counts->getInteger("unsupported_ownership_transfers")) coverage["unsupported_ownership_transfers"] = *value;
+        if (auto value = counts->getInteger("heap_generation_widenings")) coverage["heap_generation_widenings"] = *value;
     }
     coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
     if (const auto *borrows = analysis.getObject("borrow_analysis")) {
@@ -4591,7 +4725,7 @@ private:
 
 void printUsage(llvm::StringRef program) {
     llvm::errs() << "Usage: " << program
-                 << " check [--agent] [--profile semantic|generated] [--policy file] [--base ref] [--emit-evidence file] <source...> [-- <clang-args...>]\n"
+                 << " check [--agent] [--profile semantic|generated] [--level p0-temporal-lifecycle|cand1] [--policy file] [--base ref] [--emit-evidence file] <source...> [-- <clang-args...>]\n"
                  << "       " << program << " policy diff --base <git-ref> --format json\n"
                  << "       " << program << " evidence verify <evidence.json>\n";
 }
@@ -4641,8 +4775,8 @@ int main(int argc, const char **argv) {
     if (ProfileName == "generated") AgentMode = true;
     const bool weaker_profile_requested = AgentMode &&
         ProfileName.getNumOccurrences() != 0 && requested_profile != "generated";
-    if (AgentMode && SafetyLevel != "p0-temporal-lifecycle") {
-        llvm::errs() << "cand: unsupported safety level; only p0-temporal-lifecycle is implemented\n";
+    if (SafetyLevel != "p0-temporal-lifecycle" && SafetyLevel != "cand1") {
+        llvm::errs() << "cand: unsupported safety level; supported values are p0-temporal-lifecycle and experimental cand1\n";
         return 2;
     }
     if (AgentMode) {
@@ -4720,7 +4854,8 @@ int main(int argc, const char **argv) {
         new FrontendErrorTracker(llvm::errs(), diagnostic_options, frontend_errors));
 
     Collector collector;
-    CandActionFactory factory(collector);
+    collector.setProfile(SafetyLevel);
+    CandActionFactory factory(collector, SafetyLevel == "cand1");
     const int tool_result = tool.run(&factory);
     if (tool_result != 0) {
         // Tool/compilation failure is a distinct outcome from a C& FAIL:
@@ -4753,8 +4888,16 @@ int main(int argc, const char **argv) {
         const auto semantic = analysis.getString("result").value_or("internal-error");
         const bool policy_fail = agent_state.policy_failed || agent_state.delta.weakened;
         const bool review = agent_state.review_required || agent_state.delta.review_required;
+        const bool cand1 = SafetyLevel == "cand1";
+        const bool evidence_bound = AgentMode && !source_inputs.empty() &&
+            !frontend_args.empty() && !CandExecutableSha256.empty() &&
+            CAND_VERIFIER_SOURCE_COMMIT != std::string("unknown");
+        const bool cand1_pass = cand1 && canEmitCand1Pass(collector, agent_state, evidence_bound);
         const char *final_result = policy_fail ? "fail-policy" :
-                                   (review ? "review-required" : semantic.data());
+                                   (review ? "review-required" :
+                                    (cand1 ? (cand1_pass ? "pass" :
+                                              (semantic == "fail" ? "fail" : "incomplete"))
+                                            : semantic.data()));
         llvm::json::Object evidence = buildEvidence(collector, agent_state,
             std::move(source_inputs), std::move(frontend_args), semantic, final_result);
         const std::string evidence_text = serializeJson(std::move(evidence));
@@ -4771,10 +4914,19 @@ int main(int argc, const char **argv) {
         return collector.exitCode();
     }
     if (OutputFormat == "json") {
-        collector.printJson();
+        if (SafetyLevel == "cand1") {
+            llvm::json::Object result = collector.jsonObject();
+            result["result"] = collector.hasFindings() ? "fail" : "incomplete";
+            result["cand1_acceptance"] = "requires trusted generated evidence and policy bindings";
+            llvm::outs() << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(result)));
+        } else {
+            collector.printJson();
+        }
     } else {
         collector.printHuman();
     }
 
+    if (SafetyLevel == "cand1" && !AgentMode)
+        return collector.hasFindings() ? 1 : 3;
     return collector.exitCode();
 }

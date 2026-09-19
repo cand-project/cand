@@ -85,3 +85,7 @@ add_test(
     NAME cand-p2-borrow-lifetimes
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/p2/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand1-a-profile-heap
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/cand1/heap/run.sh $<TARGET_FILE:cand>
+)

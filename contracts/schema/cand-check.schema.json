@@ -22,7 +22,8 @@
       "enum": [
         "p0-temporal-lifecycle",
         "p1-unique-ownership",
-        "p2-borrow-lifetime"
+        "p2-borrow-lifetime",
+        "cand1"
       ]
     },
     "profile": { "type": "string" },
@@ -52,7 +53,8 @@
             "enum": [
               "p0-temporal-lifecycle",
               "p1-unique-ownership",
-              "p2-borrow-lifetime"
+              "p2-borrow-lifetime",
+              "cand1"
             ]
           },
           "message_key": { "type": "string" },
@@ -117,6 +119,7 @@
         "unsupported_ownership_operations": { "type": "integer", "minimum": 0 },
         "ownership_transitions": { "type": "integer", "minimum": 0 },
         "unsupported_ownership_transfers": { "type": "integer", "minimum": 0 },
+        "heap_generation_widenings": { "type": "integer", "minimum": 0 },
         "ownership_rule_set": { "const": "p1-unique-ownership-v1" }
       },
       "additionalProperties": false
@@ -143,7 +146,7 @@
   },
   "allOf": [
     {
-      "if": {"properties": {"safety_level": {"const": "p2-borrow-lifetime"}}},
+      "if": {"properties": {"safety_level": {"enum": ["p2-borrow-lifetime", "cand1"]}}},
       "then": {"required": ["borrow_analysis"]}
     }
   ],
