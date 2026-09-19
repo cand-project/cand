@@ -193,9 +193,18 @@ struct Finding {
 };
 
 struct Unsupported {
+    Unsupported() = default;
+    Unsupported(std::string kind_value, std::string symbol_value, Location location_value)
+        : kind(std::move(kind_value)), symbol(std::move(symbol_value)),
+          primary(std::move(location_value)) {}
     std::string kind;
     std::string symbol;
     Location primary;
+    std::string mechanism;
+    std::string source_storage;
+    std::string destination_storage;
+    std::string tracked_state;
+    bool transport = false;
 };
 
 enum class ReturnEffect { None, Owned, BorrowFromArg, Unknown };
@@ -286,6 +295,9 @@ public:
         if (!seen_unsupported_.insert(key).second) {
             return;
         }
+        if (unsupported.transport) {
+            ++unsupported_transport_operations_;
+        }
         unsupported_.push_back(std::move(unsupported));
     }
 
@@ -313,7 +325,9 @@ public:
     }
     void noteBorrowInvalidated() { ++invalidated_borrows_; }
     void noteUnsupportedBorrow() { ++unsupported_borrows_; }
+    unsigned unsupportedBorrowCount() const { return unsupported_borrows_; }
     void noteHeapWidening() { ++heap_widenings_; }
+    unsigned unsupportedTransportCount() const { return unsupported_transport_operations_; }
 
     unsigned nextObjectId() { return next_object_id_++; }
 
@@ -443,6 +457,11 @@ public:
             if (!item.symbol.empty()) {
                 obj["symbol"] = item.symbol;
             }
+            if (!item.mechanism.empty()) obj["mechanism"] = item.mechanism;
+            if (!item.source_storage.empty()) obj["source_storage"] = item.source_storage;
+            if (!item.destination_storage.empty()) obj["destination_storage"] = item.destination_storage;
+            if (!item.tracked_state.empty()) obj["tracked_state"] = item.tracked_state;
+            if (item.transport) obj["transport"] = true;
             obj["primary_location"] = locationJson(item.primary);
             unsupported.push_back(std::move(obj));
         }
@@ -459,6 +478,9 @@ public:
         coverage["unsupported_ownership_transfers"] =
             static_cast<std::int64_t>(unsupported_ownership_transfers_);
         coverage["heap_generation_widenings"] = static_cast<std::int64_t>(heap_widenings_);
+        coverage["unsupported_transport_operations"] =
+            static_cast<std::int64_t>(unsupported_transport_operations_);
+        coverage["transport_rule_set"] = "cand1-pointer-transport-v1";
         coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
         llvm::json::Object borrow_analysis;
         borrow_analysis["borrows_created"] = static_cast<std::int64_t>(borrows_created_);
@@ -506,6 +528,7 @@ private:
     unsigned invalidated_borrows_ = 0;
     unsigned unsupported_borrows_ = 0;
     unsigned heap_widenings_ = 0;
+    unsigned unsupported_transport_operations_ = 0;
     unsigned next_object_id_ = 1;
     std::string safety_level_ = "p0-temporal-lifecycle";
     std::string profile_ = "p0-semantic-core";
@@ -1396,8 +1419,37 @@ private:
     // Diagnostics are emitted only in the post-convergence pass, so their
     // content reflects the final fixed point rather than an intermediate
     // worklist iteration.
+    static std::string transportMechanism(llvm::StringRef kind) {
+        if (kind.contains("realloc")) return "realloc";
+        if (kind.contains("memcpy")) return "memcpy";
+        if (kind.contains("memmove")) return "memmove";
+        if (kind.starts_with("aggregate") || kind.starts_with("struct") ||
+            kind.starts_with("array")) return "aggregate";
+        if (kind.starts_with("union")) return "union";
+        if (kind.starts_with("cast") || kind.starts_with("borrow-cast")) return "cast";
+        if (kind.starts_with("pointer-integer")) return "pointer-integer";
+        if (kind.starts_with("pointer-arithmetic")) return "pointer-arithmetic";
+        if (kind.starts_with("global-or-static")) return "global-static";
+        if (kind.starts_with("unknown-call") || kind.starts_with("indirect-call")) return "unknown-call";
+        if (kind.starts_with("out-parameter")) return "out-parameter";
+        if (kind.starts_with("vararg")) return "varargs";
+        if (kind.starts_with("atomic")) return "atomic";
+        if (kind.starts_with("nonlocal")) return "nonlocal-control-flow";
+        if (kind.starts_with("inline-asm")) return "inline-asm";
+        if (kind.starts_with("realloc")) return "realloc";
+        if (kind.starts_with("unresolved-pointee") || kind.starts_with("unmodelled-pointer") ||
+            kind.starts_with("unresolved-access") || kind.starts_with("ambiguous-alias")) return "pointer-storage";
+        if (kind.starts_with("unknown-pointer-return")) return "unknown-return";
+        return {};
+    }
+
     void emitUnsupported(Unsupported unsupported) {
         if (emitting_) {
+            if (cand1_profile_) {
+                unsupported.mechanism = transportMechanism(unsupported.kind);
+                unsupported.transport = !unsupported.mechanism.empty();
+                if (unsupported.transport) unsupported.tracked_state = "tracked-pointer";
+            }
             collector_.addUnsupported(std::move(unsupported));
         }
     }
@@ -3945,7 +3997,8 @@ struct AgentPolicyState {
 bool canEmitCand1Pass(const Collector &collector, const AgentPolicyState &state,
                       bool evidence_bound) {
     if (collector.hasFindings() || collector.hasUnsupported() ||
-        collector.hasFrontendError() || collector.hasContractError()) return false;
+        collector.hasFrontendError() || collector.hasContractError() ||
+        collector.unsupportedTransportCount() != 0) return false;
     if (!evidence_bound || state.policy_failed || state.review_required ||
         state.delta.weakened || state.delta.review_required) return false;
     if (state.policy.profile != "generated" || state.policy.safety_level != "cand1") return false;
@@ -4238,8 +4291,10 @@ llvm::json::Object buildEvidence(const Collector &collector,
         if (auto value = counts->getInteger("ownership_transitions")) coverage["ownership_transitions"] = *value;
         if (auto value = counts->getInteger("unsupported_ownership_transfers")) coverage["unsupported_ownership_transfers"] = *value;
         if (auto value = counts->getInteger("heap_generation_widenings")) coverage["heap_generation_widenings"] = *value;
+        if (auto value = counts->getInteger("unsupported_transport_operations")) coverage["unsupported_transport_operations"] = *value;
     }
     coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
+    coverage["transport_rule_set"] = "cand1-pointer-transport-v1";
     if (const auto *borrows = analysis.getObject("borrow_analysis")) {
         llvm::json::Object borrow_copy;
         for (const auto &entry : *borrows) borrow_copy[entry.first] = entry.second;
@@ -4248,6 +4303,14 @@ llvm::json::Object buildEvidence(const Collector &collector,
     coverage["unsafe_boundaries"] = static_cast<std::int64_t>(state.unsafe_boundaries);
     coverage["suppressions"] = static_cast<std::int64_t>(state.suppressions);
     evidence["analysis"] = std::move(coverage);
+    llvm::json::Object completeness;
+    completeness["unsupported_transport_operations"] =
+        static_cast<std::int64_t>(collector.unsupportedTransportCount());
+    completeness["unsupported_borrow_operations"] =
+        static_cast<std::int64_t>(collector.unsupportedBorrowCount());
+    completeness["unsupported_ownership_operations"] =
+        static_cast<std::int64_t>(collector.unsupportedCount());
+    evidence["completeness"] = std::move(completeness);
     llvm::json::Array contracts;
     for (const auto &entry : state.contract_inputs) {
         llvm::json::Object contract;

@@ -105,6 +105,11 @@
           "id": { "const": "CAND-U001" },
           "kind": { "type": "string" },
           "symbol": { "type": "string" },
+          "mechanism": { "type": "string" },
+          "source_storage": { "type": "string" },
+          "destination_storage": { "type": "string" },
+          "tracked_state": { "type": "string" },
+          "transport": { "type": "boolean" },
           "primary_location": { "$ref": "#/$defs/location" }
         },
         "additionalProperties": false
@@ -120,7 +125,9 @@
         "ownership_transitions": { "type": "integer", "minimum": 0 },
         "unsupported_ownership_transfers": { "type": "integer", "minimum": 0 },
         "heap_generation_widenings": { "type": "integer", "minimum": 0 },
-        "ownership_rule_set": { "const": "p1-unique-ownership-v1" }
+        "unsupported_transport_operations": { "type": "integer", "minimum": 0 },
+        "ownership_rule_set": { "const": "p1-unique-ownership-v1" },
+        "transport_rule_set": { "const": "cand1-pointer-transport-v1" }
       },
       "additionalProperties": false
     },
