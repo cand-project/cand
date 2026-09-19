@@ -38,6 +38,19 @@ endif()
 if (DEFINED CMAKE_CXX_COMPILER_TARGET AND NOT CMAKE_CXX_COMPILER_TARGET STREQUAL "")
     message(FATAL_ERROR "C&1/v1 does not permit a compiler target override")
 endif()
+foreach(variable IN ITEMS
+    CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
+    CMAKE_C_LINKER_LAUNCHER CMAKE_CXX_LINKER_LAUNCHER
+    CMAKE_C_COMPILER_EXTERNAL_TOOLCHAIN CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN)
+    if (DEFINED ${variable} AND NOT "${${variable}}" STREQUAL "")
+        message(FATAL_ERROR "C&1/v1 does not permit compiler or linker indirection in ${variable}")
+    endif()
+endforeach()
+foreach(variable IN ITEMS CLANG_CONFIG_FILE CCC_OVERRIDE_OPTIONS)
+    if (DEFINED ENV{${variable}} AND NOT "$ENV{${variable}}" STREQUAL "")
+        message(FATAL_ERROR "C&1/v1 does not permit frontend configuration through ${variable}")
+    endif()
+endforeach()
 set(CAND_FORBIDDEN_FLAG_VARIABLES
     CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
     CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO

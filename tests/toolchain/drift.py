@@ -26,6 +26,7 @@ def main() -> int:
         ("toolchain", "ninja_version"): "1.12.0",
         ("frontend", "standard"): "c17",
         ("frontend", "target"): "aarch64-linux-gnu",
+        ("frontend", "arguments"): ["-std=c11", "-fno-builtin"],
     }
     with tempfile.TemporaryDirectory(prefix="cand1-toolchain-drift-") as directory:
         for (section, key), value in mutations.items():

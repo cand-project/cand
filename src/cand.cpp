@@ -4555,6 +4555,21 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     if (!arguments || !scope || scope->empty() || CandExecutablePath.empty()) {
         status = "tampered"; detail = "evidence cannot be replayed"; return false;
     }
+    cand::Policy replay_policy;
+    if (!cand::loadPolicy(policy_path->str(), replay_policy, error)) {
+        status = "stale"; detail = "effective policy cannot be loaded for frontend replay"; return false;
+    }
+    std::vector<std::string> replay_arguments;
+    for (const auto &item : *arguments) {
+        auto argument = item.getAsString();
+        if (!argument) {
+            status = "tampered"; detail = "invalid frontend argument"; return false;
+        }
+        if (argument->str() != "-std=c11") replay_arguments.push_back(argument->str());
+    }
+    if (replay_arguments != replay_policy.frontend_arguments) {
+        status = "stale"; detail = "frontend arguments differ from the policy"; return false;
+    }
     for (const llvm::StringRef key : {"compiler", "version", "llvm_version", "standard", "target", "sysroot"}) {
         const auto expected = toolchain.getString(key == "compiler" ? "compiler" :
                                                    key == "version" ? "clang_version" : key);

@@ -26,7 +26,7 @@ Reference-environment identity from the qualification run:
 
 ```yaml
 base_manifest_digest: sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4
-locally_built_image_id: sha256:b86a0e38dd34290e0281b9bc452636849b669f60958c9eb02c97f4c945db13c3
+locally_built_image_id: sha256:dc79dd18c72508223f8f345146e2c7fa78c8eec69374319db494250b24a08713
 published_oci_digest: none
 ```
 
@@ -41,6 +41,10 @@ GCC versions, sysroots, compiler extensions, modules, plugins, response files,
 and explicit external include/sysroot paths are `UNSUPPORTED` for a release
 qualified `cand1 PASS`. A future matrix may classify a combination as `TESTED
 BUT NOT GUARANTEED`, but none is advertised by this profile.
+
+Compiler and linker launchers, external toolchain overrides, Clang config files,
+frontend override environment, plugins, response files, and injected compiler
+or linker flags are rejected before qualification.
 
 The verifier embeds the source commit, binary digest, C++ build compiler,
 Clang/LLVM identity, target, language mode, sysroot identity, and reference
