@@ -9,6 +9,18 @@ gcc_bin="/usr/bin/gcc-13"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+if cmake -S "$repo" -B "$work/launcher" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-18 \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=/bin/true >/dev/null 2>&1; then
+    echo "compiler launcher injection was accepted" >&2
+    exit 1
+fi
+if CLANG_CONFIG_FILE=/tmp/cand1-invalid-clang.cfg cmake -S "$repo" -B "$work/config" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-18 >/dev/null 2>&1; then
+    echo "Clang config-file injection was accepted" >&2
+    exit 1
+fi
+
 for variable in CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH \
     COMPILER_PATH GCC_EXEC_PREFIX LIBRARY_PATH LD_LIBRARY_PATH LD_PRELOAD \
     CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CLANG_CONFIG_FILE; do
