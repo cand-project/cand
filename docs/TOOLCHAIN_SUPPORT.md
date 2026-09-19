@@ -45,7 +45,7 @@ Clean-room reproduction:
 ```sh
 docker build -f toolchains/Dockerfile -t cand1-v1-toolchain .
 docker run --rm -v "$PWD":/src/cand -w /src/cand cand1-v1-toolchain \
-  sh -c 'cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  bash -c 'cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_COMPILER=clang++-18 && cmake --build build && \
     ctest --test-dir build --output-on-failure'
 ```
