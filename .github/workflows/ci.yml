@@ -32,10 +32,10 @@ jobs:
         run: bash scripts/check.sh
       - name: Configure P0 analyzer
         run: >-
-          cmake -S . -B build -G Ninja
+          /usr/bin/cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=clang++-18
       - name: Build P0 analyzer
-        run: cmake --build build
+        run: /usr/bin/cmake --build build
       - name: Run P0 analyzer tests
         run: ctest --test-dir build --output-on-failure

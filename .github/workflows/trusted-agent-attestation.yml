@@ -80,10 +80,10 @@ jobs:
         if: steps.driver.outputs.available == 'true'
         run: |
           set -euo pipefail
-          cmake -S trusted -B trusted-build -G Ninja \
+          /usr/bin/cmake -S trusted -B trusted-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=clang++-18
-          cmake --build trusted-build
+          /usr/bin/cmake --build trusted-build
 
       - name: Pin candidate origin/main to trusted PR base
         if: steps.driver.outputs.available == 'true'

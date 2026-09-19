@@ -30,10 +30,10 @@ jobs:
           && sudo ln -sf /usr/bin/gcc-13 /usr/local/bin/cc
       - name: Configure and build
         run: >-
-          cmake -S . -B build -G Ninja
+          /usr/bin/cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=clang++-18
-          && cmake --build build
+          && /usr/bin/cmake --build build
       - name: Run extended differential corpus
         run: |
           python3 tests/fuzz/runner.py --cand build/cand --mode extended --seed 12345 --output build/cand1-c-extended-12345
