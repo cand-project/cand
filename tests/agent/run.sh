@@ -46,6 +46,21 @@ cp "$repo/tests/agent/app-good.c" "$dir/app.c"
 expect_result pass "$dir" app.c --emit-evidence evidence-a.json
 run_check "$dir" app.c --emit-evidence evidence-a.json > "$dir/agent-check.json"
 python3 "$repo/tests/agent/schema_test.py" "$dir/evidence-a.json" "$dir/agent-check.json"
+python3 - "$dir/evidence-a.json" "$repo/toolchains/cand1-v1-linux-x86_64.json" <<'PY'
+import hashlib
+import json
+import sys
+
+evidence = json.load(open(sys.argv[1], encoding="utf-8"))
+manifest_bytes = open(sys.argv[2], "rb").read()
+toolchain = evidence["toolchain"]
+frontend = evidence["frontend"]
+assert toolchain["environment_digest"] == hashlib.sha256(manifest_bytes).hexdigest()
+assert frontend["standard"] == "c11"
+assert frontend["target"] == toolchain["target"]
+assert frontend["sysroot"] == toolchain["sysroot"]
+print("toolchain evidence identity: PASS")
+PY
 cp "$dir/evidence-a.json" "$dir/evidence-b.json"
 expect_result pass "$dir" app.c --emit-evidence evidence-b.json
 cmp -s "$dir/evidence-a.json" "$dir/evidence-b.json"
@@ -136,6 +151,45 @@ set -e
 jq -e '.result == "fail-policy"' "$dir/env.json" >/dev/null
 echo 'ambient include environment: BLOCKED'
 
+mkdir -p "$dir/fake-git" "$dir/fake-clang"
+cat > "$dir/fake-git/git" <<'SH'
+#!/usr/bin/env bash
+echo 0000000000000000000000000000000000000000
+SH
+cat > "$dir/fake-clang/clang" <<'SH'
+#!/usr/bin/env bash
+echo 'fake clang' >&2
+exit 99
+SH
+chmod +x "$dir/fake-git/git" "$dir/fake-clang/clang"
+trusted_base="$(git -C "$dir" rev-parse origin/main)"
+set +e
+(cd "$dir" && PATH="$dir/fake-git:$PATH" CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > path.json)
+path_rc=$?
+set -e
+[[ "$path_rc" == 4 ]]
+jq -e '.result == "fail-policy"' "$dir/path.json" >/dev/null
+echo 'PATH Git substitution: BLOCKED'
+
+set +e
+(cd "$dir" && PATH="$dir/fake-clang:$PATH" CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > fake-clang.json)
+fake_clang_rc=$?
+set -e
+[[ "$fake_clang_rc" == 0 ]]
+jq -e '.result == "pass"' "$dir/fake-clang.json" >/dev/null
+echo 'PATH fake Clang substitution: no authority (linked frontend)'
+
+set +e
+(cd "$dir" && LD_LIBRARY_PATH=/tmp CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > loader-env.json)
+loader_rc=$?
+set -e
+[[ "$loader_rc" == 4 ]]
+jq -e '.result == "fail-policy"' "$dir/loader-env.json" >/dev/null
+echo 'dynamic loader environment: BLOCKED'
+
 jq '.base_ref = "HEAD"' "$dir/cand-policy.json" > "$dir/policy.next"
 mv "$dir/policy.next" "$dir/cand-policy.json"
 expect_result fail-policy "$dir" app.c
@@ -182,6 +236,29 @@ set -e
 [[ "$binary_stale_rc" == 1 ]]
 jq -e '.result == "stale"' "$dir/binary-stale.json" >/dev/null
 echo 'verifier binary substitution: DETECTED'
+
+python3 - "$dir/evidence-a.json" "$dir/toolchain-stale.json" <<'PY'
+import hashlib
+import json
+import sys
+
+evidence = json.load(open(sys.argv[1], encoding="utf-8"))
+evidence["toolchain"]["target"] = "aarch64-linux-gnu"
+evidence.pop("integrity_sha256")
+payload = json.dumps(evidence, ensure_ascii=False, sort_keys=True, indent=2)
+evidence["integrity_sha256"] = hashlib.sha256(payload.encode()).hexdigest()
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump(evidence, stream, ensure_ascii=False, sort_keys=True, indent=2)
+    stream.write("\n")
+PY
+set +e
+run_verify "$dir" "$dir/toolchain-stale.json" > "$dir/toolchain-stale-result.json"
+toolchain_stale_rc=$?
+set -e
+[[ "$toolchain_stale_rc" == "1" ]]
+jq -e '.result == "stale"' "$dir/toolchain-stale-result.json" >/dev/null
+echo 'toolchain identity mutation: DETECTED'
+python3 "$repo/tests/toolchain/drift.py" "$cand_bin" "$dir" "$dir/evidence-a.json"
 
 jq '.budgets.new_unsafe_boundaries = 1' "$dir/cand-policy.json" > "$dir/policy.next"
 mv "$dir/policy.next" "$dir/cand-policy.json"
