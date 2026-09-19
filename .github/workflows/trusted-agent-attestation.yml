@@ -75,6 +75,8 @@ jobs:
           && sudo ln -sf /usr/bin/gcc-13 /usr/local/bin/gcc
           && sudo ln -sf /usr/bin/g++-13 /usr/local/bin/g++
           && sudo ln -sf /usr/bin/gcc-13 /usr/local/bin/cc
+          && test -x /usr/bin/ninja
+          && test "$(/usr/bin/ninja --version)" = "1.11.1"
 
       - name: Build verifier only from protected base
         if: steps.driver.outputs.available == 'true'
@@ -82,6 +84,7 @@ jobs:
           set -euo pipefail
           /usr/bin/cmake -S trusted -B trusted-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja \
             -DCMAKE_CXX_COMPILER=clang++-18
           /usr/bin/cmake --build trusted-build
 
