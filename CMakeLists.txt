@@ -37,9 +37,19 @@ endif()
 if (DEFINED CMAKE_CXX_COMPILER_TARGET AND NOT CMAKE_CXX_COMPILER_TARGET STREQUAL "")
     message(FATAL_ERROR "C&1/v1 does not permit a compiler target override")
 endif()
-foreach(flag CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
-    if (DEFINED ${flag} AND "${${flag}}" MATCHES "(^|[ ;])(-isysroot|--sysroot|-target|--target)([= ;]|$)")
-        message(FATAL_ERROR "C&1/v1 does not permit sysroot or target flags in ${flag}")
+set(CAND_FORBIDDEN_FLAG_VARIABLES
+    CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+    CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
+    CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+    CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO
+    CMAKE_EXE_LINKER_FLAGS CMAKE_EXE_LINKER_FLAGS_DEBUG CMAKE_EXE_LINKER_FLAGS_RELEASE
+    CMAKE_EXE_LINKER_FLAGS_MINSIZEREL CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO
+    CMAKE_SHARED_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS_DEBUG CMAKE_SHARED_LINKER_FLAGS_RELEASE
+    CMAKE_SHARED_LINKER_FLAGS_MINSIZEREL CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO)
+foreach(flag IN LISTS CAND_FORBIDDEN_FLAG_VARIABLES)
+    if (DEFINED ${flag} AND "${${flag}}" MATCHES
+        "(^|[ ;])(-isysroot|--sysroot|-target|--target|-L|-B|--gcc-toolchain|-gcc-toolchain|-nostdinc|-nostdlibinc|-fuse-ld|-Xlinker|-Wl,)([=, ;]|$)")
+        message(FATAL_ERROR "C&1/v1 does not permit toolchain substitution flags in ${flag}")
     endif()
 endforeach()
 
@@ -111,6 +121,16 @@ execute_process(
 )
 if (CAND_VERIFIER_SOURCE_COMMIT STREQUAL "")
     set(CAND_VERIFIER_SOURCE_COMMIT "unknown")
+endif()
+execute_process(
+    COMMAND git status --porcelain --untracked-files=all
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE CAND_GIT_STATUS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if (NOT CAND_GIT_STATUS STREQUAL "")
+    message(FATAL_ERROR "C& verifier source checkout is not clean")
 endif()
 
 add_executable(cand

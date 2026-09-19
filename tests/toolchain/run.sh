@@ -9,6 +9,21 @@ gcc_bin="/usr/bin/gcc-13"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+for variable in CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH \
+    COMPILER_PATH GCC_EXEC_PREFIX LIBRARY_PATH LD_LIBRARY_PATH LD_PRELOAD \
+    CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CLANG_CONFIG_FILE; do
+    if [[ -n "${!variable:-}" ]]; then
+        echo "unsupported toolchain environment: $variable" >&2
+        exit 1
+    fi
+done
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH COMPILER_PATH \
+    GCC_EXEC_PREFIX LIBRARY_PATH LD_LIBRARY_PATH LD_PRELOAD CFLAGS CPPFLAGS \
+    CXXFLAGS LDFLAGS CLANG_CONFIG_FILE
+export PATH=/usr/bin:/bin
+[[ -x "$cand_bin" ]] || { echo "verifier binary is not executable" >&2; exit 1; }
+"$cand_bin" --help >/dev/null 2>&1 || { echo "verifier binary is not runnable" >&2; exit 1; }
+
 readarray -t expected < <(python3 - "$manifest" <<'PY'
 import json, sys
 m = json.load(open(sys.argv[1], encoding="utf-8"))

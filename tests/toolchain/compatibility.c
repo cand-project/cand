@@ -8,33 +8,33 @@ typedef struct Item {
     int value;
 } Item;
 
-static Item *make_item(void) CAND_RETURNS_OWN;
-static Item *make_item(void) {
+Item *make_item(void) CAND_RETURNS_OWN;
+Item *make_item(void) {
     Item *item = malloc(sizeof *item);
     if (item != NULL) item->value = 41;
     return item;
 }
 
-static int consume(Item *item) CAND_TAKES;
-static int consume(Item *item) {
+int consume(Item *item) CAND_TAKES;
+int consume(Item *item) {
     int value = item->value;
     free(item);
     return value;
 }
 
-static int borrow_value(const Item *item) CAND_BORROW;
-static int borrow_value(const Item *item) {
+int borrow_value(const Item *item) CAND_BORROW;
+int borrow_value(const Item *item) {
     return item->value;
 }
 
-static int mutate_value(Item *item) CAND_BORROW_MUT;
-static int mutate_value(Item *item) {
+int mutate_value(Item *item) CAND_BORROW_MUT;
+int mutate_value(Item *item) {
     item->value++;
     return item->value;
 }
 
-static Item *borrow_item(Item *item) CAND_RETURNS_BORROW_FROM(0);
-static Item *borrow_item(Item *item) {
+Item *borrow_item(Item *item) CAND_RETURNS_BORROW_FROM(0);
+Item *borrow_item(Item *item) {
     return item;
 }
 
