@@ -49,8 +49,8 @@ def main():
     empty_scope["verification"]["checked_scope"] = []
     assert_invalid(evidence_validator, empty_scope, "empty checked scope")
     bad_level = deepcopy(evidence)
-    bad_level["verification"]["safety_level"] = "cand1"
-    assert_invalid(evidence_validator, bad_level, "unsupported safety level")
+    bad_level["verification"]["safety_level"] = "cand2"
+    assert_invalid(evidence_validator, bad_level, "unsupported reserved safety level")
 
     invalid_pass = deepcopy(evidence)
     invalid_pass["result"] = "pass"

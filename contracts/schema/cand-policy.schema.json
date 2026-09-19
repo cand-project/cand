@@ -8,7 +8,7 @@
   "properties": {
     "schema": {"const": "cand.policy/v1"},
     "profile": {"const": "generated"},
-    "safety_level": {"const": "p0-temporal-lifecycle"},
+    "safety_level": {"enum": ["p0-temporal-lifecycle", "cand1"]},
     "base_ref": {"const": "origin/main"},
     "budgets": {
       "type": "object", "additionalProperties": false,

@@ -213,7 +213,8 @@ bool loadPolicy(const std::string &path, Policy &policy, std::string &error) {
 
 bool isStrictGeneratedPolicy(const Policy &policy, std::string &reason) {
     if (policy.profile != "generated") reason = "profile must be generated";
-    else if (policy.safety_level != "p0-temporal-lifecycle") reason = "unsupported safety level";
+    else if (policy.safety_level != "p0-temporal-lifecycle" &&
+             policy.safety_level != "cand1") reason = "unsupported safety level";
     else if (policy.base_ref != "origin/main") reason = "generated profile requires the repository's origin/main trust base";
     else if (policy.unsafe_budget != 0 || policy.suppression_budget != 0 ||
              policy.level_reduction_budget != 0 || policy.scope_decrease_budget != 0 ||
