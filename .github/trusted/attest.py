@@ -25,6 +25,7 @@ FORBIDDEN_FRONTEND_FLAGS = {
     "-Xclang", "-load", "-fplugin", "-fplugin-file", "-fmodule-map-file",
     "-fmodule-file", "-fmodules-cache-path", "-resource-dir", "-working-directory", "-isysroot",
     "-fpass-plugin", "-load-pass-plugin", "-mllvm", "-include-pch", "-fpch-preprocess",
+    "--sysroot", "-target", "--target",
 }
 
 
@@ -316,8 +317,9 @@ def main() -> int:
     for variable in (
         "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH",
         "COMPILER_PATH", "GCC_EXEC_PREFIX", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
-        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "LD_PRELOAD", "DYLD_LIBRARY_PATH",
-        "DYLD_INSERT_LIBRARIES", "CLANG_CONFIG_FILE", "BASH_ENV", "ENV",
+        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "LD_LIBRARY_PATH", "LIBRARY_PATH",
+        "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "CLANG_CONFIG_FILE",
+        "LLVM_CONFIG", "LLVM_DIR", "Clang_DIR", "BASH_ENV", "ENV",
     ):
         verifier_env.pop(variable, None)
     verifier_env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
