@@ -20,7 +20,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0012](ADR-0012-storage-identity-and-alias-model.md) | Object lifetime is separate from pointer storage and alias relationships | Accepted (P0.3) |
 | [ADR-0013](ADR-0013-interprocedural-ownership-summaries.md) | Calls require verified summaries or explicitly trusted contracts | Accepted (P0.4) |
 | [ADR-0014](ADR-0014-agent-verification-evidence.md) | Agent output is accepted only under runner-authorized policy and replayable input-bound evidence | Accepted (P0.5 slice) |
-| [ADR-0015](ADR-0015-trusted-agent-attestation.md) | Authoritative agent verification uses a protected base-built verifier, not candidate-controlled CI | Proposed (P0.5.1) |
+| [ADR-0015](ADR-0015-trusted-agent-attestation.md) | Historical protected-agent-attestation design; GitHub review is the active merge authority | Superseded |
 | [ADR-0016](ADR-0016-unique-ownership-and-move-semantics.md) | Explicit moves transfer one ownership capability without changing ordinary C runtime semantics | Accepted (P1) |
 | [ADR-0017](ADR-0017-p2-borrow-lifetime-verification.md) | Explicit borrow relationships derive their lifetime from an ObjectId parent and fail closed after invalidation | Proposed (P2) |
 

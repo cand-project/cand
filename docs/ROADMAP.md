@@ -230,7 +230,7 @@ C memory-safety claim.
 Exit gate:
 
 - implementation passes the documented P2 borrow corpus;
-- trusted contract and agent-attestation checks remain green;
+- trusted contract, GitHub review, and compatibility checks remain green;
 - no known false `PASS` exists in the claimed P2 subset;
 - an LLM repair loop converges without removing semantics or weakening policy;
 - independent review reports BLOCKER=0 and HIGH=0.

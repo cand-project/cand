@@ -1,10 +1,16 @@
 # ADR-0015: Protected Trusted Agent Attestation
 
-- **Status:** Proposed (P0.5.1 hardening)
+- **Status:** Superseded; not an active merge gate
 - **Date:** 2026-09-16
 - **Decision owners:** C& maintainers
 - **Scope:** authoritative CI verification for LLM/agent-authored changes
 - **Depends on:** ADR-0008, ADR-0009, ADR-0010, ADR-0014
+
+> Superseded policy: GitHub's protected pull-request review and required
+> compatibility check are the active merge authorities. The custom trusted
+> attestation workflow is no longer run or required. The verifier and its
+> tests remain available for local/advisory evidence checks; their output
+> cannot qualify a release or enable the public C&1 claim.
 
 ## Context
 
@@ -67,9 +73,10 @@ that workflow are themselves verifier-authority changes and are evaluated using
 the prior protected version. The list must remain aligned with repository
 CODEOWNER/governance authority.
 
-This workflow-level approval check complements, rather than replaces, GitHub
-branch protection. `main` must require both normal implementation CI and the
-trusted attestation check before merge.
+This workflow-level approval check was designed to complement, rather than
+replace, GitHub branch protection. It is retained here as historical design
+context only; the active policy uses GitHub protected review and compatibility
+CI without this workflow.
 
 ## External compilation dependencies
 

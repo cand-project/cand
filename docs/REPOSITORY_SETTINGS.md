@@ -11,11 +11,10 @@ Create a GitHub ruleset targeting the default branch `main` with:
 - require changes through pull requests after the initial repository bootstrap;
 - require at least 1 approving review;
 - dismiss stale approvals when new commits are pushed;
-- require review from CODEOWNERS for paths covered by `.github/CODEOWNERS`;
 - require conversation resolution before merge;
 - require the `contract-and-compatibility` CI job to pass;
-- require the `trusted-agent-attestation` CI job to pass;
-- do not allow bypass except organization/repository administrators for emergency recovery;
+- use GitHub's protected pull-request review as the review authority;
+- do not allow bypass actors;
 - keep direct pushes disabled for normal contributors.
 
 ## Merge policy

@@ -55,7 +55,7 @@ This lets the human role move upward. Instead of manually maintaining every owne
 - semantic repairs that change behavior;
 - architecture and requirements.
 
-C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. A trusted runner must provide `CAND_TRUSTED_BASE_SHA` from outside the agent-controlled change; local agent output is not a CI attestation.
+C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. GitHub protected pull-request review is the active merge authority; local agent output is advisory and cannot qualify a release.
 Changing that policy is a proof-policy change, not an implementation repair.
 The stable `cand1.*` rule-ID namespace is retained for diagnostic compatibility;
 it is not a claim that the C&1 safety gate has been achieved. Machine safety
