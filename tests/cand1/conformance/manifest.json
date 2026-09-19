@@ -1,0 +1,1326 @@
+{
+  "schema": "cand.conformance/v1",
+  "profile": "cand1/v1",
+  "fixtures": [
+    {
+      "id": "cand1-conformance-000",
+      "case_index": 10000,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "allocation",
+        "move",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-001",
+      "case_index": 10001,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "destroy",
+        "borrow-escape",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-002",
+      "case_index": 10002,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "use",
+        "nested-loop",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-003",
+      "case_index": 10003,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "move",
+        "nested-field",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-004",
+      "case_index": 10004,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "double-move",
+        "typed-cast",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-005",
+      "case_index": 10005,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "double-destroy",
+        "parameter",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-006",
+      "case_index": 10006,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "alias",
+        "varargs",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-007",
+      "case_index": 10007,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "pointer-reassignment",
+        "frontend-arguments",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-008",
+      "case_index": 10008,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "shared-borrow",
+        "alias",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-009",
+      "case_index": 10009,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "mutable-borrow",
+        "switch",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-010",
+      "case_index": 10010,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "borrow-escape",
+        "loop-allocation",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-011",
+      "case_index": 10011,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "borrowed-return",
+        "union",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-012",
+      "case_index": 10012,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "branch",
+        "pointer-arithmetic",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-013",
+      "case_index": 10013,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "switch",
+        "unknown-call",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-014",
+      "case_index": 10014,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "goto",
+        "longjmp",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-015",
+      "case_index": 10015,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "early-return",
+        "use",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-016",
+      "case_index": 10016,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "loop",
+        "mutable-borrow",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-017",
+      "case_index": 10017,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "nested-loop",
+        "loop",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-018",
+      "case_index": 10018,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "break",
+        "struct-field",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-019",
+      "case_index": 10019,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "continue",
+        "memmove",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-020",
+      "case_index": 10020,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "loop-allocation",
+        "static",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-021",
+      "case_index": 10021,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "repeated-allocation-site",
+        "cross-tu",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-022",
+      "case_index": 10022,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "loop-carried-alias",
+        "protocol",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-023",
+      "case_index": 10023,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "struct-field",
+        "double-destroy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-024",
+      "case_index": 10024,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "nested-field",
+        "branch",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-025",
+      "case_index": 10025,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "array",
+        "continue",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-026",
+      "case_index": 10026,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "aggregate",
+        "aggregate",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-027",
+      "case_index": 10027,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "union",
+        "integer-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-028",
+      "case_index": 10028,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "compound-literal",
+        "out-parameter",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-029",
+      "case_index": 10029,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "memcpy",
+        "setjmp",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-030",
+      "case_index": 10030,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "memmove",
+        "destroy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-031",
+      "case_index": 10031,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "typed-cast",
+        "shared-borrow",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-032",
+      "case_index": 10032,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "void-pointer",
+        "early-return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-033",
+      "case_index": 10033,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "integer-pointer",
+        "loop-carried-alias",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-034",
+      "case_index": 10034,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "pointer-arithmetic",
+        "memcpy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-035",
+      "case_index": 10035,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "interior-pointer",
+        "global",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-036",
+      "case_index": 10036,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "global",
+        "callback",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-037",
+      "case_index": 10037,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "static",
+        "contracts",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-038",
+      "case_index": 10038,
+      "class": "SAFE",
+      "template": "safe",
+      "mechanisms": [
+        "parameter",
+        "double-move",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-039",
+      "case_index": 10039,
+      "class": "SAFE",
+      "template": "move",
+      "mechanisms": [
+        "return",
+        "borrowed-return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-040",
+      "case_index": 10040,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "out-parameter",
+        "break",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-041",
+      "case_index": 10041,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "unknown-call",
+        "array",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-042",
+      "case_index": 10042,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "function-pointer",
+        "void-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-043",
+      "case_index": 10043,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "callback",
+        "return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-044",
+      "case_index": 10044,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "cross-tu",
+        "atomics",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-045",
+      "case_index": 10045,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "varargs",
+        "allocation",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-046",
+      "case_index": 10046,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "atomics",
+        "pointer-reassignment",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-047",
+      "case_index": 10047,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "setjmp",
+        "goto",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-048",
+      "case_index": 10048,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "longjmp",
+        "repeated-allocation-site",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-049",
+      "case_index": 10049,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "realloc",
+        "compound-literal",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-050",
+      "case_index": 10050,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "contracts",
+        "interior-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-051",
+      "case_index": 10051,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "protocol",
+        "function-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-052",
+      "case_index": 10052,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "frontend-arguments",
+        "realloc",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-053",
+      "case_index": 10053,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "allocation",
+        "move",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-054",
+      "case_index": 10054,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "destroy",
+        "borrow-escape",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-055",
+      "case_index": 10055,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "use",
+        "nested-loop",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-056",
+      "case_index": 10056,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "move",
+        "nested-field",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-057",
+      "case_index": 10057,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "double-move",
+        "typed-cast",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-058",
+      "case_index": 10058,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "double-destroy",
+        "parameter",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-059",
+      "case_index": 10059,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "alias",
+        "varargs",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-060",
+      "case_index": 10060,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "pointer-reassignment",
+        "frontend-arguments",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-061",
+      "case_index": 10061,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "shared-borrow",
+        "alias",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-062",
+      "case_index": 10062,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "mutable-borrow",
+        "switch",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-063",
+      "case_index": 10063,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "borrow-escape",
+        "loop-allocation",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-064",
+      "case_index": 10064,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "borrowed-return",
+        "union",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-065",
+      "case_index": 10065,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "branch",
+        "pointer-arithmetic",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-066",
+      "case_index": 10066,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "switch",
+        "unknown-call",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-067",
+      "case_index": 10067,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "goto",
+        "longjmp",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-068",
+      "case_index": 10068,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "early-return",
+        "use",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-069",
+      "case_index": 10069,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "loop",
+        "mutable-borrow",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-070",
+      "case_index": 10070,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "nested-loop",
+        "loop",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-071",
+      "case_index": 10071,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "break",
+        "struct-field",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-072",
+      "case_index": 10072,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "continue",
+        "memmove",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-073",
+      "case_index": 10073,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "loop-allocation",
+        "static",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-074",
+      "case_index": 10074,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "repeated-allocation-site",
+        "cross-tu",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-075",
+      "case_index": 10075,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "loop-carried-alias",
+        "protocol",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-076",
+      "case_index": 10076,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "struct-field",
+        "double-destroy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-077",
+      "case_index": 10077,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "nested-field",
+        "branch",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-078",
+      "case_index": 10078,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "array",
+        "continue",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-079",
+      "case_index": 10079,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "aggregate",
+        "aggregate",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-080",
+      "case_index": 10080,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "union",
+        "integer-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-081",
+      "case_index": 10081,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "compound-literal",
+        "out-parameter",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-082",
+      "case_index": 10082,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "memcpy",
+        "setjmp",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-083",
+      "case_index": 10083,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "memmove",
+        "destroy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-084",
+      "case_index": 10084,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "typed-cast",
+        "shared-borrow",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-085",
+      "case_index": 10085,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "void-pointer",
+        "early-return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-086",
+      "case_index": 10086,
+      "class": "KNOWN_VIOLATION",
+      "template": "borrow-violation",
+      "mechanisms": [
+        "integer-pointer",
+        "loop-carried-alias",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-087",
+      "case_index": 10087,
+      "class": "KNOWN_VIOLATION",
+      "template": "loop",
+      "mechanisms": [
+        "pointer-arithmetic",
+        "memcpy",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-088",
+      "case_index": 10088,
+      "class": "KNOWN_VIOLATION",
+      "template": "violation",
+      "mechanisms": [
+        "interior-pointer",
+        "global",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-089",
+      "case_index": 10089,
+      "class": "KNOWN_VIOLATION",
+      "template": "double-free",
+      "mechanisms": [
+        "global",
+        "callback",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-090",
+      "case_index": 10090,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "static",
+        "contracts",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-091",
+      "case_index": 10091,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "parameter",
+        "double-move",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-092",
+      "case_index": 10092,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "return",
+        "borrowed-return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-093",
+      "case_index": 10093,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "out-parameter",
+        "break",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-094",
+      "case_index": 10094,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "unknown-call",
+        "array",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-095",
+      "case_index": 10095,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "function-pointer",
+        "void-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-096",
+      "case_index": 10096,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "callback",
+        "return",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-097",
+      "case_index": 10097,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "cross-tu",
+        "atomics",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-098",
+      "case_index": 10098,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "varargs",
+        "allocation",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-099",
+      "case_index": 10099,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "atomics",
+        "pointer-reassignment",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-100",
+      "case_index": 10100,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "setjmp",
+        "goto",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-101",
+      "case_index": 10101,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "longjmp",
+        "repeated-allocation-site",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-102",
+      "case_index": 10102,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "realloc",
+        "compound-literal",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-103",
+      "case_index": 10103,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "contracts",
+        "interior-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-104",
+      "case_index": 10104,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "protocol",
+        "function-pointer",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-105",
+      "case_index": 10105,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "frontend-arguments",
+        "realloc",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-106",
+      "case_index": 10106,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "allocation",
+        "move",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-107",
+      "case_index": 10107,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "destroy",
+        "borrow-escape",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-108",
+      "case_index": 10108,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "use",
+        "nested-loop",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-109",
+      "case_index": 10109,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "move",
+        "nested-field",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-110",
+      "case_index": 10110,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "double-move",
+        "typed-cast",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-111",
+      "case_index": 10111,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "double-destroy",
+        "parameter",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-112",
+      "case_index": 10112,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "alias",
+        "varargs",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-113",
+      "case_index": 10113,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "pointer-reassignment",
+        "frontend-arguments",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-114",
+      "case_index": 10114,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "shared-borrow",
+        "alias",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-115",
+      "case_index": 10115,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "mutable-borrow",
+        "switch",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-116",
+      "case_index": 10116,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "borrow-escape",
+        "loop-allocation",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-117",
+      "case_index": 10117,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "borrowed-return",
+        "union",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-118",
+      "case_index": 10118,
+      "class": "UNSUPPORTED",
+      "template": "unsupported",
+      "mechanisms": [
+        "branch",
+        "pointer-arithmetic",
+        "allocation"
+      ]
+    },
+    {
+      "id": "cand1-conformance-119",
+      "case_index": 10119,
+      "class": "UNSUPPORTED",
+      "template": "unsupported-wrapper",
+      "mechanisms": [
+        "switch",
+        "unknown-call",
+        "allocation"
+      ]
+    }
+  ]
+}

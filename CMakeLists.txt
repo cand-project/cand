@@ -93,3 +93,15 @@ add_test(
     NAME cand1-b-transport-boundary
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/cand1/transport/run.sh $<TARGET_FILE:cand>
 )
+add_test(
+    NAME cand1-c-conformance
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/tests/cand1/conformance/run.py $<TARGET_FILE:cand>
+)
+add_test(
+    NAME cand1-c-fast-fuzz
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/tests/fuzz/runner.py
+        --cand $<TARGET_FILE:cand>
+        --mode fast
+        --seed 12345
+        --output ${CMAKE_BINARY_DIR}/cand1-c-fast
+)
