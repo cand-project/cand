@@ -21,6 +21,9 @@ def main() -> int:
         ("toolchain", "target"): "aarch64-linux-gnu",
         ("toolchain", "sysroot"): "foreign-sysroot-v1",
         ("toolchain", "environment_digest"): "0" * 64,
+        ("toolchain", "build_compiler_path"): "/tmp/fake-clang++",
+        ("toolchain", "cmake_version"): "3.29.0",
+        ("toolchain", "ninja_version"): "1.12.0",
         ("frontend", "standard"): "c17",
         ("frontend", "target"): "aarch64-linux-gnu",
     }

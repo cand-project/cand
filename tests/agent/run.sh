@@ -151,6 +151,45 @@ set -e
 jq -e '.result == "fail-policy"' "$dir/env.json" >/dev/null
 echo 'ambient include environment: BLOCKED'
 
+mkdir -p "$dir/fake-git" "$dir/fake-clang"
+cat > "$dir/fake-git/git" <<'SH'
+#!/usr/bin/env bash
+echo 0000000000000000000000000000000000000000
+SH
+cat > "$dir/fake-clang/clang" <<'SH'
+#!/usr/bin/env bash
+echo 'fake clang' >&2
+exit 99
+SH
+chmod +x "$dir/fake-git/git" "$dir/fake-clang/clang"
+trusted_base="$(git -C "$dir" rev-parse origin/main)"
+set +e
+(cd "$dir" && PATH="$dir/fake-git:$PATH" CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > path.json)
+path_rc=$?
+set -e
+[[ "$path_rc" == 4 ]]
+jq -e '.result == "fail-policy"' "$dir/path.json" >/dev/null
+echo 'PATH Git substitution: BLOCKED'
+
+set +e
+(cd "$dir" && PATH="$dir/fake-clang:$PATH" CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > fake-clang.json)
+fake_clang_rc=$?
+set -e
+[[ "$fake_clang_rc" == 0 ]]
+jq -e '.result == "pass"' "$dir/fake-clang.json" >/dev/null
+echo 'PATH fake Clang substitution: no authority (linked frontend)'
+
+set +e
+(cd "$dir" && LD_LIBRARY_PATH=/tmp CAND_TRUSTED_BASE_SHA="$trusted_base" \
+    "$cand_bin" check --agent --base origin/main --policy cand-policy.json app.c -- -std=c11 > loader-env.json)
+loader_rc=$?
+set -e
+[[ "$loader_rc" == 4 ]]
+jq -e '.result == "fail-policy"' "$dir/loader-env.json" >/dev/null
+echo 'dynamic loader environment: BLOCKED'
+
 jq '.base_ref = "HEAD"' "$dir/cand-policy.json" > "$dir/policy.next"
 mv "$dir/policy.next" "$dir/cand-policy.json"
 expect_result fail-policy "$dir" app.c

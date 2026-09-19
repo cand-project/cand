@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build immutable reference environment
-        run: docker build -f toolchains/Dockerfile -t cand1-v1-toolchain .
+        run: docker build --provenance=false -f toolchains/Dockerfile -t cand1-v1-toolchain .
       - name: Clean-room build, test, and compatibility qualification
         run: >-
           docker run --rm -v "$GITHUB_WORKSPACE":/src/cand

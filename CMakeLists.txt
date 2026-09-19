@@ -7,6 +7,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CAND_TOOLCHAIN_MANIFEST "${CMAKE_SOURCE_DIR}/toolchains/cand1-v1-linux-x86_64.json"
     CACHE FILEPATH "C&1/v1 reference toolchain manifest")
+set(CAND_TOOLCHAIN_CANONICAL_MANIFEST "${CMAKE_SOURCE_DIR}/toolchains/cand1-v1-linux-x86_64.json")
+if (NOT CAND_TOOLCHAIN_MANIFEST STREQUAL CAND_TOOLCHAIN_CANONICAL_MANIFEST)
+    message(FATAL_ERROR "C&1 toolchain manifest path is repository-authoritative")
+endif()
 if (NOT EXISTS "${CAND_TOOLCHAIN_MANIFEST}")
     message(FATAL_ERROR "C&1 toolchain manifest not found: ${CAND_TOOLCHAIN_MANIFEST}")
 endif()
@@ -22,9 +26,42 @@ string(JSON CAND_SUPPORTED_CONTAINER GET "${CAND_TOOLCHAIN_JSON}" host container
 string(JSON CAND_SUPPORTED_CMAKE GET "${CAND_TOOLCHAIN_JSON}" build cmake)
 string(JSON CAND_SUPPORTED_NINJA GET "${CAND_TOOLCHAIN_JSON}" build ninja)
 file(SHA256 "${CAND_TOOLCHAIN_MANIFEST}" CAND_TOOLCHAIN_ENVIRONMENT_DIGEST)
+if (NOT CAND_TOOLCHAIN_ENVIRONMENT_DIGEST STREQUAL
+    "6595b5d73b1c7404eee03c2a293015eeae0458cb6fef575c3d5c1e0816391bd5")
+    message(FATAL_ERROR "C&1 toolchain manifest digest is not trusted")
+endif()
+
+if (DEFINED CMAKE_SYSROOT AND NOT CMAKE_SYSROOT STREQUAL "")
+    message(FATAL_ERROR "C&1/v1 requires the default sysroot")
+endif()
+if (DEFINED CMAKE_CXX_COMPILER_TARGET AND NOT CMAKE_CXX_COMPILER_TARGET STREQUAL "")
+    message(FATAL_ERROR "C&1/v1 does not permit a compiler target override")
+endif()
+foreach(flag CMAKE_CXX_FLAGS CMAKE_EXE_LINKER_FLAGS CMAKE_SHARED_LINKER_FLAGS)
+    if (DEFINED ${flag} AND "${${flag}}" MATCHES "(^|[ ;])(-isysroot|--sysroot|-target|--target)([= ;]|$)")
+        message(FATAL_ERROR "C&1/v1 does not permit sysroot or target flags in ${flag}")
+    endif()
+endforeach()
 
 find_package(LLVM REQUIRED CONFIG)
 find_package(Clang REQUIRED CONFIG)
+
+get_filename_component(CAND_CXX_COMPILER_REALPATH "${CMAKE_CXX_COMPILER}" REALPATH)
+if (NOT CAND_CXX_COMPILER_REALPATH STREQUAL "/usr/lib/llvm-18/bin/clang")
+    message(FATAL_ERROR "C&1 verifier compiler path is not /usr/lib/llvm-18/bin/clang")
+endif()
+get_filename_component(CAND_CMAKE_REALPATH "${CMAKE_COMMAND}" REALPATH)
+if (NOT CAND_CMAKE_REALPATH STREQUAL "/usr/bin/cmake")
+    message(FATAL_ERROR "C&1 CMake path is not /usr/bin/cmake")
+endif()
+get_filename_component(CAND_NINJA_EXECUTABLE "${CMAKE_MAKE_PROGRAM}" REALPATH)
+if (NOT CAND_NINJA_EXECUTABLE STREQUAL "/usr/bin/ninja")
+    message(FATAL_ERROR "C&1 Ninja path is not /usr/bin/ninja")
+endif()
+if (NOT LLVM_DIR STREQUAL "/usr/lib/llvm-18/cmake" OR
+    NOT Clang_DIR STREQUAL "/usr/lib/cmake/clang-18")
+    message(FATAL_ERROR "C&1 LLVM/Clang package paths are not reference paths")
+endif()
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -106,6 +143,9 @@ target_compile_definitions(cand PRIVATE
     CAND_TOOLCHAIN_ENVIRONMENT_DIGEST="${CAND_TOOLCHAIN_ENVIRONMENT_DIGEST}"
     CAND_BUILD_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}"
     CAND_BUILD_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}"
+    CAND_BUILD_COMPILER_PATH="${CAND_CXX_COMPILER_REALPATH}"
+    CAND_TOOLCHAIN_CMAKE_VERSION="${CAND_SUPPORTED_CMAKE}"
+    CAND_TOOLCHAIN_NINJA_VERSION="${CAND_SUPPORTED_NINJA}"
 )
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")

@@ -72,6 +72,9 @@
 #define CAND_TOOLCHAIN_ENVIRONMENT_DIGEST "unknown"
 #define CAND_BUILD_COMPILER_ID "unknown"
 #define CAND_BUILD_COMPILER_VERSION "unknown"
+#define CAND_BUILD_COMPILER_PATH "unknown"
+#define CAND_TOOLCHAIN_CMAKE_VERSION "unknown"
+#define CAND_TOOLCHAIN_NINJA_VERSION "unknown"
 #endif
 
 namespace {
@@ -4036,7 +4039,7 @@ std::string readFile(const std::string &path, std::string &error) {
 }
 
 std::string gitHead() {
-    FILE *pipe = popen("git rev-parse HEAD 2>/dev/null", "r");
+    FILE *pipe = popen("/usr/bin/git rev-parse HEAD 2>/dev/null", "r");
     if (!pipe) return {};
     std::array<char, 256> buffer{};
     std::string output;
@@ -4048,7 +4051,7 @@ std::string gitHead() {
 }
 
 std::string gitOriginMain() {
-    FILE *pipe = popen("git rev-parse --verify 'origin/main^{commit}' 2>/dev/null", "r");
+    FILE *pipe = popen("/usr/bin/git rev-parse --verify 'origin/main^{commit}' 2>/dev/null", "r");
     if (!pipe) return {};
     std::array<char, 256> buffer{};
     std::string output;
@@ -4201,6 +4204,11 @@ void rejectToolchain(AgentPolicyState &state, const std::string &detail) {
 }
 
 void validateSupportedToolchain(AgentPolicyState &state) {
+    std::string os_error;
+    const std::string os_release = readFile("/etc/os-release", os_error);
+    if (!os_error.empty() || os_release.find("ID=ubuntu") == std::string::npos ||
+        os_release.find("VERSION_ID=\"24.04\"") == std::string::npos)
+        rejectToolchain(state, "runtime OS is not Ubuntu 24.04");
     if (std::string(CLANG_VERSION_STRING) != CAND_TOOLCHAIN_CLANG_VERSION)
         rejectToolchain(state, "Clang " + std::string(CLANG_VERSION_STRING));
     if (std::string(LLVM_VERSION_STRING) != CAND_TOOLCHAIN_LLVM_VERSION)
@@ -4226,6 +4234,9 @@ llvm::json::Object toolchainJson() {
     toolchain["llvm_version"] = LLVM_VERSION_STRING;
     toolchain["build_compiler"] = CAND_BUILD_COMPILER_ID;
     toolchain["build_compiler_version"] = CAND_BUILD_COMPILER_VERSION;
+    toolchain["build_compiler_path"] = CAND_BUILD_COMPILER_PATH;
+    toolchain["cmake_version"] = CAND_TOOLCHAIN_CMAKE_VERSION;
+    toolchain["ninja_version"] = CAND_TOOLCHAIN_NINJA_VERSION;
     toolchain["target"] = llvm::sys::getDefaultTargetTriple();
     toolchain["standard"] = CAND_TOOLCHAIN_STANDARD;
     toolchain["sysroot"] = CAND_TOOLCHAIN_SYSROOT;
@@ -4307,9 +4318,10 @@ llvm::json::Object buildEvidence(const Collector &collector,
     llvm::json::Object cand_info;
     cand_info["version"] = "0.1.0-dev";
     cand_info["build_identity"] = llvm::formatv(
-        "cand-0.1.0-dev/clang-{0}/llvm-{1}/cxx-{2}-{3}/target-{4}/env-{5}",
+        "cand-0.1.0-dev/clang-{0}/llvm-{1}/cxx-{2}-{3}/target-{4}/cmake-{5}/ninja-{6}/env-{7}",
         CLANG_VERSION_STRING, LLVM_VERSION_STRING, CAND_BUILD_COMPILER_ID,
         CAND_BUILD_COMPILER_VERSION, llvm::sys::getDefaultTargetTriple(),
+        CAND_TOOLCHAIN_CMAKE_VERSION, CAND_TOOLCHAIN_NINJA_VERSION,
         CAND_TOOLCHAIN_ENVIRONMENT_DIGEST).str();
     cand_info["verifier_source_commit"] = CAND_VERIFIER_SOURCE_COMMIT;
     cand_info["binary_sha256"] = CandExecutableSha256;
@@ -4470,7 +4482,8 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     };
     for (const llvm::StringRef key : {"host", "architecture", "container", "compiler",
                                       "clang_version", "llvm_version", "build_compiler",
-                                      "build_compiler_version", "target", "standard", "sysroot",
+                                      "build_compiler_version", "build_compiler_path", "cmake_version",
+                                      "ninja_version", "target", "standard", "sysroot",
                                       "environment_digest"}) {
         if (!toolchainFieldMatches(key)) {
             status = "stale"; detail = "toolchain identity differs from the running verifier"; return false;
@@ -4767,7 +4780,8 @@ void validateAgentFrontendEnvironment(AgentPolicyState &state) {
     const char *variables[] = {
         "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH",
         "COMPILER_PATH", "GCC_EXEC_PREFIX", "SDKROOT", "MACOSX_DEPLOYMENT_TARGET",
-        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "CLANG_CONFIG_FILE"
+        "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "CLANG_CONFIG_FILE",
+        "LD_LIBRARY_PATH", "LD_PRELOAD", "LIBRARY_PATH"
     };
     for (const char *variable : variables) {
         if (const char *value = std::getenv(variable); value && *value) {
@@ -4786,10 +4800,16 @@ void validateAgentFrontendArguments(const llvm::json::Array &arguments,
         state.policy_errors.push_back(detail);
     };
     bool pending_path = false;
+    bool pending_forbidden_path = false;
     for (const auto &entry : arguments) {
         const auto value = entry.getAsString();
         if (!value) { reject("frontend argument is not a string"); continue; }
         const std::string argument = value->str();
+        if (pending_forbidden_path) {
+            reject("frontend path flag is not permitted in generated verification: " + argument);
+            pending_forbidden_path = false;
+            continue;
+        }
         if (pending_path) {
             const std::filesystem::path path(argument);
             const auto resolved = (cwd / path).lexically_normal();
@@ -4803,7 +4823,8 @@ void validateAgentFrontendArguments(const llvm::json::Array &arguments,
             pending_path = true;
             continue;
         }
-        if (argument == "-isysroot" || llvm::StringRef(argument).starts_with("-isysroot=") ||
+        if (argument == "-isysroot" || argument == "--sysroot" || argument == "-target" ||
+            argument == "--target" || llvm::StringRef(argument).starts_with("-isysroot=") ||
             llvm::StringRef(argument).starts_with("--sysroot=") || llvm::StringRef(argument).starts_with("@") ||
             argument == "-Xclang" || argument == "-load" || llvm::StringRef(argument).starts_with("-fplugin") ||
             llvm::StringRef(argument).starts_with("-fmodule") ||
@@ -4812,10 +4833,12 @@ void validateAgentFrontendArguments(const llvm::json::Array &arguments,
             argument == "-include-pch" || argument == "-fpch-preprocess" ||
             llvm::StringRef(argument).starts_with("-resource-dir") ||
             llvm::StringRef(argument).starts_with("-working-directory") ||
-            argument == "-target" || llvm::StringRef(argument).starts_with("--target=") ||
+            llvm::StringRef(argument).starts_with("--target=") ||
             llvm::StringRef(argument).starts_with("-target=") || argument == "-m32" ||
             argument == "-m64") {
             reject("frontend argument is not permitted in generated verification: " + argument);
+            if (argument == "-isysroot" || argument == "--sysroot" || argument == "-target" ||
+                argument == "--target") pending_forbidden_path = true;
             continue;
         }
         for (const char *prefix : {"-I", "-iquote", "-isystem", "-idirafter", "-include", "-imacros"}) {
@@ -4828,7 +4851,8 @@ void validateAgentFrontendArguments(const llvm::json::Array &arguments,
             }
         }
     }
-    if (pending_path) reject("frontend path flag is missing its path");
+    if (pending_path || pending_forbidden_path)
+        reject("frontend path flag is missing its path");
 }
 
 int writeEvidenceFile(const std::string &path, const std::string &evidence) {

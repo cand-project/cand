@@ -33,10 +33,17 @@ static int mutate_value(Item *item) {
     return item->value;
 }
 
+static Item *borrow_item(Item *item) CAND_RETURNS_BORROW_FROM(0);
+static Item *borrow_item(Item *item) {
+    return item;
+}
+
 int main(void) {
     _Static_assert(sizeof(Item) == sizeof(int), "layout changed");
     _Static_assert(_Alignof(Item) == _Alignof(int), "alignment changed");
-    Item *owned = make_item();
-    if (owned == NULL || borrow_value(owned) != 41 || mutate_value(owned) != 42) return 1;
+    Item *owned CAND_OWN = make_item();
+    Item *borrowed = owned == NULL ? NULL : borrow_item(owned);
+    if (owned == NULL || borrowed != owned || borrow_value(borrowed) != 41 ||
+        mutate_value(owned) != 42) return 1;
     return consume(CAND_MOVE(owned)) == 42 ? 0 : 1;
 }
