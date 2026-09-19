@@ -1,212 +1,239 @@
 #!/usr/bin/env python3
-"""Run the deterministic C&1-C differential corpus and emit a release report."""
+"""Run source-driven C&1-C qualification with one strict verdict per case."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from generate import PROFILES, write_corpus
 from minimize import minimize
-from mutate import OPERATORS, apply
+from mutate import OPERATORS, apply, validate_mutation
 from protocol import run_protocol_corpus
-from taxonomy import Case, GENERATOR_VERSION, classify, make_case, render
-
-ROOT = Path(__file__).resolve().parents[2]
-TEMPORAL_ASAN = re.compile(
-    r"heap-use-after-free|double-free|stack-use-after-return|stack-use-after-scope|invalid-free",
-    re.IGNORECASE,
+from strict import StrictWorkspace
+from taxonomy import (
+    GENERATOR_VERSION, Case, classify, detect_mechanisms, make_case, render, validate_source,
 )
 
-
-def persist_crash(source: Path, label: str, detail: str) -> None:
-    directory = ROOT / "tests/regressions/crash"
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{label}.c").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    (directory / f"{label}.json").write_text(
-        json.dumps({"schema": "cand.crash-reproducer/v1", "source": str(source), "detail": detail},
-                   indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+ROOT = Path(__file__).resolve().parents[2]
+TEMPORAL_PATTERNS = (
+    ("heap_use_after_free", re.compile(r"heap-use-after-free", re.IGNORECASE)),
+    ("double_free", re.compile(r"double-free", re.IGNORECASE)),
+    ("invalid_free", re.compile(r"invalid-free", re.IGNORECASE)),
+    ("stack_use_after_return", re.compile(r"stack-use-after-return", re.IGNORECASE)),
+    ("stack_use_after_scope", re.compile(r"stack-use-after-scope", re.IGNORECASE)),
+)
+_WORKER_STATE = threading.local()
+_WORKER_WORKSPACES: list[StrictWorkspace] = []
+_WORKER_LOCK = threading.Lock()
 
 
 def as_case(entry: dict) -> Case:
-    return make_case(
-        entry["seed"], entry["case_index"], entry["semantic_class"],
-        entry["template"], tuple(entry["mechanisms"]), entry.get("mutation"),
-        entry.get("base_case"),
-    )
+    return make_case(entry["seed"], entry["case_index"], entry["semantic_class"], entry["template"],
+                     tuple(entry["mechanisms"]), entry.get("mutation"), entry.get("base_case"))
 
 
-def run_cand(cand: Path, source: Path) -> tuple[dict, int, float, str]:
-    start = time.perf_counter()
-    proc = subprocess.run(
-        [str(cand), "check", "--level=cand1", "--format=json", str(source), "--",
-         "-std=c11", f"-I{ROOT / 'include'}"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
-    )
-    elapsed = time.perf_counter() - start
-    try:
-        report = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        persist_crash(source, source.stem, f"invalid JSON: {proc.stdout[:500]}")
-        raise RuntimeError(f"cand emitted invalid JSON for {source}: {proc.stdout!r}") from exc
-    return report, proc.returncode, elapsed, proc.stderr
+def _worker_workspace(cand: Path) -> StrictWorkspace:
+    strict = getattr(_WORKER_STATE, "strict", None)
+    if strict is None:
+        strict = StrictWorkspace(cand)
+        _WORKER_STATE.strict = strict
+        with _WORKER_LOCK:
+            _WORKER_WORKSPACES.append(strict)
+    return strict
 
 
-def run_cand_raw(cand: Path, source: Path) -> tuple[str, int]:
-    proc = subprocess.run(
-        [str(cand), "check", "--level=cand1", "--format=json", str(source), "--",
-         "-std=c11", f"-I{ROOT / 'include'}"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
-    )
-    return proc.stdout, proc.returncode
+def _analyze_entry(cand: Path, corpus: Path, entry: dict) -> tuple[dict, int, str, tuple[str, ...], str]:
+    case = as_case(entry)
+    source = (corpus / entry["source"]).read_text(encoding="utf-8")
+    validate_source(case, source)
+    actual = detect_mechanisms(source)
+    if set(actual) != set(entry["mechanisms"]):
+        raise RuntimeError(f"{entry['id']}: manifest/source mechanism mismatch")
+    report, returncode, stdout, stderr = _worker_workspace(cand).run(source)
+    return report, returncode, stdout, actual, stderr
 
 
-def run_asan(batch: Path, entries: list[dict], directory: Path) -> tuple[str, float]:
+def _run_asan_cases(entries: list[dict], corpus: Path, directory: Path) -> tuple[list[dict], float]:
+    """Compile once, execute each case ID in a separate process."""
+    batch = directory / "known-violations.c"
+    sources = [((corpus / entry["source"]).read_text(encoding="utf-8")) for entry in entries]
+    batch.write_text("\n".join(sources), encoding="utf-8")
     main = directory / "asan-main.c"
     declarations = "\n".join(f"int cand1_case_{e['case_index']}(void);" for e in entries)
-    calls = "\n".join(f"    cand1_case_{e['case_index']}();" for e in entries)
-    main.write_text(f"{declarations}\nint main(void) {{\n{calls}\n    return 0;\n}}\n", encoding="utf-8")
+    dispatch = "\n".join(f"        case {e['case_index']}: return cand1_case_{e['case_index']}();" for e in entries)
+    main.write_text(
+        f"#include <stdlib.h>\n{declarations}\nint main(int argc, char **argv) {{\n"
+        f"    if (argc != 2) return 2;\n    switch (atoi(argv[1])) {{\n{dispatch}\n"
+        "        default: return 2;\n    }\n}\n", encoding="utf-8"
+    )
     binary = directory / "asan"
     compile_proc = subprocess.run(
         ["clang", "-std=c11", "-O0", "-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-         f"-I{ROOT / 'include'}", str(batch), str(main), "-o", str(binary)],
+         str(batch), str(main), "-o", str(binary)],
         cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
     )
     if compile_proc.returncode != 0:
-        return "compiler_rejected", 0.0
+        return [{"id": e["id"], "sanitizer": "compiler_rejected", "returncode": compile_proc.returncode}
+                for e in entries], 0.0
+    results = []
     start = time.perf_counter()
-    proc = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, check=False)
-    elapsed = time.perf_counter() - start
-    if TEMPORAL_ASAN.search(proc.stderr):
-        return "temporal", elapsed
-    if proc.returncode == 0:
-        return "clean", elapsed
-    return "other", elapsed
+    for entry in entries:
+        try:
+            proc = subprocess.run([str(binary), str(entry["case_index"])], capture_output=True, text=True,
+                                  timeout=30, check=False)
+        except subprocess.TimeoutExpired:
+            results.append({"id": entry["id"], "case_index": entry["case_index"],
+                            "sanitizer": "timeout", "returncode": None})
+            continue
+        sanitizer = "clean" if proc.returncode == 0 else "other"
+        for name, pattern in TEMPORAL_PATTERNS:
+            if pattern.search(proc.stderr):
+                sanitizer = name
+                break
+        results.append({
+            "id": entry["id"], "case_index": entry["case_index"],
+            "sanitizer": sanitizer, "returncode": proc.returncode,
+        })
+    return results, time.perf_counter() - start
 
 
-def mutation_metrics(bases: list[str], directory: Path) -> dict:
-    valid = 0
-    fingerprints = set()
-    for mutation in OPERATORS:
+def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, float]:
+    bases = [
+        render(make_case(0, 999998, "SAFE", "safe")),
+        render(make_case(0, 999999, "SAFE", "safe-move")),
+    ]
+    report = {}
+    start = time.perf_counter()
+    for mutation, expected_class in OPERATORS.items():
         source = next((apply(base, mutation) for base in bases if apply(base, mutation) != base), bases[0])
-        fingerprints.add(hashlib.sha256(source.encode()).hexdigest())
-        path = directory / f"mutation-{mutation}.c"
-        path.write_text(source, encoding="utf-8")
-        proc = subprocess.run(
-            ["clang", "-std=c11", f"-I{ROOT / 'include'}", "-fsyntax-only", str(path)],
-            cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
-        )
-        valid += proc.returncode == 0
-    return {
-        "mutations_generated": len(OPERATORS),
-        "compiler_valid": valid,
-        "semantically_classified": len(OPERATORS),
-        "unique_mutations": len(fingerprints),
-    }
+        validate_mutation(source, mutation)
+        case = make_case(0, 900000 + len(report), expected_class, "safe")
+        result, returncode, _stdout, _stderr = strict.run(source)
+        verdict = classify(case, result, returncode)
+        report[mutation] = {
+            "expected_class": expected_class,
+            "compiler_valid": result.get("result") in {"pass", "fail", "incomplete"},
+            "cand_result": result.get("semantic_result", result.get("result")),
+            "qualification": verdict,
+        }
+    return report, time.perf_counter() - start
 
 
 def run(seed: int, count: int, cand: Path, output: Path) -> dict:
     corpus = output / "corpus"
     manifest = write_corpus(seed, count, corpus)
     entries = manifest["cases"]
-    by_class: dict[str, list[dict]] = defaultdict(list)
-    for entry in entries:
-        by_class[entry["semantic_class"]].append(entry)
     buckets = Counter()
-    mechanism_counts = Counter()
-    sanitizer = Counter()
+    mechanism_coverage: dict[str, Counter] = defaultdict(Counter)
     analysis_seconds = 0.0
-    checked_cases = 0
-    with tempfile.TemporaryDirectory(prefix="cand1-c-runner-") as temp_name:
+    case_results = []
+    with StrictWorkspace(cand) as strict, tempfile.TemporaryDirectory(prefix="cand1-c-runner-") as temp_name:
         directory = Path(temp_name)
-        for semantic_class in ("SAFE", "KNOWN_VIOLATION", "UNSUPPORTED"):
-            all_group = by_class[semantic_class]
-            # Adversarial classes are checked one source at a time. Batching a
-            # failing function with a passing function would hide a false PASS.
-            groups = [all_group] if semantic_class == "SAFE" else [[entry] for entry in all_group]
-            for group_index, group in enumerate(groups):
-                batch = directory / f"{semantic_class.lower()}-{group_index}.c"
-                batch.write_text("\n".join(
-                    (corpus / entry["source"]).read_text(encoding="utf-8") for entry in group
-                ), encoding="utf-8")
-                try:
-                    report, returncode, elapsed, _ = run_cand(cand, batch)
-                except subprocess.TimeoutExpired as exc:
-                    persist_crash(batch, batch.stem, "cand timeout")
-                    raise RuntimeError(f"cand timeout in {semantic_class}: {exc}") from exc
-                except OSError as exc:
-                    raise RuntimeError(f"cand infrastructure error: {exc}") from exc
-                analysis_seconds += elapsed
-                for entry in group:
-                    case = as_case(entry)
-                    bucket = classify(case, report, returncode)
-                    buckets[bucket] += 1
-                    checked_cases += 1
-                    mechanism_counts.update(entry["mechanisms"])
-                    if bucket == "FALSE_PASS":
-                        reduced = ROOT / "tests/regressions/false-pass" / f"{entry['id']}.c"
-                        minimize(cand, corpus / entry["source"], reduced)
+        workers = min(8, os.cpu_count() or 1)
+        start = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            analyzed = list(pool.map(lambda item: _analyze_entry(cand, corpus, item), entries))
+        analysis_seconds += time.perf_counter() - start
+        for entry, (report, returncode, _stdout, actual, _stderr) in zip(entries, analyzed):
+            case = as_case(entry)
+            verdict = classify(case, report, returncode)
+            buckets[verdict] += 1
+            for mechanism in actual:
+                mechanism_coverage[mechanism][verdict] += 1
+            case_results.append({"id": entry["id"], "class": case.semantic_class,
+                                 "mechanisms": list(actual), "cand": report.get("result"),
+                                 "qualification": verdict})
+            if verdict == "FALSE_PASS":
+                reduced = ROOT / "tests/regressions/false-pass" / f"{entry['id']}.c"
+                minimize(cand, corpus / entry["source"], reduced)
 
-        known_group = by_class["KNOWN_VIOLATION"]
-        asan_batch = directory / "known-violations.c"
-        asan_batch.write_text("\n".join(
-            (corpus / entry["source"]).read_text(encoding="utf-8") for entry in known_group
-        ), encoding="utf-8")
-        asan_result, asan_seconds = run_asan(asan_batch, known_group, directory)
-        sanitizer[asan_result] += len(known_group)
+        known = [entry for entry in entries if entry["semantic_class"] == "KNOWN_VIOLATION"]
+        asan_results, asan_seconds = _run_asan_cases(known, corpus, directory)
         analysis_seconds += asan_seconds
-        mutation_report = mutation_metrics(
-            [
-                render(make_case(0, 999998, "SAFE", "safe", ("allocation",))),
-                render(make_case(0, 999999, "SAFE", "move", ("move",))),
-            ], directory
-        )
+        mutation_report, mutation_seconds = _mutation_cases(directory, strict)
+        analysis_seconds += mutation_seconds
 
-        # Stable JSON is a contract for representative cases, not an evidence file.
         representative = corpus / entries[0]["source"]
-        first_stdout, first_rc = run_cand_raw(cand, representative)
-        second_stdout, second_rc = run_cand_raw(cand, representative)
-        deterministic = first_stdout == second_stdout and first_rc == second_rc
+        first = strict.run(representative.read_text(encoding="utf-8"))[2]
+        second = strict.run(representative.read_text(encoding="utf-8"))[2]
+        deterministic = first == second
+    for workspace in _WORKER_WORKSPACES:
+        workspace.close()
+    _WORKER_WORKSPACES.clear()
 
+    asan_counts = Counter(item["sanitizer"] for item in asan_results)
+    asan_temporal = sum(count for name, count in asan_counts.items()
+                        if name in {key for key, _ in TEMPORAL_PATTERNS})
+    if asan_counts["compiler_rejected"] or asan_counts["timeout"]:
+        raise RuntimeError("ASan corpus did not compile")
+    result_by_id = {item["id"]: item for item in case_results}
+    asan_false_pass = [item["id"] for item in asan_results
+                       if item["sanitizer"] in {key for key, _ in TEMPORAL_PATTERNS}
+                       and result_by_id.get(item["id"], {}).get("cand") == "pass"]
+    mutation_correct = sum(item["qualification"] in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}
+                           for item in mutation_report.values())
     protocol = run_protocol_corpus()
+    required_pass = max(1, count // 4)
     report = {
-        "schema": "cand.fuzz-report/v1",
+        "schema": "cand.fuzz-report/v2",
         "generator": GENERATOR_VERSION,
         "profile": "cand1/v1",
         "seed": seed,
-        "cases": checked_cases,
+        "cases": count,
         "results": {key.lower(): buckets[key] for key in (
-            "CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE", "FALSE_PASS",
-            "FALSE_POSITIVE", "WRONG_FAILURE_CLASS", "COMPILER_REJECTED",
-            "SANITIZER_DEFECT", "HARNESS_ERROR", "TIMEOUT",
+            "CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE", "COVERAGE_GAP",
+            "FALSE_PASS", "FALSE_POSITIVE", "WRONG_FAILURE_CLASS", "HARNESS_ERROR",
         )},
-        "mechanism_coverage": dict(sorted(mechanism_counts.items())),
-        "sanitizer": dict(sorted(sanitizer.items())),
+        "mechanisms_declared": sorted({m for entry in entries for m in entry["mechanisms"]}),
+        "mechanisms_exercised": sorted(mechanism_coverage),
+        "mechanism_coverage": {
+            key: {name.lower(): counts[name] for name in sorted(counts)}
+            for key, counts in sorted(mechanism_coverage.items())
+        },
+        "asan": {
+            "individually_executed_cases": len(asan_results),
+            "counts": dict(sorted(asan_counts.items())),
+            "temporal_confirmations": asan_temporal,
+            "runtime_exercisable_violations": sum(
+                count for name, count in asan_counts.items()
+                if name not in {"clean", "other", "compiler_rejected", "timeout"}),
+            "non_runtime_or_unconfirmed": asan_counts["clean"] + asan_counts["other"],
+            "false_pass_cases": asan_false_pass,
+            "cases": asan_results,
+        },
+        "mutations": {
+            "operators": len(OPERATORS), "semantically_executed": len(mutation_report),
+            "correct": mutation_correct, "cases": mutation_report,
+        },
         "protocol": protocol,
-        "mutation_effectiveness": mutation_report,
         "deterministic_json": deterministic,
+        "case_results": case_results,
         "analysis_seconds": round(analysis_seconds, 3),
-        "cases_per_second": round(checked_cases / analysis_seconds, 2) if analysis_seconds else 0,
+        "cases_per_second": round(count / analysis_seconds, 2) if analysis_seconds else 0,
+        "qualification": {"minimum_correct_pass": required_pass},
     }
-    (output / "report.json").write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    if not deterministic:
-        raise RuntimeError("representative cand JSON was not deterministic")
-    if protocol["authority_bypasses"]:
-        raise RuntimeError("protocol corpus found an authority bypass")
-    if buckets["FALSE_PASS"]:
-        raise RuntimeError(f"false PASS: {buckets['FALSE_PASS']} cases")
-    if buckets["HARNESS_ERROR"] or buckets["TIMEOUT"]:
-        raise RuntimeError("harness error or timeout")
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if not deterministic or protocol["authority_bypasses"] or asan_false_pass:
+        raise RuntimeError("determinism or protocol authority gate failed")
+    if buckets["CORRECT_PASS"] < required_pass:
+        raise RuntimeError(f"positive PASS coverage gap: {buckets['CORRECT_PASS']}/{required_pass}")
+    if (buckets["FALSE_PASS"] or buckets["FALSE_POSITIVE"] or buckets["HARNESS_ERROR"]
+            or buckets["COVERAGE_GAP"] or buckets["WRONG_FAILURE_CLASS"]):
+        raise RuntimeError("differential qualification gate failed")
+    if any(item["qualification"] not in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}
+           for item in mutation_report.values()):
+        raise RuntimeError("mutation qualification gate failed")
     return report
 
 
@@ -220,12 +247,11 @@ def main() -> int:
     args = parser.parse_args()
     count = args.cases if args.cases is not None else PROFILES[args.mode or "fast"]
     report = run(args.seed, count, args.cand.resolve(), args.output)
-    print(json.dumps({
-        "schema": report["schema"], "seed": args.seed, "cases": count,
-        "results": report["results"], "false_pass": report["results"].get("false_pass", 0),
-        "protocol_cases": report["protocol"]["cases"],
-        "cases_per_second": report["cases_per_second"],
-    }, sort_keys=True))
+    print(json.dumps({"schema": report["schema"], "seed": args.seed, "cases": count,
+                      "results": report["results"], "false_pass": report["results"]["false_pass"],
+                      "correct_pass": report["results"]["correct_pass"],
+                      "protocol_cases": report["protocol"]["cases"],
+                      "cases_per_second": report["cases_per_second"]}, sort_keys=True))
     return 0
 
 

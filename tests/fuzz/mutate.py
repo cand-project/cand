@@ -15,14 +15,31 @@ OPERATORS = {
     "MOVE_FREE_LATER": "SAFE",
     "DUPLICATE_MOVE": "KNOWN_VIOLATION",
     "DUPLICATE_DESTROY": "KNOWN_VIOLATION",
-    "ESCAPE_BORROW": "KNOWN_VIOLATION",
+    "ESCAPE_BORROW": "UNSUPPORTED",
     "TRANSPORT_VIA_FIELD": "UNSUPPORTED",
     "TRANSPORT_VIA_ARRAY": "UNSUPPORTED",
     "TRANSPORT_VIA_MEMCPY": "UNSUPPORTED",
     "TRANSPORT_VIA_CAST": "UNSUPPORTED",
     "WRAP_IN_LOOP": "UNSUPPORTED",
-    "WRAP_IN_BRANCH": "UNSUPPORTED",
+    "WRAP_IN_BRANCH": "SAFE",
     "CHANGE_DIRECT_CALL_TO_INDIRECT": "UNSUPPORTED",
+}
+
+REQUIRED_SHAPES = {
+    "SWAP_LIFETIME_EVENTS": (r"free\(p\);[\s\S]*cand1_sink\d+ = p->value",),
+    "INSERT_ALIAS": (r"void \*alias = p", r"\(\(int \*\)alias\)"),
+    "MOVE_FREE_EARLIER": (r"free\(p\);[\s\S]*cand1_sink\d+ = p->value",),
+    "MOVE_FREE_LATER": (r"return [^;]+;[\s\S]*free\(p\);",),
+    "DUPLICATE_MOVE": (r"CAND_MOVE\(p\);[\s\S]*CAND_MOVE\(p\)", r"p->value"),
+    "DUPLICATE_DESTROY": (r"free\(p\);[\s\S]*free\(p\);",),
+    "ESCAPE_BORROW": (r"escaped = p",),
+    "TRANSPORT_VIA_FIELD": (r"struct Holder", r"holder\.p"),
+    "TRANSPORT_VIA_ARRAY": (r"void \*array\[1\]", r"array\[0\]"),
+    "TRANSPORT_VIA_MEMCPY": (r"memcpy\(&copy",),
+    "TRANSPORT_VIA_CAST": (r"uintptr_t raw", r"p = \(void \*\)raw"),
+    "WRAP_IN_LOOP": (r"for \(int i = 0; i < 1; \+\+i\)", r"void \*loop_copy", r"memcpy"),
+    "WRAP_IN_BRANCH": (r"if \(p != NULL\) free\(p\)",),
+    "CHANGE_DIRECT_CALL_TO_INDIRECT": (r"\(\*destroy\)\(void \*\)", r"destroy\(p\)"),
 }
 
 
@@ -42,7 +59,9 @@ def apply(source: str, mutation: str) -> str:
     if mutation == "DUPLICATE_DESTROY":
         return source.replace("free(p);", "free(p);\n    free(p);", 1)
     if mutation == "DUPLICATE_MOVE":
-        return source.replace("CAND_MOVE(p)", "CAND_MOVE(CAND_MOVE(p))", 1)
+        sink = re.search(r"cand1_sink\d+", source)
+        use = f"{sink.group(0)} = p->value;" if sink else "(void)p;"
+        return source.replace("CAND_MOVE(p)", f"CAND_MOVE(p); CAND_MOVE(p); {use}", 1)
     if mutation == "INSERT_ALIAS":
         sink = re.search(r"cand1_sink\d+ = p->value;", source)
         replacement = "void *alias = p;\n    free(p);\n    " + (sink.group(0).replace("p->value", "((int *)alias)[0]") if sink else "return 0;")
@@ -56,14 +75,23 @@ def apply(source: str, mutation: str) -> str:
     if mutation == "TRANSPORT_VIA_MEMCPY":
         return source.replace("free(p);", "void *copy = NULL;\n    memcpy(&copy, &p, sizeof copy);\n    free(p);\n    p = copy;", 1)
     if mutation == "TRANSPORT_VIA_CAST":
-        return source.replace("free(p);", "free(p);\n    p = (void *)p;", 1)
+        return source.replace(
+            "free(p);", "uintptr_t raw = (uintptr_t)p;\n    free(p);\n    p = (void *)raw;", 1
+        )
     if mutation == "WRAP_IN_LOOP":
-        return source.replace("free(p);", "for (int i = 0; i < 1; ++i) free(p);", 1)
+        return source.replace(
+            "free(p);", "for (int i = 0; i < 1; ++i) { void *loop_copy = p; memcpy(&p, &loop_copy, sizeof p); }\n    free(p);", 1
+        )
     if mutation == "WRAP_IN_BRANCH":
         return source.replace("free(p);", "if (p != NULL) free(p);", 1)
     if mutation == "CHANGE_DIRECT_CALL_TO_INDIRECT":
         return source.replace("free(p);", "void (*destroy)(void *) = free;\n    destroy(p);", 1)
     raise AssertionError(mutation)
+
+
+def validate_mutation(source: str, mutation: str) -> None:
+    if any(not re.search(pattern, source, re.MULTILINE) for pattern in REQUIRED_SHAPES[mutation]):
+        raise ValueError(f"{mutation}: transformed source lacks its required structural shape")
 
 
 def main() -> int:

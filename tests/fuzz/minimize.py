@@ -4,29 +4,23 @@
 from __future__ import annotations
 
 import argparse
-import json
-import subprocess
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from strict import StrictWorkspace
 
 
-def is_false_pass(cand: Path, source: Path) -> bool:
-    proc = subprocess.run(
-        [str(cand), "check", "--level=cand1", "--format=json", str(source), "--",
-         "-std=c11", f"-I{ROOT / 'include'}"],
-        cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
-    )
+def is_false_pass(strict: StrictWorkspace, source: Path) -> bool:
     try:
-        return proc.returncode == 0 and json.loads(proc.stdout).get("result") == "pass"
-    except json.JSONDecodeError:
+        report, returncode, _stdout, _stderr = strict.run(source.read_text(encoding="utf-8"))
+        return returncode == 0 and report.get("result") == "pass"
+    except (OSError, ValueError, TimeoutError):
         return False
 
 
 def minimize(cand: Path, source: Path, output: Path) -> Path:
     lines = source.read_text(encoding="utf-8").splitlines(keepends=True)
-    with tempfile.TemporaryDirectory(prefix="cand1-minimize-") as name:
+    with StrictWorkspace(cand) as strict, tempfile.TemporaryDirectory(prefix="cand1-minimize-") as name:
         candidate = Path(name) / "candidate.c"
         changed = True
         while changed:
@@ -34,7 +28,7 @@ def minimize(cand: Path, source: Path, output: Path) -> Path:
             for index in range(len(lines)):
                 trial = lines[:index] + lines[index + 1:]
                 candidate.write_text("".join(trial), encoding="utf-8")
-                if is_false_pass(cand, candidate):
+                if is_false_pass(strict, candidate):
                     lines = trial
                     changed = True
                     break

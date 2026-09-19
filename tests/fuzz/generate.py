@@ -8,14 +8,20 @@ import json
 import random
 from pathlib import Path
 
-from taxonomy import GENERATOR_VERSION, MECHANISMS, make_case, render
+from taxonomy import GENERATOR_VERSION, TEMPLATE_FEATURES, make_case, render
 
 PROFILES = {"fast": 1000, "extended": 10000}
 
 TEMPLATES = {
-    "SAFE": ("safe", "move"),
-    "KNOWN_VIOLATION": ("violation", "double-free", "borrow-violation", "loop"),
-    "UNSUPPORTED": ("unsupported", "unsupported-wrapper"),
+    "SAFE": ("safe", "safe-move", "safe-branch", "safe-loop", "safe-switch"),
+    "KNOWN_VIOLATION": ("violation", "double-free", "borrow-violation"),
+    "UNSUPPORTED": (
+        "u-struct-field", "u-nested-field", "u-array", "u-aggregate", "u-union",
+        "u-compound-literal", "u-memcpy", "u-memmove", "u-integer-pointer",
+        "u-pointer-arithmetic", "u-interior-pointer", "u-global", "u-static",
+        "u-out-parameter", "u-unknown-call", "u-function-pointer", "u-callback",
+        "u-varargs", "u-atomics", "u-setjmp", "u-longjmp", "u-realloc", "u-goto",
+    ),
 }
 
 
@@ -25,12 +31,7 @@ def build_cases(seed: int, count: int) -> list:
     for index in range(count):
         semantic_class = ("SAFE", "KNOWN_VIOLATION", "UNSUPPORTED")[index % 3]
         template = TEMPLATES[semantic_class][rng.randrange(len(TEMPLATES[semantic_class]))]
-        # Rotating the catalog forces mechanism diversity independently of Python's
-        # hash seed and makes every seed cover the full transport/CFG vocabulary.
-        primary = MECHANISMS[(index + rng.randrange(len(MECHANISMS))) % len(MECHANISMS)]
-        secondary = MECHANISMS[(index * 7 + seed) % len(MECHANISMS)]
-        mechanisms = tuple(dict.fromkeys((primary, secondary, "allocation")))
-        cases.append(make_case(seed, index, semantic_class, template, mechanisms))
+        cases.append(make_case(seed, index, semantic_class, template))
     return cases
 
 

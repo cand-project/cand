@@ -2,9 +2,10 @@
 
 The corpus is a pure function of seed, generator version, profile version, and
 case count. `generate.py` writes source files plus a manifest; `runner.py`
-executes same-class batches, checks deterministic JSON, runs temporal ASan on
-known violations, and writes `report.json`. `mutate.py` applies one named
-semantic mutation and writes sidecar metadata.
+executes every case independently through the strict cand1 agent path, checks
+source-driven mechanisms and deterministic JSON, runs each temporal ASan case
+in its own process, and writes `report.json`. `mutate.py` applies one named
+semantic mutation and executes it through the same differential gate.
 
 Examples:
 

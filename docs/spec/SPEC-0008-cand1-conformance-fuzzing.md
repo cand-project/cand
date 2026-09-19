@@ -38,6 +38,12 @@ records every seed, case ID, source, semantic class, mechanism, mutation, and
 generator version. The mutation engine applies named semantic operators, not
 arbitrary token noise.
 
+Each case has a transformation plan. The manifest is derived from that plan,
+and the runner validates the rendered source before analysis. A mechanism is
+`exercised` only when its modeled syntax or transport occurs in the analyzed
+source; a metadata-only label never contributes to coverage. Reports retain
+both `mechanisms_declared` and `mechanisms_exercised`.
+
 ## 4. Coverage
 
 The mechanism vocabulary covers allocation/destruction/use, move and borrow
@@ -46,6 +52,14 @@ globals/statics, calls and summaries, compiler extensions, contracts, protocol
 inputs, and frontend arguments. Coverage is semantic mechanism coverage, not a
 claim of source-line coverage. Generated cases are deduplicated by their
 stable case identity and are reported with compiler-valid and result counts.
+Generated cases are analyzed individually. A SAFE case using only supported
+cand1/v1 semantics must produce the authoritative PASS path; SAFE plus
+INCOMPLETE is a COVERAGE_GAP, not a correct result.
+
+ASan evidence is case-level: the corpus may be compiled once, but every case
+is dispatched in a separate process. A sanitizer count is reported only for
+the case that emitted that class. Leak, timeout, assertion, and unrelated
+sanitizer outcomes are not temporal ownership confirmations.
 
 ## 5. Differential result vocabulary
 
@@ -57,7 +71,15 @@ Every false PASS is minimized by the semantic mutation/reproducer workflow and
 persisted under `tests/regressions/false-pass/`; crash reproducers belong under
 `tests/regressions/crash/`.
 
-## 6. Qualification gate
+## 6. Mutation and independent qualification
+
+Every named mutation operator is executed through compilation and the strict
+cand1 agent path. Structural assertions verify that the intended transport or
+CFG transformation occurred. The independent review corpus runs one fresh
+source and one analyzer invocation per case; class batching is not independent
+evidence.
+
+## 7. Qualification gate
 
 The fast profile uses 1,000 fixed-seed generated cases per pull request. The
 extended profile uses at least 10,000 cases and multiple seeds on schedule or

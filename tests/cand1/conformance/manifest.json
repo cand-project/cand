@@ -1,1326 +1,1567 @@
 {
-  "schema": "cand.conformance/v1",
-  "profile": "cand1/v1",
   "fixtures": [
     {
-      "id": "cand1-conformance-000",
       "case_index": 10000,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-000",
       "mechanisms": [
         "allocation",
-        "move",
-        "allocation"
-      ]
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-001",
       "case_index": 10001,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-001",
       "mechanisms": [
+        "allocation",
+        "move",
         "destroy",
-        "borrow-escape",
-        "allocation"
-      ]
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-002",
       "case_index": 10002,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-002",
       "mechanisms": [
+        "allocation",
+        "branch",
         "use",
-        "nested-loop",
-        "allocation"
-      ]
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-003",
       "case_index": 10003,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-003",
       "mechanisms": [
-        "move",
-        "nested-field",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-004",
       "case_index": 10004,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-004",
       "mechanisms": [
-        "double-move",
-        "typed-cast",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-005",
       "case_index": 10005,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-005",
       "mechanisms": [
-        "double-destroy",
-        "parameter",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-006",
       "case_index": 10006,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-006",
       "mechanisms": [
-        "alias",
-        "varargs",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-007",
       "case_index": 10007,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-007",
       "mechanisms": [
-        "pointer-reassignment",
-        "frontend-arguments",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-008",
       "case_index": 10008,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-008",
       "mechanisms": [
-        "shared-borrow",
-        "alias",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-009",
       "case_index": 10009,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-009",
       "mechanisms": [
-        "mutable-borrow",
+        "allocation",
         "switch",
-        "allocation"
-      ]
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-010",
       "case_index": 10010,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-010",
       "mechanisms": [
-        "borrow-escape",
-        "loop-allocation",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-011",
       "case_index": 10011,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-011",
       "mechanisms": [
-        "borrowed-return",
-        "union",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-012",
       "case_index": 10012,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-012",
       "mechanisms": [
+        "allocation",
         "branch",
-        "pointer-arithmetic",
-        "allocation"
-      ]
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-013",
       "case_index": 10013,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-013",
       "mechanisms": [
-        "switch",
-        "unknown-call",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-014",
       "case_index": 10014,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-014",
       "mechanisms": [
-        "goto",
-        "longjmp",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-015",
       "case_index": 10015,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-015",
       "mechanisms": [
-        "early-return",
+        "allocation",
         "use",
-        "allocation"
-      ]
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-016",
       "case_index": 10016,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-016",
       "mechanisms": [
-        "loop",
-        "mutable-borrow",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-017",
       "case_index": 10017,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-017",
       "mechanisms": [
-        "nested-loop",
-        "loop",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-018",
       "case_index": 10018,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-018",
       "mechanisms": [
-        "break",
-        "struct-field",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-019",
       "case_index": 10019,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-019",
       "mechanisms": [
-        "continue",
-        "memmove",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-020",
       "case_index": 10020,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-020",
       "mechanisms": [
-        "loop-allocation",
-        "static",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-021",
       "case_index": 10021,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-021",
       "mechanisms": [
-        "repeated-allocation-site",
-        "cross-tu",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-022",
       "case_index": 10022,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-022",
       "mechanisms": [
-        "loop-carried-alias",
-        "protocol",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-023",
       "case_index": 10023,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-023",
       "mechanisms": [
-        "struct-field",
-        "double-destroy",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-024",
       "case_index": 10024,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-024",
       "mechanisms": [
-        "nested-field",
-        "branch",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-025",
       "case_index": 10025,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-025",
       "mechanisms": [
-        "array",
-        "continue",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-026",
       "case_index": 10026,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-026",
       "mechanisms": [
-        "aggregate",
-        "aggregate",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-027",
       "case_index": 10027,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-027",
       "mechanisms": [
-        "union",
-        "integer-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-028",
       "case_index": 10028,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-028",
       "mechanisms": [
-        "compound-literal",
-        "out-parameter",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-029",
       "case_index": 10029,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-029",
       "mechanisms": [
-        "memcpy",
-        "setjmp",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-030",
       "case_index": 10030,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-030",
       "mechanisms": [
-        "memmove",
+        "allocation",
+        "use",
         "destroy",
-        "allocation"
-      ]
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-031",
       "case_index": 10031,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-031",
       "mechanisms": [
-        "typed-cast",
-        "shared-borrow",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-032",
       "case_index": 10032,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-032",
       "mechanisms": [
-        "void-pointer",
-        "early-return",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-033",
       "case_index": 10033,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-033",
       "mechanisms": [
-        "integer-pointer",
-        "loop-carried-alias",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-034",
       "case_index": 10034,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-034",
       "mechanisms": [
-        "pointer-arithmetic",
-        "memcpy",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-035",
       "case_index": 10035,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-035",
       "mechanisms": [
-        "interior-pointer",
-        "global",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "safe"
     },
     {
-      "id": "cand1-conformance-036",
       "case_index": 10036,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-036",
       "mechanisms": [
-        "global",
-        "callback",
-        "allocation"
-      ]
+        "allocation",
+        "move",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-move"
     },
     {
-      "id": "cand1-conformance-037",
       "case_index": 10037,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-037",
       "mechanisms": [
-        "static",
-        "contracts",
-        "allocation"
-      ]
+        "allocation",
+        "branch",
+        "use",
+        "destroy"
+      ],
+      "template": "safe-branch"
     },
     {
-      "id": "cand1-conformance-038",
       "case_index": 10038,
       "class": "SAFE",
-      "template": "safe",
+      "id": "cand1-conformance-038",
       "mechanisms": [
-        "parameter",
-        "double-move",
-        "allocation"
-      ]
+        "allocation",
+        "loop",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-loop"
     },
     {
-      "id": "cand1-conformance-039",
       "case_index": 10039,
       "class": "SAFE",
-      "template": "move",
+      "id": "cand1-conformance-039",
       "mechanisms": [
-        "return",
-        "borrowed-return",
-        "allocation"
-      ]
+        "allocation",
+        "switch",
+        "break",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "safe-switch"
     },
     {
-      "id": "cand1-conformance-040",
       "case_index": 10040,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-040",
       "mechanisms": [
-        "out-parameter",
-        "break",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-041",
       "case_index": 10041,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-041",
       "mechanisms": [
-        "unknown-call",
-        "array",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-042",
       "case_index": 10042,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-042",
       "mechanisms": [
-        "function-pointer",
-        "void-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-043",
       "case_index": 10043,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-043",
       "mechanisms": [
-        "callback",
-        "return",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-044",
       "case_index": 10044,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-044",
       "mechanisms": [
-        "cross-tu",
-        "atomics",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-045",
       "case_index": 10045,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-045",
       "mechanisms": [
-        "varargs",
         "allocation",
-        "allocation"
-      ]
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-046",
       "case_index": 10046,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-046",
       "mechanisms": [
-        "atomics",
-        "pointer-reassignment",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-047",
       "case_index": 10047,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-047",
       "mechanisms": [
-        "setjmp",
-        "goto",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-048",
       "case_index": 10048,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-048",
       "mechanisms": [
-        "longjmp",
-        "repeated-allocation-site",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-049",
       "case_index": 10049,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-049",
       "mechanisms": [
-        "realloc",
-        "compound-literal",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-050",
       "case_index": 10050,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-050",
       "mechanisms": [
-        "contracts",
-        "interior-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-051",
       "case_index": 10051,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-051",
       "mechanisms": [
-        "protocol",
-        "function-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-052",
       "case_index": 10052,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-052",
       "mechanisms": [
-        "frontend-arguments",
-        "realloc",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-053",
       "case_index": 10053,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-053",
       "mechanisms": [
         "allocation",
-        "move",
-        "allocation"
-      ]
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-054",
       "case_index": 10054,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-054",
       "mechanisms": [
+        "allocation",
+        "shared-borrow",
         "destroy",
-        "borrow-escape",
-        "allocation"
-      ]
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-055",
       "case_index": 10055,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-055",
       "mechanisms": [
+        "allocation",
         "use",
-        "nested-loop",
-        "allocation"
-      ]
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-056",
       "case_index": 10056,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-056",
       "mechanisms": [
-        "move",
-        "nested-field",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-057",
       "case_index": 10057,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-057",
       "mechanisms": [
-        "double-move",
-        "typed-cast",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-058",
       "case_index": 10058,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-058",
       "mechanisms": [
-        "double-destroy",
-        "parameter",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-059",
       "case_index": 10059,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-059",
       "mechanisms": [
-        "alias",
-        "varargs",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-060",
       "case_index": 10060,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-060",
       "mechanisms": [
-        "pointer-reassignment",
-        "frontend-arguments",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-061",
       "case_index": 10061,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-061",
       "mechanisms": [
-        "shared-borrow",
-        "alias",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-062",
       "case_index": 10062,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-062",
       "mechanisms": [
-        "mutable-borrow",
-        "switch",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-063",
       "case_index": 10063,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-063",
       "mechanisms": [
-        "borrow-escape",
-        "loop-allocation",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-064",
       "case_index": 10064,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-064",
       "mechanisms": [
-        "borrowed-return",
-        "union",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-065",
       "case_index": 10065,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-065",
       "mechanisms": [
-        "branch",
-        "pointer-arithmetic",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-066",
       "case_index": 10066,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-066",
       "mechanisms": [
-        "switch",
-        "unknown-call",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-067",
       "case_index": 10067,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-067",
       "mechanisms": [
-        "goto",
-        "longjmp",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-068",
       "case_index": 10068,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-068",
       "mechanisms": [
-        "early-return",
+        "allocation",
+        "double-destroy",
         "use",
-        "allocation"
-      ]
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-069",
       "case_index": 10069,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-069",
       "mechanisms": [
-        "loop",
-        "mutable-borrow",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-070",
       "case_index": 10070,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-070",
       "mechanisms": [
-        "nested-loop",
-        "loop",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-071",
       "case_index": 10071,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-071",
       "mechanisms": [
-        "break",
-        "struct-field",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-072",
       "case_index": 10072,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-072",
       "mechanisms": [
-        "continue",
-        "memmove",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-073",
       "case_index": 10073,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-073",
       "mechanisms": [
-        "loop-allocation",
-        "static",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-074",
       "case_index": 10074,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-074",
       "mechanisms": [
-        "repeated-allocation-site",
-        "cross-tu",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-075",
       "case_index": 10075,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-075",
       "mechanisms": [
-        "loop-carried-alias",
-        "protocol",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-076",
       "case_index": 10076,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-076",
       "mechanisms": [
-        "struct-field",
-        "double-destroy",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-077",
       "case_index": 10077,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-077",
       "mechanisms": [
-        "nested-field",
-        "branch",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-078",
       "case_index": 10078,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-078",
       "mechanisms": [
-        "array",
-        "continue",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-079",
       "case_index": 10079,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-079",
       "mechanisms": [
-        "aggregate",
-        "aggregate",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-080",
       "case_index": 10080,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-080",
       "mechanisms": [
-        "union",
-        "integer-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-081",
       "case_index": 10081,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-081",
       "mechanisms": [
-        "compound-literal",
-        "out-parameter",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-082",
       "case_index": 10082,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-082",
       "mechanisms": [
-        "memcpy",
-        "setjmp",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-083",
       "case_index": 10083,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-083",
       "mechanisms": [
-        "memmove",
+        "allocation",
+        "double-destroy",
+        "use",
         "destroy",
-        "allocation"
-      ]
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-084",
       "case_index": 10084,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-084",
       "mechanisms": [
-        "typed-cast",
+        "allocation",
         "shared-borrow",
-        "allocation"
-      ]
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-085",
       "case_index": 10085,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-085",
       "mechanisms": [
-        "void-pointer",
-        "early-return",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-086",
       "case_index": 10086,
       "class": "KNOWN_VIOLATION",
-      "template": "borrow-violation",
+      "id": "cand1-conformance-086",
       "mechanisms": [
-        "integer-pointer",
-        "loop-carried-alias",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-087",
       "case_index": 10087,
       "class": "KNOWN_VIOLATION",
-      "template": "loop",
+      "id": "cand1-conformance-087",
       "mechanisms": [
-        "pointer-arithmetic",
-        "memcpy",
-        "allocation"
-      ]
+        "allocation",
+        "shared-borrow",
+        "destroy",
+        "use",
+        "branch"
+      ],
+      "template": "borrow-violation"
     },
     {
-      "id": "cand1-conformance-088",
       "case_index": 10088,
       "class": "KNOWN_VIOLATION",
-      "template": "violation",
+      "id": "cand1-conformance-088",
       "mechanisms": [
-        "interior-pointer",
-        "global",
-        "allocation"
-      ]
+        "allocation",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "violation"
     },
     {
-      "id": "cand1-conformance-089",
       "case_index": 10089,
       "class": "KNOWN_VIOLATION",
-      "template": "double-free",
+      "id": "cand1-conformance-089",
       "mechanisms": [
-        "global",
-        "callback",
-        "allocation"
-      ]
+        "allocation",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "double-free"
     },
     {
-      "id": "cand1-conformance-090",
       "case_index": 10090,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-090",
       "mechanisms": [
-        "static",
-        "contracts",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-struct-field"
     },
     {
-      "id": "cand1-conformance-091",
       "case_index": 10091,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-091",
       "mechanisms": [
-        "parameter",
-        "double-move",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "nested-field",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-nested-field"
     },
     {
-      "id": "cand1-conformance-092",
       "case_index": 10092,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-092",
       "mechanisms": [
-        "return",
-        "borrowed-return",
-        "allocation"
-      ]
+        "allocation",
+        "array",
+        "aggregate",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-array"
     },
     {
-      "id": "cand1-conformance-093",
       "case_index": 10093,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-093",
       "mechanisms": [
-        "out-parameter",
-        "break",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "aggregate",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-aggregate"
     },
     {
-      "id": "cand1-conformance-094",
       "case_index": 10094,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-094",
       "mechanisms": [
-        "unknown-call",
-        "array",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "union",
+        "aggregate",
+        "void-pointer",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-union"
     },
     {
-      "id": "cand1-conformance-095",
       "case_index": 10095,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-095",
       "mechanisms": [
-        "function-pointer",
-        "void-pointer",
-        "allocation"
-      ]
+        "allocation",
+        "compound-literal",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-compound-literal"
     },
     {
-      "id": "cand1-conformance-096",
       "case_index": 10096,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-096",
       "mechanisms": [
-        "callback",
-        "return",
-        "allocation"
-      ]
+        "allocation",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-memcpy"
     },
     {
-      "id": "cand1-conformance-097",
       "case_index": 10097,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-097",
       "mechanisms": [
-        "cross-tu",
-        "atomics",
-        "allocation"
-      ]
+        "allocation",
+        "memmove",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-memmove"
     },
     {
-      "id": "cand1-conformance-098",
       "case_index": 10098,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-098",
       "mechanisms": [
-        "varargs",
         "allocation",
-        "allocation"
-      ]
+        "integer-pointer",
+        "typed-cast",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-integer-pointer"
     },
     {
-      "id": "cand1-conformance-099",
       "case_index": 10099,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
-      "mechanisms": [
-        "atomics",
-        "pointer-reassignment",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-100",
-      "case_index": 10100,
-      "class": "UNSUPPORTED",
-      "template": "unsupported",
-      "mechanisms": [
-        "setjmp",
-        "goto",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-101",
-      "case_index": 10101,
-      "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
-      "mechanisms": [
-        "longjmp",
-        "repeated-allocation-site",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-102",
-      "case_index": 10102,
-      "class": "UNSUPPORTED",
-      "template": "unsupported",
-      "mechanisms": [
-        "realloc",
-        "compound-literal",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-103",
-      "case_index": 10103,
-      "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
-      "mechanisms": [
-        "contracts",
-        "interior-pointer",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-104",
-      "case_index": 10104,
-      "class": "UNSUPPORTED",
-      "template": "unsupported",
-      "mechanisms": [
-        "protocol",
-        "function-pointer",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-105",
-      "case_index": 10105,
-      "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
-      "mechanisms": [
-        "frontend-arguments",
-        "realloc",
-        "allocation"
-      ]
-    },
-    {
-      "id": "cand1-conformance-106",
-      "case_index": 10106,
-      "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-099",
       "mechanisms": [
         "allocation",
-        "move",
-        "allocation"
-      ]
+        "pointer-arithmetic",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-pointer-arithmetic"
     },
     {
-      "id": "cand1-conformance-107",
+      "case_index": 10100,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-100",
+      "mechanisms": [
+        "allocation",
+        "interior-pointer",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-interior-pointer"
+    },
+    {
+      "case_index": 10101,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-101",
+      "mechanisms": [
+        "allocation",
+        "global",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-global"
+    },
+    {
+      "case_index": 10102,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-102",
+      "mechanisms": [
+        "allocation",
+        "static",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-static"
+    },
+    {
+      "case_index": 10103,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-103",
+      "mechanisms": [
+        "allocation",
+        "out-parameter",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-out-parameter"
+    },
+    {
+      "case_index": 10104,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-104",
+      "mechanisms": [
+        "allocation",
+        "unknown-call",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-unknown-call"
+    },
+    {
+      "case_index": 10105,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-105",
+      "mechanisms": [
+        "allocation",
+        "function-pointer",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-function-pointer"
+    },
+    {
+      "case_index": 10106,
+      "class": "UNSUPPORTED",
+      "id": "cand1-conformance-106",
+      "mechanisms": [
+        "allocation",
+        "callback",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-callback"
+    },
+    {
       "case_index": 10107,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-107",
       "mechanisms": [
+        "allocation",
+        "varargs",
+        "use",
         "destroy",
-        "borrow-escape",
-        "allocation"
-      ]
+        "branch"
+      ],
+      "template": "u-varargs"
     },
     {
-      "id": "cand1-conformance-108",
       "case_index": 10108,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-108",
       "mechanisms": [
+        "allocation",
+        "atomics",
         "use",
-        "nested-loop",
-        "allocation"
-      ]
+        "destroy",
+        "branch"
+      ],
+      "template": "u-atomics"
     },
     {
-      "id": "cand1-conformance-109",
       "case_index": 10109,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-109",
       "mechanisms": [
-        "move",
-        "nested-field",
-        "allocation"
-      ]
+        "allocation",
+        "setjmp",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-setjmp"
     },
     {
-      "id": "cand1-conformance-110",
       "case_index": 10110,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-110",
       "mechanisms": [
-        "double-move",
-        "typed-cast",
-        "allocation"
-      ]
+        "allocation",
+        "setjmp",
+        "longjmp",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-longjmp"
     },
     {
-      "id": "cand1-conformance-111",
       "case_index": 10111,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-111",
       "mechanisms": [
-        "double-destroy",
-        "parameter",
-        "allocation"
-      ]
+        "allocation",
+        "realloc",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-realloc"
     },
     {
-      "id": "cand1-conformance-112",
       "case_index": 10112,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-112",
       "mechanisms": [
-        "alias",
-        "varargs",
-        "allocation"
-      ]
+        "allocation",
+        "goto",
+        "void-pointer",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-goto"
     },
     {
-      "id": "cand1-conformance-113",
       "case_index": 10113,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-113",
       "mechanisms": [
-        "pointer-reassignment",
-        "frontend-arguments",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-struct-field"
     },
     {
-      "id": "cand1-conformance-114",
       "case_index": 10114,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-114",
       "mechanisms": [
-        "shared-borrow",
-        "alias",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "nested-field",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-nested-field"
     },
     {
-      "id": "cand1-conformance-115",
       "case_index": 10115,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-115",
       "mechanisms": [
-        "mutable-borrow",
-        "switch",
-        "allocation"
-      ]
+        "allocation",
+        "array",
+        "aggregate",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-array"
     },
     {
-      "id": "cand1-conformance-116",
       "case_index": 10116,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-116",
       "mechanisms": [
-        "borrow-escape",
-        "loop-allocation",
-        "allocation"
-      ]
+        "allocation",
+        "struct-field",
+        "aggregate",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-aggregate"
     },
     {
-      "id": "cand1-conformance-117",
       "case_index": 10117,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-117",
       "mechanisms": [
-        "borrowed-return",
+        "allocation",
+        "struct-field",
         "union",
-        "allocation"
-      ]
+        "aggregate",
+        "void-pointer",
+        "double-destroy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-union"
     },
     {
-      "id": "cand1-conformance-118",
       "case_index": 10118,
       "class": "UNSUPPORTED",
-      "template": "unsupported",
+      "id": "cand1-conformance-118",
       "mechanisms": [
-        "branch",
-        "pointer-arithmetic",
-        "allocation"
-      ]
+        "allocation",
+        "compound-literal",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-compound-literal"
     },
     {
-      "id": "cand1-conformance-119",
       "case_index": 10119,
       "class": "UNSUPPORTED",
-      "template": "unsupported-wrapper",
+      "id": "cand1-conformance-119",
       "mechanisms": [
-        "switch",
-        "unknown-call",
-        "allocation"
-      ]
+        "allocation",
+        "memcpy",
+        "use",
+        "destroy",
+        "branch"
+      ],
+      "template": "u-memcpy"
     }
-  ]
+  ],
+  "profile": "cand1/v1",
+  "schema": "cand.conformance/v2"
 }

@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""Normative, deterministic C&1-C conformance fixtures."""
+"""Normative C&1 fixtures, each checked through the strict PASS path."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import tempfile
 from collections import Counter
 from pathlib import Path
 import sys
 
 FUZZ = Path(__file__).parents[2] / "fuzz"
 sys.path.insert(0, str(FUZZ))
-from taxonomy import classify, make_case, render  # noqa: E402
+from strict import StrictWorkspace  # noqa: E402
+from taxonomy import classify, detect_mechanisms, make_case, render, validate_source  # noqa: E402
 
 ROOT = Path(__file__).parents[3]
 
@@ -25,30 +24,25 @@ def main() -> int:
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     counts = Counter()
-    with tempfile.TemporaryDirectory(prefix="cand1-conformance-") as name:
-        directory = Path(name)
+    results = []
+    with StrictWorkspace(args.cand) as strict:
         for entry in manifest["fixtures"]:
-            case = make_case(
-                0, entry["case_index"], entry["class"], entry["template"],
-                tuple(entry["mechanisms"]),
-            )
-            source = directory / f"{entry['id']}.c"
-            source.write_text(render(case), encoding="utf-8")
-            proc = subprocess.run(
-                [str(args.cand), "check", "--level=cand1", "--format=json", str(source), "--",
-                 "-std=c11", f"-I{ROOT / 'include'}"],
-                cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
-            )
-            try:
-                report = json.loads(proc.stdout)
-            except json.JSONDecodeError as exc:
-                raise SystemExit(f"{entry['id']}: invalid cand JSON") from exc
-            bucket = classify(case, report, proc.returncode)
+            case = make_case(0, entry["case_index"], entry["class"], entry["template"],
+                             tuple(entry["mechanisms"]))
+            source = render(case)
+            validate_source(case, source)
+            if set(detect_mechanisms(source)) != set(entry["mechanisms"]):
+                raise SystemExit(f"{entry['id']}: manifest/source mechanism mismatch")
+            report, returncode, _stdout, _stderr = strict.run(source)
+            bucket = classify(case, report, returncode)
             counts[bucket] += 1
-            if bucket in {"FALSE_PASS", "FALSE_POSITIVE", "HARNESS_ERROR", "WRONG_FAILURE_CLASS"}:
+            results.append({"id": entry["id"], "class": entry["class"],
+                            "mechanisms": entry["mechanisms"], "cand": report.get("result"),
+                            "qualification": bucket})
+            if bucket not in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}:
                 raise SystemExit(f"{entry['id']}: {bucket}: {report}")
-    result = {"schema": "cand.conformance-report/v1", "fixtures": len(manifest["fixtures"]),
-              "results": dict(sorted(counts.items()))}
+    result = {"schema": "cand.conformance-report/v2", "fixtures": len(results),
+              "results": dict(sorted(counts.items())), "cases": results}
     print(json.dumps(result, sort_keys=True))
     return 0
 
