@@ -30,12 +30,12 @@ jobs:
           && sudo ln -sf /usr/bin/gcc-13 /usr/local/bin/cc
       - name: Validate project baseline
         run: bash scripts/check.sh
-      - name: Configure P0 analyzer
+      - name: Build pinned reference environment
+        run: docker build --provenance=false -f toolchains/Dockerfile -t cand1-v1-toolchain .
+      - name: Run pinned reference validation
         run: >-
-          /usr/bin/cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_CXX_COMPILER=clang++-18
-      - name: Build P0 analyzer
-        run: /usr/bin/cmake --build build
-      - name: Run P0 analyzer tests
-        run: ctest --test-dir build --output-on-failure
+          docker run --rm -v "$GITHUB_WORKSPACE":/src/cand -w /src/cand
+          cand1-v1-toolchain bash -c
+          'cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++-18 && cmake --build build
+          && ctest --test-dir build --output-on-failure'
