@@ -10,6 +10,12 @@ static int *owned_but_borrowed(int *p)
     return p;
 }
 
+static int *borrow_origin(int *a, int *b)
+{
+    (void)b;
+    return a;
+}
+
 static void destroys_but_borrows(int *p)
 {
     if (p) (void)*p;
@@ -41,6 +47,8 @@ int main(void)
     explicit_no_effect(p);
     int *a = owned_but_borrowed(p);
     (void)a;
+    int *origin = borrow_origin(p, NULL);
+    (void)origin;
     destroys_but_borrows(p);
     int *b = unknown_body();
     (void)b;

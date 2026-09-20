@@ -11,6 +11,12 @@ symbols:
     kind: function
     returns:
       ownership: owned
+  - symbol: borrow_origin
+    kind: function
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 1
   - symbol: destroys_but_borrows
     kind: function
     params:

@@ -77,6 +77,7 @@ grep -Fq '"result": "incomplete"' <<<"$conflict_output" || {
 }
 for reason in "explicit no-effect mismatch" "return ownership mismatch" \
              "param effect mismatch" "unknown body effect" \
+             "return borrow-origin mismatch" \
              "conditional/unrepresentable body behavior" \
              "annotation/body mismatch"; do
   grep -Fq '"conflict_reason": "'"$reason"'"' <<<"$conflict_output" || {
