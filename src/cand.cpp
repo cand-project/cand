@@ -619,6 +619,8 @@ private:
 // join is componentwise and deterministic.
 
 enum class ObjectState { Untracked, Null, Owned, Dead, MaybeDead, Unknown };
+enum class ObjectOrigin { Allocation, Parameter, Unknown };
+enum class ParameterCapability { None, Borrow, TakeOwnership, Destroy, Unknown };
 
 enum class StorageKind { LocalVariable, StructMember, ArrayElement, DereferenceSlot,
                          GlobalVariable };
@@ -692,20 +694,36 @@ enum class PointerRelation { Owner, Alias, Moved, MaybeMoved, Null, MaybeNull, U
 
 constexpr unsigned kNullObjectId = 0;
 constexpr unsigned kUnknownObjectId = std::numeric_limits<unsigned>::max();
+// Allocation IDs occupy the low namespace; parameter-entry objects occupy a
+// disjoint high namespace. The boundary is enforced in objectIdForAllocation.
+constexpr unsigned kParameterObjectIdBase = 0x80000000u;
+
+std::optional<unsigned> parameterObjectIdForIndex(unsigned index) {
+    if (index >= kUnknownObjectId - kParameterObjectIdBase - 1)
+        return std::nullopt;
+    return kParameterObjectIdBase + index + 1;
+}
 
 struct ObjectInfo {
     ObjectState state = ObjectState::Untracked;
+    ObjectOrigin origin = ObjectOrigin::Allocation;
+    ParameterCapability capability = ParameterCapability::None;
     Location allocation;
     Location destruction;
     bool destruction_known = false;
     std::string destruction_storage;
     bool operator==(const ObjectInfo &other) const {
-        return state == other.state && destruction_known == other.destruction_known &&
+        return state == other.state && origin == other.origin && capability == other.capability &&
+               destruction_known == other.destruction_known &&
                sameLocation(allocation, other.allocation) &&
                sameLocation(destruction, other.destruction) &&
                destruction_storage == other.destruction_storage;
     }
 };
+
+const char *objectEntryEvent(const ObjectInfo &object) {
+    return object.origin == ObjectOrigin::Parameter ? "parameter-entry" : "allocation";
+}
 
 struct StorageBinding {
     // 0 is an explicit, definitely-null storage value. UINT_MAX is an
@@ -862,6 +880,10 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
             result.objects[entry.first] = entry.second;
         } else {
             it->second.state = joinState(it->second.state, entry.second.state);
+            if (it->second.origin != entry.second.origin)
+                it->second.origin = ObjectOrigin::Unknown;
+            if (it->second.capability != entry.second.capability)
+                it->second.capability = ParameterCapability::Unknown;
             it->second.allocation = minLocation(it->second.allocation, entry.second.allocation);
             it->second.destruction_known = it->second.destruction_known || entry.second.destruction_known;
             if (entry.second.destruction_known)
@@ -1080,17 +1102,6 @@ private:
 
     const FunctionSummary *summaryFor(const CallExpr &call) const {
         return summaries_.find(call.getDirectCallee());
-    }
-
-    std::optional<unsigned> currentParameter(const Expr *expr) const {
-        if (!current_summary_ || !expr) return std::nullopt;
-        expr = expr->IgnoreParenCasts();
-        const auto *ref = dyn_cast<DeclRefExpr>(expr);
-        const auto *param = ref ? dyn_cast<ParmVarDecl>(ref->getDecl()) : nullptr;
-        if (!param || !current_summary_->function) return std::nullopt;
-        for (unsigned i = 0; i < current_summary_->function->param_size(); ++i)
-            if (current_summary_->function->getParamDecl(i) == param) return i;
-        return std::nullopt;
     }
 
     bool isModeledPointerCall(const CallExpr &call) const {
@@ -1599,7 +1610,7 @@ private:
         finding.access_storage = storageName(access);
         if (object.destruction_known) finding.destroy_storage = object.destruction_storage;
         finding.primary = location(use_loc);
-        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({objectEntryEvent(object), "Owned", object.allocation});
         for (const auto &entry : state.storages) {
             if (entry.second.object_id == binding.object_id &&
                 entry.second.relation == PointerRelation::Alias) {
@@ -1641,7 +1652,7 @@ private:
             }
         }
         finding.primary = location(use_loc);
-        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({objectEntryEvent(object), "Owned", object.allocation});
         if (!binding.relation_location.file.empty())
             finding.trace.push_back({"move", possible ? "MaybeMoved" : "Moved",
                                      binding.relation_location});
@@ -1678,7 +1689,7 @@ private:
             }
         }
         finding.primary = location(loc);
-        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({objectEntryEvent(object), "Owned", object.allocation});
         if (!finding.move_location.file.empty())
             finding.trace.push_back({"move", "Moved", finding.move_location});
         finding.trace.push_back({"invalid-ownership-operation", finding.state_before,
@@ -1700,7 +1711,7 @@ private:
         finding.object_id = objectName(binding.object_id);
         finding.destroy_storage = storageName(destroy);
         finding.primary = location(destroy_loc);
-        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({objectEntryEvent(object), "Owned", object.allocation});
         if (object.destruction_known) {
             finding.trace.push_back({definite ? "first_destruction"
                                               : "conditional_destruction",
@@ -1876,10 +1887,6 @@ private:
         }
         if (!access_storage) access_storage = findTrackedStorage(pointer_expr, state);
         if (binding == nullptr) {
-            if (auto index = currentParameter(pointer_expr); index &&
-                *index < current_summary_->params.size() &&
-                (current_summary_->params[*index] == ParamEffect::Borrow ||
-                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
             if (containsParameterStorage(pointer_expr)) {
                 emitUnsupported({"unmodelled-pointer-parameter", "",
                                  location(access_loc)});
@@ -1942,9 +1949,6 @@ private:
         }
         const auto destroy_storage = storageFor(arg);
         if (!destroy_storage) {
-            if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
-                (current_summary_->params[*index] == ParamEffect::Destroy ||
-                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
             const Expr *base = arg->IgnoreParenCasts();
             if (isa<ArraySubscriptExpr>(base)) {
                 emitUnsupported({untrackedStorageKind(base), "", location(call.getExprLoc())});
@@ -1961,11 +1965,6 @@ private:
             return;
         }
         auto it = state.storages.find(*destroy_storage);
-        if (it == state.storages.end()) {
-            if (auto index = currentParameter(arg); index && *index < current_summary_->params.size() &&
-                (current_summary_->params[*index] == ParamEffect::Destroy ||
-                 current_summary_->params[*index] == ParamEffect::TakeOwnership)) return;
-        }
         if (it == state.storages.end()) {
             emitUnsupported(
                 {"free-untracked-pointer", "", location(call.getExprLoc())});
@@ -1987,6 +1986,14 @@ private:
             return;
         }
         ObjectInfo *object = &object_it->second;
+        if (object->origin == ObjectOrigin::Parameter &&
+            object->capability == ParameterCapability::Borrow) {
+            reportOwnershipViolation(
+                "CAND-O006", "ownership.destroy-borrowed-parameter",
+                "borrowed parameter cannot be destroyed", binding, *object,
+                *destroy_storage, call.getExprLoc(), state);
+            return;
+        }
         for (const auto &entry : state.borrows) {
             if (entry.second.parent_object_id == binding.object_id &&
                 entry.second.state == BorrowState::Live &&
@@ -2069,6 +2076,14 @@ private:
             return;
         }
         ObjectInfo &object = object_it->second;
+        if (object.origin == ObjectOrigin::Parameter &&
+            object.capability == ParameterCapability::Borrow) {
+            reportOwnershipViolation(
+                "CAND-O006", "ownership.destroy-borrowed-parameter",
+                "borrowed parameter cannot be destroyed", binding, object,
+                *storage, call.getExprLoc(), state);
+            return;
+        }
         if (binding.relation == PointerRelation::Moved ||
             binding.relation == PointerRelation::MaybeMoved) {
             reportOwnershipViolation(
@@ -2113,7 +2128,7 @@ private:
         finding.object_id = objectName(binding.object_id);
         finding.access_storage = storageName(storage);
         finding.primary = location(call.getExprLoc());
-        finding.trace.push_back({"allocation", "Owned", object.allocation});
+        finding.trace.push_back({objectEntryEvent(object), "Owned", object.allocation});
         finding.trace.push_back({"missing-move", "Owned", location(call.getExprLoc())});
         emitFinding(std::move(finding));
     }
@@ -2149,6 +2164,11 @@ private:
             return false;
         }
         ObjectInfo &object = object_it->second;
+        if (object.origin == ObjectOrigin::Parameter &&
+            object.capability != ParameterCapability::TakeOwnership) {
+            if (call) markUnsupportedAt(move_loc, "parameter-capability-transfer");
+            return false;
+        }
         if (binding.relation == PointerRelation::Moved ||
             binding.relation == PointerRelation::MaybeMoved) {
             reportOwnershipViolation(
@@ -2223,6 +2243,13 @@ private:
         }
         if (binding->second.object_id == kNullObjectId &&
             binding->second.relation == PointerRelation::Null) return;
+        const auto object_it = state.objects.find(binding->second.object_id);
+        if (object_it != state.objects.end() &&
+            object_it->second.origin == ObjectOrigin::Parameter &&
+            object_it->second.capability != ParameterCapability::TakeOwnership) {
+            markUnsupported(call, "parameter-capability-transfer");
+            return;
+        }
         if (explicit_move) {
             moveBinding(arg, nullptr, call.getExprLoc(), &call, state);
             return;
@@ -2285,11 +2312,7 @@ private:
             }
             for (unsigned i = 0; i < call.getNumArgs() && i < summary->params.size(); ++i) {
                 if (summary->params[i] == ParamEffect::Destroy) {
-                    const auto parameter = currentParameter(call.getArg(i));
-                    if (!(parameter && current_summary_ && *parameter < current_summary_->params.size() &&
-                          (current_summary_->params[*parameter] == ParamEffect::Destroy ||
-                           current_summary_->params[*parameter] == ParamEffect::TakeOwnership)))
-                        destroyBinding(call.getArg(i), call, state);
+                    destroyBinding(call.getArg(i), call, state);
                 }
                 else if (summary->params[i] == ParamEffect::Borrow) {
                     if (isExplicitMove(call.getArg(i)))
@@ -2394,6 +2417,12 @@ private:
             markUnsupported(*init, "loop-allocation-site");
         }
         const unsigned object_id = objectIdForAllocation(init, generation);
+        if (object_id == kUnknownObjectId) {
+            state.storages[storage] =
+                {kUnknownObjectId, PointerRelation::Unknown, location(init->getExprLoc())};
+            markUnsupported(*init, "allocation-object-id-exhausted");
+            return;
+        }
         state.storages[storage] =
             {object_id, PointerRelation::Owner, location(init->getExprLoc())};
         auto &object = state.objects[object_id];
@@ -2425,10 +2454,12 @@ private:
         // another global allocator to the fixed-point state. Widening occurs
         // before generation 2, so this remains a finite abstraction.
         constexpr unsigned kGenerationStride = 1000000;
-        if (generation == 0) return site;
+        if (generation == 0)
+            return site < kParameterObjectIdBase ? site : kUnknownObjectId;
         if (site > std::numeric_limits<unsigned>::max() / kGenerationStride)
             return kUnknownObjectId;
-        return site + generation * kGenerationStride;
+        const unsigned object_id = site + generation * kGenerationStride;
+        return object_id < kParameterObjectIdBase ? object_id : kUnknownObjectId;
     }
 
     bool hasRetainedGenerationReference(unsigned site, const StorageId &destination,
@@ -2480,6 +2511,12 @@ private:
                 state.allocation_generations[site] = generation;
             }
             const unsigned id = objectIdForAllocation(&call, generation);
+            if (id == kUnknownObjectId) {
+                state.storages[storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown, location(call.getExprLoc())};
+                markUnsupported(call, "allocation-object-id-exhausted");
+                return;
+            }
             state.storages[storage] = {id, PointerRelation::Owner, location(call.getExprLoc())};
             auto &object = state.objects[id];
             object.state = ObjectState::Owned;
@@ -2869,6 +2906,28 @@ private:
         }
         if (containsTrackedStorage(ret, state)) {
             bool live_owned_return = false;
+            bool live_borrowed_return = false;
+            if (current_summary_ &&
+                current_summary_->return_effect == ReturnEffect::BorrowFromArg) {
+                const StorageBinding *binding = bindingFor(ret, state);
+                if (binding == nullptr) binding = findTrackedBinding(ret, state);
+                const ObjectInfo *object = objectFor(binding, state);
+                if (object == nullptr || object->state == ObjectState::Unknown) {
+                    markUnsupported(return_stmt, "return-unknown-ownership-state");
+                    return;
+                }
+                if (object->state == ObjectState::Dead ||
+                    object->state == ObjectState::MaybeDead) {
+                    auto access_storage = storageFor(ret);
+                    if (!access_storage) access_storage = findTrackedStorage(ret, state);
+                    if (access_storage)
+                        reportUseAfterDestroy(*binding, *object, *access_storage,
+                                              return_stmt.getReturnLoc(), state,
+                                              object->state == ObjectState::MaybeDead);
+                    return;
+                }
+                live_borrowed_return = true;
+            }
             if (current_summary_ && current_summary_->return_effect == ReturnEffect::Owned) {
                 if (const auto storage = storageFor(ret)) {
                     const auto binding = state.storages.find(*storage);
@@ -2878,7 +2937,7 @@ private:
                     }
                 }
             }
-            if (!live_owned_return)
+            if (!live_owned_return && !live_borrowed_return)
                 markUnsupported(return_stmt, "tracked-pointer-return");
         }
         const Expr *stripped = ret->IgnoreParenCasts();
@@ -3197,12 +3256,58 @@ private:
         }
     }
 
+    FlowState seedParameterState() {
+        FlowState state;
+        if (current_summary_ == nullptr || current_summary_->function == nullptr) return state;
+        const FunctionDecl &function = *current_summary_->function;
+        for (unsigned index = 0; index < function.param_size(); ++index) {
+            const ParmVarDecl *param = function.getParamDecl(index);
+            if (!param->getType()->isPointerType() || index >= current_summary_->params.size())
+                continue;
+
+            ParameterCapability capability = ParameterCapability::Unknown;
+            PointerRelation relation = PointerRelation::Alias;
+            switch (current_summary_->params[index]) {
+            case ParamEffect::Borrow:
+                capability = ParameterCapability::Borrow;
+                break;
+            case ParamEffect::TakeOwnership:
+                capability = ParameterCapability::TakeOwnership;
+                relation = PointerRelation::Owner;
+                break;
+            case ParamEffect::Destroy:
+                capability = ParameterCapability::Destroy;
+                break;
+            case ParamEffect::None:
+            case ParamEffect::Unknown:
+                continue;
+            }
+
+            const auto object_id = parameterObjectIdForIndex(index);
+            const StorageId storage{StorageKind::LocalVariable, param, {}, -1};
+            if (!object_id) {
+                emitUnsupported({"parameter-object-id-exhausted", "", location(param->getLocation())});
+                state.storages[storage] =
+                    {kUnknownObjectId, PointerRelation::Unknown, location(param->getLocation())};
+                continue;
+            }
+            state.storages[storage] = {*object_id, relation, location(param->getLocation())};
+            ObjectInfo object;
+            object.state = ObjectState::Owned;
+            object.origin = ObjectOrigin::Parameter;
+            object.capability = capability;
+            object.allocation = location(param->getLocation());
+            state.objects[*object_id] = std::move(object);
+        }
+        return state;
+    }
+
     void run() {
         std::map<unsigned, FlowState> in_states;
         std::map<unsigned, FlowState> out_states;
         std::set<unsigned> worklist;
         const CFGBlock &entry = cfg_->getEntry();
-        in_states[entry.getBlockID()] = FlowState{};
+        in_states[entry.getBlockID()] = seedParameterState();
         worklist.insert(entry.getBlockID());
 
         emitting_ = false;

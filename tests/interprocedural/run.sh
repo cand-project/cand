@@ -62,6 +62,70 @@ check incomplete tests/interprocedural/consumes_then_use_incomplete.c --contract
 check incomplete tests/interprocedural/recursive_return_incomplete.c
 check incomplete tests/interprocedural/mutual_recursive_return_incomplete.c
 
+for safe in parameter_borrow_read_safe.c parameter_destroy_once_safe.c parameter_owner_read_safe.c; do
+  check pass "tests/interprocedural/$safe"
+done
+for invalid in \
+  parameter_borrow_free_invalid.c \
+  parameter_destroy_twice_fail.c \
+  parameter_destroy_then_read_fail.c \
+  parameter_destroy_then_write_fail.c \
+  parameter_owner_destroy_then_read_fail.c \
+  parameter_owner_destroy_then_write_fail.c \
+  parameter_owner_double_destroy_fail.c \
+  parameter_owner_alias_uaf_fail.c \
+  parameter_owner_alias_assignment_fail.c \
+  parameter_owner_move_then_use_fail.c; do
+  check fail "tests/interprocedural/$invalid"
+done
+check incomplete tests/interprocedural/parameter_owner_conditional_destroy_fail.c
+check incomplete tests/interprocedural/parameter_owner_loop_destroy_fail.c
+
+for sibling_case in ARRAY MULTI NULL; do
+  set +e
+  sibling_output="$($cand check --format=json tests/interprocedural/parameter_lifetime_siblings.c \
+    -- -std=c11 -DSIB_$sibling_case 2>/dev/null)"
+  sibling_status=$?
+  set -e
+  grep -Fq '"result": "pass"' <<<"$sibling_output" || {
+    echo "sibling safe case was not PASS: SIB_$sibling_case"; exit 1;
+  }
+done
+for sibling_case in TYPEDEF CONST ALIAS_PARAMS SAME; do
+  set +e
+  sibling_output="$($cand check --format=json tests/interprocedural/parameter_lifetime_siblings.c \
+    -- -std=c11 -DSIB_$sibling_case 2>/dev/null)"
+  sibling_status=$?
+  set -e
+  grep -Fq '"result": "fail"' <<<"$sibling_output" || {
+    echo "sibling invalid case was not FAIL: SIB_$sibling_case"; exit 1;
+  }
+done
+
+for case in A B C D E F G H I J K L N O; do
+  expected=incomplete
+  case "$case" in
+    A|B) expected=pass ;;
+    C|D|E|F|G|H|I|J|K|L) expected=fail ;;
+  esac
+  set +e
+  output="$($cand check --format=json tests/interprocedural/parameter_lifetime_redteam.c \
+    -- -std=c11 -DCASE_$case 2>/dev/null)"
+  case_status=$?
+  set -e
+  grep -Fq '"result": "'"$expected"'"' <<<"$output" || {
+    echo "unexpected result for parameter red-team CASE_$case"; exit 1;
+  }
+done
+set +e
+vendor_output="$($cand check --contracts=tests/interprocedural/parameter_lifetime_redteam.yaml \
+  --format=json tests/interprocedural/parameter_lifetime_redteam.c -- -std=c11 -DCASE_M 2>/dev/null)"
+vendor_status=$?
+set -e
+grep -Fq '"result": "fail"' <<<"$vendor_output" || {
+  echo "trusted parameter destructor did not fail after use"; exit 1;
+}
+
 check pass tests/interprocedural/contract_partial_compatible.c \
   --contracts=tests/interprocedural/contract_partial_compatible.yaml
 set +e
