@@ -223,3 +223,10 @@ small, reviewed boundary bundle and compile-away annotations. The useful next
 step is adoption-boundary/contract ergonomics work and a narrowly selected
 annotation follow-up, not full Redis and not C&1/v2 implementation. Async
 callback retention remains fail-closed. #25 remains separate precision debt.
+
+The bounded contract/body reconciliation follow-up is recorded in
+`HIREDIS-CONTRACT-RECONCILIATION.md`. It removes the old omitted-field versus
+explicit-no-effect representation ambiguity and adds deterministic conflict
+diagnostics, but the exact rerun still has 370 PASS, 0 FAIL, and 5,139
+INCOMPLETE at the line-weighted TU metric, with zero observational
+`BLOCKED -> CLEAR` transitions. Redis remains NO-GO.
