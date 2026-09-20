@@ -121,7 +121,7 @@ The repair qualification records 19/19 CTest tests passed, zero confirmed
 false PASS, zero false PASS in 20,000 deterministic fuzz cases across seeds
 12345 and 67890, zero policy/evidence/contract/toolchain attack escapes, and
 two clean verifier builds with identical SHA256
-`43bda36b7472661d0bea942e5e5471297eff7a6914ffed6786b350218f61b8b0`.
+`06aa9120a5cd0d33b15ebc0e6cfc465b73a60113ba086aca1a7437406c89cc0a`.
 The exact reviewed repair HEAD, reviewer, and protected-main merge SHA are
 recorded in the final #46 resolution comment. Claim restoration is effective
 only after that exact candidate passes protected review and merges. No v0.2.0

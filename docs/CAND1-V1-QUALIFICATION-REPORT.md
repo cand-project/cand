@@ -75,7 +75,7 @@ unrepresentable stays `INCOMPLETE`.
 - Deterministic fuzz: seeds 12345 and 67890, 10,000 cases each; zero false
   PASS, coverage gap, false positive, harness error, or wrong failure class.
 - Two clean reproducibility builds: SHA256
-  `43bda36b7472661d0bea942e5e5471297eff7a6914ffed6786b350218f61b8b0` for
+  `06aa9120a5cd0d33b15ebc0e6cfc465b73a60113ba086aca1a7437406c89cc0a` for
   both binaries.
 - Qualified environment: Ubuntu 24.04/x86_64, Clang 18.1.3, C11, with the
   existing toolchain, policy, evidence, contract, and sanitizer gates.
