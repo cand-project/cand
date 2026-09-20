@@ -3,6 +3,8 @@
 Status: qualification planning only. No semantic implementation is changed by this branch.
 Base: `36b2547b7bc364572d02e97e459b7eeeb626935c`
 Primary authorities: issues #11 and #26; related review: #6 and #25.
+Normative claim boundary: [SPEC-0010](spec/SPEC-0010-cand1-v1-claim.md); decision record: [ADR-0022](adr/ADR-0022-cand1-v1-final-qualification.md).
+Executable traceability: [C&1-E traceability](CAND1-E-TRACEABILITY.md).
 Invariant: confirmed temporal violation + cand1 PASS = 0.
 Unknown ownership/lifetime behavior is never ignored: it must be SUPPORTED / KNOWN SAFE, KNOWN VIOLATION -> FAIL, UNSUPPORTED -> INCOMPLETE, or TOOL/POLICY ERROR.
 Sanitizers are differential bug oracles only, never proof. The public C&1 claim remains disabled.
@@ -64,3 +66,11 @@ Sanitizers are differential bug oracles only, never proof. The public C&1 claim 
 ## Decision rule
 
 C&1-E is complete only with zero BLOCKER/HIGH findings, zero confirmed temporal false PASS results, complete final-head evidence, and a reviewed exact head. Until then, README and `docs/SAFETY_CLAIMS.md` must continue to state that C&1 is not publicly qualified.
+
+## Central PASS audit
+
+The only C&1 success authority is `canEmitCand1Pass` in `src/cand.cpp`. Its
+required predicates are recorded in the traceability document and must be
+covered by executable tests. A semantic pass without generated policy,
+evidence, exact toolchain, trusted scope, and zero unsupported/error/policy
+conditions is not an authoritative C&1 PASS.
