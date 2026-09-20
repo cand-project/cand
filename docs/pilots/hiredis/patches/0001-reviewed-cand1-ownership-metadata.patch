@@ -1,0 +1,90 @@
+Exact disposable patch for Hiredis 33a12fb23531f33e3455c7ed46008c20c7ad9c78.
+The metadata compiles away for ordinary builds and is not global C& policy.
+
+diff --git a/cand-pilot.h b/cand-pilot.h
+new file mode 100644
+--- /dev/null
++++ b/cand-pilot.h
+@@ -0,0 +1,13 @@
++#ifndef HIREDIS_CAND_PILOT_H
++#define HIREDIS_CAND_PILOT_H
++
++#if defined(CAND_ANALYSIS) && defined(__clang__)
++#define CAND_PILOT_ANNOTATE(value) __attribute__((annotate(value)))
++#else
++#define CAND_PILOT_ANNOTATE(value)
++#endif
++
++#define CAND_RETURNS_OWN CAND_PILOT_ANNOTATE("cand:returns_own")
++#define CAND_DESTROYS CAND_PILOT_ANNOTATE("cand:destroys")
++
++#endif
+diff --git a/hiredis.h b/hiredis.h
+--- a/hiredis.h
++++ b/hiredis.h
+@@ -34,3 +34,4 @@
+ #ifndef __HIREDIS_H
+ #define __HIREDIS_H
++#include "cand-pilot.h"
+ #include "read.h"
+@@ -134 +135 @@
+-redisReader *redisReaderCreate(void);
++redisReader *redisReaderCreate(void) CAND_RETURNS_OWN;
+@@ -136,2 +137,2 @@
+ /* Function to free the reply objects hiredis returns by default. */
+-void freeReplyObject(void *reply);
++void freeReplyObject(void *reply CAND_DESTROYS);
+@@ -143,3 +144,3 @@
+ long long redisFormatSdsCommandArgv(sds *target, int argc, const char ** argv, const size_t *argvlen);
+-void redisFreeCommand(char *cmd);
+-void redisFreeSdsCommand(sds cmd);
++void redisFreeCommand(char *cmd CAND_DESTROYS);
++void redisFreeSdsCommand(sds cmd CAND_DESTROYS);
+@@ -299 +300 @@
+-redisContext *redisConnectWithOptions(const redisOptions *options);
++redisContext *redisConnectWithOptions(const redisOptions *options) CAND_RETURNS_OWN;
+@@ -327,3 +328,3 @@
+ int redisSetTcpUserTimeout(redisContext *c, unsigned int timeout);
+-void redisFree(redisContext *c);
+-redisFD redisFreeKeepFd(redisContext *c);
++void redisFree(redisContext *c CAND_DESTROYS);
++redisFD redisFreeKeepFd(redisContext *c CAND_DESTROYS);
+@@ -354,4 +355,4 @@
+  * only redisAppendCommand and will always return NULL. */
+-void *redisvCommand(redisContext *c, const char *format, va_list ap);
+-void *redisCommand(redisContext *c, const char *format, ...);
+-void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen);
++void *redisvCommand(redisContext *c, const char *format, va_list ap) CAND_RETURNS_OWN;
++void *redisCommand(redisContext *c, const char *format, ...) CAND_RETURNS_OWN;
++void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen) CAND_RETURNS_OWN;
+diff --git a/read.h b/read.h
+--- a/read.h
++++ b/read.h
+@@ -33,2 +33,3 @@
+ #ifndef __HIREDIS_READ_H
+ #define __HIREDIS_READ_H
++#include "cand-pilot.h"
+@@ -120,3 +121,3 @@
+ /* Public API for the protocol parser. */
+-redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn);
+-void redisReaderFree(redisReader *r);
++redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn) CAND_RETURNS_OWN;
++void redisReaderFree(redisReader *r CAND_DESTROYS);
+diff --git a/sds.h b/sds.h
+--- a/sds.h
++++ b/sds.h
+@@ -33,2 +33,3 @@
+ #ifndef __SDS_H
+ #define __SDS_H
++#include "cand-pilot.h"
+@@ -228,5 +228,5 @@
+-sds sdsnewlen(const void *init, size_t initlen);
+-sds sdsnew(const char *init);
+-sds sdsempty(void);
+-sds sdsdup(const sds s);
+-void sdsfree(sds s);
++sds sdsnewlen(const void *init, size_t initlen) CAND_RETURNS_OWN;
++sds sdsnew(const char *init) CAND_RETURNS_OWN;
++sds sdsempty(void) CAND_RETURNS_OWN;
++sds sdsdup(const sds s) CAND_RETURNS_OWN;
++void sdsfree(sds s CAND_DESTROYS);

@@ -1,0 +1,103 @@
+schema: cand.api-contract/v1
+name: hiredis-cand1-reviewed-h1
+version: "1"
+platform:
+  os: [linux]
+  libc: [glibc]
+provenance: {}
+symbols:
+  - symbol: sdsnewlen
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-sds
+  - symbol: sdsnew
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-sds
+  - symbol: sdsempty
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-sds
+  - symbol: sdsdup
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-sds
+  - symbol: sdsfree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisReaderCreate
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-reader
+  - symbol: redisReaderCreateWithFunctions
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-reader
+  - symbol: redisReaderFree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: freeReplyObject
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisConnectWithOptions
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-context
+  - symbol: redisFree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeKeepFd
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeCommand
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeSdsCommand
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisCommand
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-reply
+  - symbol: redisCommandArgv
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-reply
+  - symbol: redisvCommand
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+      allocation_family: hiredis-reply
