@@ -4533,6 +4533,12 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     }
     auto policy_path = verification ? verification->getString("policy_path") : std::nullopt;
     auto policy_digest = verification ? verification->getString("effective_policy_sha256") : std::nullopt;
+    auto recorded_safety_level = verification ? verification->getString("safety_level") : std::nullopt;
+    if (!recorded_safety_level ||
+        (recorded_safety_level->str() != "p0-temporal-lifecycle" &&
+         recorded_safety_level->str() != "cand1")) {
+        status = "tampered"; detail = "invalid recorded safety level"; return false;
+    }
     std::string actual_policy;
     if (!policy_path || !relative_manifest_path(*policy_path) || !policy_digest ||
         !cand::sha256File(policy_path->str(), actual_policy, error) || actual_policy != policy_digest->str()) {
@@ -4603,7 +4609,8 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
     if (replay_fd < 0) { status = "error"; detail = "cannot create evidence replay file"; return false; }
     close(replay_fd);
     std::string command = quoteShellArgument(CandExecutablePath) +
-        " check --agent --base origin/main --policy " + quoteShellArgument(policy_path->str()) +
+        " check --agent --level " + quoteShellArgument(recorded_safety_level->str()) +
+        " --base origin/main --policy " + quoteShellArgument(policy_path->str()) +
         " --emit-evidence " + quoteShellArgument(replay_path);
     if (!contract_path.empty()) command += " --contracts " + quoteShellArgument(contract_path);
     for (const auto &path : source_paths) command += " " + quoteShellArgument(path);
