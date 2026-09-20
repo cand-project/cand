@@ -137,8 +137,9 @@ def main() -> int:
         rc, report = call(args.cand, work, env, "evidence", "verify", "tampered.json")
         outcomes.append({"id": "recomputed-tampered-evidence", "result": report.get("result"), "detail": report.get("detail"), "exit": rc})
     print(json.dumps({"schema": "cand1-e.policy-attacks/v1", "outcomes": outcomes}, sort_keys=True))
-    bad = [x for x in outcomes if x["id"] == "baseline-pass" and x["result"] != "pass"]
-    bad += [x for x in outcomes if x["id"] != "baseline-pass" and x["result"] == "pass"]
+    expected_pass = {"baseline-pass", "evidence-emit"}
+    bad = [x for x in outcomes if x["id"] in expected_pass and x["result"] != "pass"]
+    bad += [x for x in outcomes if x["id"] not in expected_pass and x["result"] == "pass"]
     return int(bool(bad))
 
 
