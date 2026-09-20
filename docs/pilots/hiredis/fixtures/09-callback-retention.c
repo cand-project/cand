@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "fixture-metadata.h"
 
 typedef void (*fixture_callback)(void *data);

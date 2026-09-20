@@ -19,7 +19,7 @@ symbols:
     kind: function
     params:
       - index: 0
-        effect: takes
+        effect: consumes
   - symbol: fixture_external_owned
     kind: function
     returns:

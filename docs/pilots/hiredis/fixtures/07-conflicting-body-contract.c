@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "fixture-metadata.h"
 
 void *fixture_conflicting(const char *borrowed) CAND_RETURNS_OWN {
