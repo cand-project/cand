@@ -1,13 +1,17 @@
 # C&1-E Final Qualification Plan
 
-Status: release-candidate documentation; exact-head approval and protected merge remain pending. No semantic implementation is changed by this branch.
+Status: Historical qualification plan; completed by the exact-head review and
+protected merge. No semantic implementation is changed by this documentation
+finalization.
 Base: `36b2547b7bc364572d02e97e459b7eeeb626935c`
 Primary authorities: issues #11 and #26; related review: #6 and #25.
 Normative claim boundary: [SPEC-0010](spec/SPEC-0010-cand1-v1-claim.md); decision record: [ADR-0022](adr/ADR-0022-cand1-v1-final-qualification.md).
 Executable traceability: [C&1-E traceability](CAND1-E-TRACEABILITY.md).
 Invariant: confirmed temporal violation + cand1 PASS = 0.
 Unknown ownership/lifetime behavior is never ignored: it must be SUPPORTED / KNOWN SAFE, KNOWN VIOLATION -> FAIL, UNSUPPORTED -> INCOMPLETE, or TOOL/POLICY ERROR.
-Sanitizers are differential bug oracles only, never proof. The public C&1 claim text is enabled on this release-candidate branch only; protected main remains unchanged until the final exact-head review and merge gate.
+Sanitizers are differential bug oracles only, never proof. The public C&1 claim
+is now enabled on protected main within the SPEC-0010 boundary. The plan's
+historical release gate is not a semantic expansion.
 
 ## Campaign order
 

@@ -1,6 +1,6 @@
 # SPEC-0008 — C&1-C conformance and differential fuzzing
 
-Status: Draft release gate; C&1 public claim remains disabled
+Status: Historical qualification component; completed for the SPEC-0010 gate.
 
 ## 1. Scope
 

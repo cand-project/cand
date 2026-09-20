@@ -6,12 +6,14 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 ## Current status
 
-C& is an early research/engineering implementation.
-
-The release-candidate branch carries the narrow C&1/v1 claim below. Protected
-main remains non-claiming until the final exact-head approval, required CI, and
-protected merge complete. This document never claims that arbitrary C accepted
-by `cand` is generally memory-safe.
+C&1/v1 is qualified on protected main as the first qualified C& temporal
+ownership and borrow safety profile. Qualification was completed on reviewed
+exact HEAD `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860` and merged as release
+commit `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`. The qualification evidence
+is documented in [the final qualification report](CAND1-V1-QUALIFICATION-REPORT.md)
+and bounded by SPEC-0010 and ADR-0022. Issue #25 remains open as conservative
+mutable-borrow last-use precision debt only. This document never claims that
+arbitrary C accepted by `cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 
@@ -58,7 +60,7 @@ The engineering sequence is deliberately staged:
 
 Passing an early stage does not imply the later guarantees.
 
-## C&1/v1 qualified release-candidate claim
+## C&1/v1 qualified release claim
 
 C&1/v1 provides qualified temporal ownership and borrow safety only for
 ownership/lifetime operations fully analyzed within the declared checked scope,
@@ -207,8 +209,8 @@ Before a release may advertise C&1 as an implemented safety guarantee, the proje
 - independent review expectations;
 - versioned evidence for the exact release.
 
-Until the final exact-head review and protected merge pass, the candidate claim
-does not alter protected main.
+The qualified claim remains limited to the exact evidence and policy boundaries
+defined by SPEC-0010; it does not broaden the explicit non-claims below.
 
 ## Reviewer rule
 

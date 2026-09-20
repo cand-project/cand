@@ -1,6 +1,9 @@
 # SPEC-0010 — C&1/v1 Qualified Temporal Ownership Claim
 
-Status: normative qualification boundary; release-candidate claim text finalized, with protected-main activation pending final exact-head approval and merge.
+Status: normative qualification boundary; C&1/v1 qualified on protected main.
+
+Qualified reviewed HEAD: `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860`
+Merge/release commit: `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`
 
 ## 1. Guarantee
 

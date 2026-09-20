@@ -8,7 +8,7 @@ C& (pronounced **“C and”**) is a compile-time ownership and borrowing safety
 
 C& is deliberately narrower than Rust. It does not redesign C into a new general-purpose language. It makes ownership rules that mature C projects already maintain informally—who owns an allocation, who borrows it, who consumes it, what outlives what, and where responsibility crosses an external API—explicit and machine-checkable.
 
-**Current version:** `0.1.0` — architecture and compatibility baseline. The C&1/v1 release-candidate claim is narrow, profile-bound, and remains subject to protected-main review and merge.
+**Current version:** `0.1.0` — the first qualified C&1/v1 release. Qualification was completed on reviewed exact HEAD `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860` and merged to protected main as `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`.
 
 ## Core thesis: LLMs synthesize. C& verifies.
 
@@ -58,7 +58,7 @@ This lets the human role move upward. Instead of manually maintaining every owne
 C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. GitHub protected pull-request review is the active merge authority; local agent output is advisory and cannot qualify a release.
 Changing that policy is a proof-policy change, not an implementation repair.
 The stable `cand1.*` rule-ID namespace is retained for diagnostic compatibility;
-the release-candidate C&1/v1 wording is defined below and is not broadened by
+the qualified C&1/v1 wording is defined below and is not broadened by
 the namespace alone. Machine safety levels and evidence use only implemented,
 qualified profiles.
 
@@ -156,7 +156,7 @@ the receiving owner; it does not set `p` to NULL or change runtime behavior.
 Use-after-move, double-move, and destruction through a moved-from owner are
 reported with stable `CAND-O00x` diagnostics. Aggregate copies, callbacks,
 retention, `realloc`, complex casts and borrow exclusivity remain unsupported.
-This is not a C&1 release claim.
+The described P1 subset alone is not the full C&1/v1 release claim.
 
 ## Safety levels
 
@@ -165,13 +165,13 @@ C& does not use “memory-safe C” as an unqualified promise. Safety claims are
 | Level | Meaning | Status in 0.1.0 |
 |---|---|---|
 | **C&0** | Observe/report only | baseline vocabulary defined |
-| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | release-candidate claim; protected main pending final review |
+| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | qualified on protected main; profile-bound |
 | **C&2** | Spatial safety | reserved |
 | **C&3** | Concurrency safety | reserved |
 
-C&1/v1 provides qualified temporal ownership and borrow safety only for ownership/lifetime operations fully analyzed within the declared checked scope, supported semantic subset, and qualified Ubuntu 24.04 x86_64/C11 toolchain profile. An authoritative C&1 PASS means no covered temporal ownership/borrow violation was found. Unsupported or unresolved ownership/lifetime semantics fail closed and cannot contribute to PASS.
+C&1/v1 provides qualified temporal ownership and borrow safety only for ownership/lifetime operations fully analyzed within the declared checked scope, supported semantic subset, and qualified Ubuntu 24.04 x86_64/C11 toolchain profile. An authoritative C&1 PASS means no covered temporal ownership/borrow violation was found. Unsupported or unresolved ownership/lifetime semantics fail closed and cannot contribute to PASS. The guarantee is bounded by the exact evidence and policy boundaries defined by SPEC-0010.
 
-This release-candidate wording does **not** claim that C&1 makes arbitrary C generally memory-safe.
+This qualified release wording does **not** claim that C&1 makes arbitrary C generally memory-safe.
 
 C&1/v1 does **not** claim spatial or bounds safety, arbitrary pointer arithmetic, null safety, integer safety, general pointer/integer provenance safety, inline-assembly correctness, general concurrency/data-race safety, unsupported language/compiler constructs, unsupported cross-TU ownership semantics, or correctness inside unsafe/unsupported regions. It does not claim “memory-safe C”, Rust-equivalent whole-language safety, or safety outside the qualified profile.
 

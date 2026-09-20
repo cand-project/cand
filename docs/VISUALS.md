@@ -14,7 +14,9 @@ The stylized connector shape is the **C itself**; the adjacent ampersand complet
 
 C& addresses a specific migration problem: mature C systems already have ownership rules, but those rules usually live in developer knowledge and documentation rather than machine-checkable contracts. C& adds ownership annotations, borrow relationships, move/consume semantics, external API contracts, and explicit unsafe boundaries while preserving C source files, existing compiler toolchains, the C ABI, and the library ecosystem.
 
-The diagram deliberately says **“intended result”** rather than claiming that the current 0.1.0 baseline already proves C&1 safety.
+The diagram deliberately says **“intended result”** because it illustrates the
+architecture rather than the exact qualified claim. The current C&1/v1
+guarantee is defined by [SPEC-0010](spec/SPEC-0010-cand1-v1-claim.md).
 
 ## How C& fits into the build pipeline
 
