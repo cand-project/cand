@@ -3,6 +3,9 @@
 ## Identity and controls
 
 - C& starting main: `74adeaddbe42d3d34c1d0a26f7854871d890b7c8`
+- evidence PR #38 reviewed HEAD: `d378f01270db88a535408af478e06edb424d656b`
+- evidence PR #38 reviewer: `zoorpha`
+- evidence PR #38 merge SHA: `678d64fa59c79670f13baf75409f6e37ca64e568`
 - Hiredis: `redis/hiredis@33a12fb23531f33e3455c7ed46008c20c7ad9c78`
 - Redis server: `redis/redis@5f08991bce470ab721f10d7f815baad49f3aae60`
 - environment: qualified Ubuntu 24.04 / x86_64 profile
@@ -107,6 +110,97 @@ storage uncertainty, reallocating operations, and async callback retention.
 The current report does not expose a reliable function-level PASS/FAIL/
 INCOMPLETE partition. Function counts exist, but assigning verdicts from the
 available output would be invented evidence; no verifier change was made.
+
+The follow-up pilot now provides a separate observational mapping in
+`HIREDIS-OBLIGATION-DELTA.md`. It maps all 1,217 H0 obligations to 181 Clang
+function definition ranges, with no VIOLATION or TOOL-UNKNOWN mapping. CLEAR
+and BLOCKED remain observational labels and are not C&1 verdicts.
+
+## Minimal metadata fixtures
+
+The isolated fixtures under `fixtures/` were run through the same C& runner in
+H0/H1/H2/H3 modes. The result is deliberately small and exact:
+
+| Fixture | H0 | H1 contracts | H2 annotations | H3 combined |
+|---|---|---|---|---|
+| owned return + destructor | INCOMPLETE (1) | PASS | INCOMPLETE (1) | PASS |
+| borrowed parameter | PASS | PASS | PASS | PASS |
+| consumed parameter | INCOMPLETE (1) | PASS | INCOMPLETE (1) | PASS |
+| pointer-to-pointer output | INCOMPLETE (1) | INCOMPLETE (1) | INCOMPLETE (1) | INCOMPLETE (1) |
+| cross-TU owned return boundary | INCOMPLETE (1) | PASS | INCOMPLETE (1) | PASS |
+| matching visible body + contract | PASS | PASS | PASS | PASS |
+| conflicting visible body + contract | PASS | INCOMPLETE (1) | INCOMPLETE (1) | INCOMPLETE (1) |
+| realloc-like boundary | INCOMPLETE (1) | INCOMPLETE (1) | INCOMPLETE (1) | INCOMPLETE (1) |
+| callback retention | INCOMPLETE (3) | INCOMPLETE (3) | INCOMPLETE (3) | INCOMPLETE (3) |
+
+The fixture results show that reviewed contracts can resolve a narrow external
+owned-return or consumed-parameter boundary. They also show that current
+declaration annotations alone did not resolve the external-only owned-return
+fixtures, while a visible annotation/body conflict remains fail-closed. The
+fixture contract intentionally does not describe the realloc-like boundary.
+
+## Root-cause decomposition
+
+The leading H3 mechanisms map to these current implementation paths:
+
+- `unmodelled-pointer-parameter`: `checkAccess` emits it when a pointer access
+  contains parameter storage but the current summary does not classify the
+  parameter as borrow or ownership transfer; `handleReturn` emits it when a
+  pointer parameter escapes without a modeled borrowed-return summary.
+- `ambiguous-alias-target`: storage binding and assignment paths emit it when
+  an alias target is unknown or a pointer is assigned into uncertain storage.
+- `unknown-call-with-pointer-output`: `handleCall` emits it when an unknown
+  call may write pointer storage. The documented `produces_out_owner` schema
+  term is not parsed by the current loader.
+- `unknown-pointer-return-ownership`: `bindSummaryReturn` emits it for a
+  missing, conflicting, or unknown summary.
+- `contract-body-conflict`: `loadContracts` compares a trusted contract with
+  a visible body summary and marks disagreement as conflict; `handleCall`
+  then emits the fail-closed diagnostic.
+- `pointer-arithmetic-reassignment`: pointer arithmetic assignments are
+  explicitly unsupported; H3 had 34 such observations.
+
+For the 685 H3 pointer-parameter observations, Clang source-token mapping
+directly attributed 77 observations: 30 mutable-borrow-shaped, 9
+read-only-borrow-shaped, 3 consumed/destroyed-shaped, 11 pointer-to-pointer,
+8 array/buffer-plus-length, and 16 unknown. The remaining 608 observations
+were indirect field/derived-pointer uses for which the diagnostic does not
+identify a parameter. These are reported as unknown rather than guessed into a
+parameter class. Eighteen directly attributed observations had explicit
+nullable checks; nullability is an orthogonal property, not a lifetime proof.
+
+H3 unknown pointer-return diagnostics total 199 when symbol-qualified variants
+are included: 97 libc/runtime, 12 same-project cross-TU, 10 indirect, and 80
+without a usable direct symbol. H3 unknown-call diagnostics total 128; AST
+matching identified 17 same-project cross-TU calls to `__redisSetError`, 6
+same-TU calls, 6 libc/runtime calls, 12 indirect calls, and 87 calls whose call
+target could not be reliably recovered from the diagnostic location. These are
+estimates of candidate boundaries, not enabled cross-TU support.
+
+The 29 H3 contract-body conflicts occur at 24 functions. Twenty-one locations
+also occur in H2 and are annotation/body reconciliation cases; eight additional
+locations are contract/body cases. The diagnostic does not contain enough
+semantic detail to label a conflict as “wrong contract” versus “conditional
+body not expressible,” so the evidence classification is provisional B/C/D,
+with no evidence for blindly overriding the body. The matching and conflicting
+fixtures pin the required behavior: matching remains decidable; disagreement
+remains INCOMPLETE.
+
+## Follow-up issues and Redis decision
+
+Focused follow-up issues are open:
+
+- #39 declaration-site ownership annotation propagation;
+- #40 pointer-parameter and alias/storage decomposition;
+- #41 bounded pointer-output ownership contracts;
+- #42 same-project cross-TU summary qualification;
+- #43 contract/body reconciliation diagnostics and expressiveness.
+
+Redis is **NO-GO for now**. The Hiredis evidence shows zero TU-level coverage
+gain, no BLOCKED-to-CLEAR function transitions, and dominant unresolved
+pointer/storage, cross-TU, and callback-boundary effects. Hiredis is therefore
+the next regression corpus for these targeted improvements; full Redis
+annotation or integration work is deferred.
 
 ## Mutation corpus and false-PASS control
 

@@ -1,0 +1,42 @@
+schema: cand.api-contract/v1
+name: hiredis-fixture-contracts
+version: "1"
+platform:
+  os: [linux]
+  libc: [glibc]
+symbols:
+  - symbol: fixture_owned
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: fixture_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: fixture_consume
+    kind: function
+    params:
+      - index: 0
+        effect: consumes
+  - symbol: fixture_external_owned
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: fixture_external_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: fixture_matching
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: fixture_conflicting
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
