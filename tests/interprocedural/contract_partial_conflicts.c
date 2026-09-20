@@ -25,7 +25,8 @@ static int *unknown_body(void)
 static int *conditional_body(int *p, int choose)
 {
     (void)p;
-    return choose ? conditional_source() : malloc(sizeof(int));
+    if (choose) return conditional_source();
+    return malloc(sizeof(int));
 }
 
 #define CAND_RETURNS_OWN __attribute__((annotate("cand:returns_own")))
