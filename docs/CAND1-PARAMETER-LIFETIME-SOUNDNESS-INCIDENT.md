@@ -122,7 +122,8 @@ false PASS, zero false PASS in 20,000 deterministic fuzz cases across seeds
 12345 and 67890, zero policy/evidence/contract/toolchain attack escapes, and
 two clean verifier builds with identical SHA256
 `06aa9120a5cd0d33b15ebc0e6cfc465b73a60113ba086aca1a7437406c89cc0a`.
-The exact reviewed repair HEAD, reviewer, and protected-main merge SHA are
-recorded in the final #46 resolution comment. Claim restoration is effective
-only after that exact candidate passes protected review and merges. No v0.2.0
-release is authorized by this repair.
+The exact reviewed repair HEAD is
+`bffe48e8d884d074825e2b762557d7fe05d14a12`; it was approved by `senolcolak`
+and merged through PR #48 as protected-main commit
+`ba12416810d940e8e4ba32ac3022728580cdd5a6`. Claim restoration is effective on
+that protected-main merge. No v0.2.0 release is authorized by this repair.
