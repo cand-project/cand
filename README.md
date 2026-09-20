@@ -171,6 +171,8 @@ C& does not use “memory-safe C” as an unqualified promise. Safety claims are
 
 C&1/v1 provides qualified temporal ownership and borrow safety only for ownership/lifetime operations fully analyzed within the declared checked scope, supported semantic subset, and qualified Ubuntu 24.04 x86_64/C11 toolchain profile. An authoritative C&1 PASS means no covered temporal ownership/borrow violation was found. Unsupported or unresolved ownership/lifetime semantics fail closed and cannot contribute to PASS.
 
+This release-candidate wording does **not** claim that C&1 makes arbitrary C generally memory-safe.
+
 C&1/v1 does **not** claim spatial or bounds safety, arbitrary pointer arithmetic, null safety, integer safety, general pointer/integer provenance safety, inline-assembly correctness, general concurrency/data-race safety, unsupported language/compiler constructs, unsupported cross-TU ownership semantics, or correctness inside unsafe/unsupported regions. It does not claim “memory-safe C”, Rust-equivalent whole-language safety, or safety outside the qualified profile.
 
 ## Result semantics: trustworthy PASS
