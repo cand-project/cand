@@ -20,6 +20,12 @@ if CLANG_CONFIG_FILE=/tmp/cand1-invalid-clang.cfg cmake -S "$repo" -B "$work/con
     echo "Clang config-file injection was accepted" >&2
     exit 1
 fi
+if cmake -S "$repo" -B "$work/include" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-18 \
+    -DCMAKE_CXX_FLAGS=-I/tmp >/dev/null 2>&1; then
+    echo "explicit external include injection was accepted" >&2
+    exit 1
+fi
 
 for variable in CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH \
     COMPILER_PATH GCC_EXEC_PREFIX LIBRARY_PATH LD_LIBRARY_PATH LD_PRELOAD \

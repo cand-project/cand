@@ -62,7 +62,7 @@ set(CAND_FORBIDDEN_FLAG_VARIABLES
     CMAKE_SHARED_LINKER_FLAGS_MINSIZEREL CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO)
 foreach(flag IN LISTS CAND_FORBIDDEN_FLAG_VARIABLES)
     if (DEFINED ${flag} AND "${${flag}}" MATCHES
-        "(^|[ ;])(-isysroot|--sysroot|-target|--target|-L|-B|--gcc-toolchain|-gcc-toolchain|-nostdinc|-nostdlibinc|-fuse-ld|-Xlinker|-Wl,)([=, ;]|$)")
+        "(^|[ ;])(-I[^ ;]*|-isystem[^ ;]*|-include[^ ;]*|-imacros[^ ;]*|-isysroot|--sysroot|-target|--target|-L|-B|--gcc-toolchain|-gcc-toolchain|-nostdinc|-nostdlibinc|-fuse-ld|-Xlinker|-Wl,)([=, ;]|$)")
         message(FATAL_ERROR "C&1/v1 does not permit toolchain substitution flags in ${flag}")
     endif()
 endforeach()
