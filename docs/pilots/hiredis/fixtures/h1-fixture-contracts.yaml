@@ -40,8 +40,3 @@ symbols:
     returns:
       ownership: owned
       nullable: true
-  - symbol: fixture_realloc
-    kind: function
-    returns:
-      ownership: owned
-      nullable: true
