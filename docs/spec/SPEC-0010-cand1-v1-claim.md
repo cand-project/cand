@@ -1,6 +1,6 @@
 # SPEC-0010 — C&1/v1 Qualified Temporal Ownership Claim
 
-Status: normative qualification boundary; public claim disabled until the final exact-head gate passes.
+Status: normative qualification boundary; release-candidate claim text finalized, with protected-main activation pending final exact-head approval and merge.
 
 ## 1. Guarantee
 

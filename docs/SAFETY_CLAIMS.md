@@ -8,7 +8,10 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 C& is an early research/engineering implementation.
 
-The current public project **does not claim that C&1 temporal ownership safety is fully implemented or proven sound**, and it does not claim that arbitrary C accepted by `cand` is generally memory-safe.
+The release-candidate branch carries the narrow C&1/v1 claim below. Protected
+main remains non-claiming until the final exact-head approval, required CI, and
+protected merge complete. This document never claims that arbitrary C accepted
+by `cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 
@@ -55,11 +58,16 @@ The engineering sequence is deliberately staged:
 
 Passing an early stage does not imply the later guarantees.
 
-## C&1 target
+## C&1/v1 qualified release-candidate claim
 
-C&1 is the planned temporal ownership-safety level.
+C&1/v1 provides qualified temporal ownership and borrow safety only for
+ownership/lifetime operations fully analyzed within the declared checked scope,
+supported semantic subset, and qualified Ubuntu 24.04 x86_64/C11 toolchain
+profile. An authoritative C&1 PASS means no covered temporal
+ownership/borrow violation was found. Unsupported or unresolved
+ownership/lifetime semantics fail closed and cannot contribute to PASS.
 
-A future C&1 claim is intended to cover, within a declared strict checked scope:
+Within that boundary, the claim covers:
 
 - ownership creation and transfer;
 - move/use-after-move;
@@ -72,7 +80,8 @@ A future C&1 claim is intended to cover, within a declared strict checked scope:
 - ownership-affecting external calls through trusted contracts;
 - explicit accounting of unsupported or unsafe boundaries.
 
-C&1 must not be declared merely because individual rules exist. It requires a separate soundness/evidence gate.
+C&1/v1 is not a claim about arbitrary C or whole-language memory safety. Its
+release identity is the exact reviewed commit and its replayable evidence.
 
 ## Explicit non-claims
 
@@ -198,7 +207,8 @@ Before a release may advertise C&1 as an implemented safety guarantee, the proje
 - independent review expectations;
 - versioned evidence for the exact release.
 
-Until that gate exists and passes, C&1 remains a target rather than a production safety claim.
+Until the final exact-head review and protected merge pass, the candidate claim
+does not alter protected main.
 
 ## Reviewer rule
 

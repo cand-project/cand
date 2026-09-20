@@ -1,6 +1,6 @@
 # ADR-0022 — C&1/v1 Final Qualification Boundary
 
-Status: Proposed until C&1-E passes on one exact reviewed head.
+Status: Release candidate; technical qualification is complete on the precursor head, and acceptance remains pending final exact-head review and protected merge.
 
 ## Decision
 
@@ -26,7 +26,7 @@ effects, unsafe regions, and unmodeled pointer transport.
 - Evidence replay and two clean builds are release requirements.
 - A confirmed false PASS suspends and revokes the claim until complete
   requalification.
-- README and `docs/SAFETY_CLAIMS.md` remain non-claiming until the final gate.
+- README and `docs/SAFETY_CLAIMS.md` carry the narrow candidate wording; protected main remains non-claiming until the final gate.
 
 ## Rejected alternatives
 

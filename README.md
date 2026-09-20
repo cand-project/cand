@@ -8,7 +8,7 @@ C& (pronounced **“C and”**) is a compile-time ownership and borrowing safety
 
 C& is deliberately narrower than Rust. It does not redesign C into a new general-purpose language. It makes ownership rules that mature C projects already maintain informally—who owns an allocation, who borrows it, who consumes it, what outlives what, and where responsibility crosses an external API—explicit and machine-checkable.
 
-**Current version:** `0.1.0` — architecture and compatibility baseline. The analyzer is not yet complete, and this version does **not** claim that C&1 temporal ownership safety has been implemented or proven sound.
+**Current version:** `0.1.0` — architecture and compatibility baseline. The C&1/v1 release-candidate claim is narrow, profile-bound, and remains subject to protected-main review and merge.
 
 ## Core thesis: LLMs synthesize. C& verifies.
 
@@ -58,8 +58,9 @@ This lets the human role move upward. Instead of manually maintaining every owne
 C& is also designed to prevent a coding agent from “making CI green” by weakening the proof. The P0.5 `--agent` mode compares an exact generated-code policy with `origin/main`, pins checked source and frontend arguments, rejects unsafe/suppression markers and untrusted contract substitution, and separates semantic from policy results. GitHub protected pull-request review is the active merge authority; local agent output is advisory and cannot qualify a release.
 Changing that policy is a proof-policy change, not an implementation repair.
 The stable `cand1.*` rule-ID namespace is retained for diagnostic compatibility;
-it is not a claim that the C&1 safety gate has been achieved. Machine safety
-levels and evidence use only the implemented `p0-temporal-lifecycle` value.
+the release-candidate C&1/v1 wording is defined below and is not broadened by
+the namespace alone. Machine safety levels and evidence use only implemented,
+qualified profiles.
 
 The core loop is model-neutral:
 
@@ -164,13 +165,13 @@ C& does not use “memory-safe C” as an unqualified promise. Safety claims are
 | Level | Meaning | Status in 0.1.0 |
 |---|---|---|
 | **C&0** | Observe/report only | baseline vocabulary defined |
-| **C&1** | Temporal ownership safety | specified, **not yet implemented as a soundness claim** |
+| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | release-candidate claim; protected main pending final review |
 | **C&2** | Spatial safety | reserved |
 | **C&3** | Concurrency safety | reserved |
 
-C&1 is intended to cover ownership, moves, destruction, and borrow lifetimes in a strict checked scope. It is intended to reject use-after-move, use-after-free, double destruction, destruction through non-owners, invalid borrow lifetimes, conflicting shared/mutable borrow use, and unknown ownership-affecting external calls that lack a trusted contract or explicit unsafe boundary.
+C&1/v1 provides qualified temporal ownership and borrow safety only for ownership/lifetime operations fully analyzed within the declared checked scope, supported semantic subset, and qualified Ubuntu 24.04 x86_64/C11 toolchain profile. An authoritative C&1 PASS means no covered temporal ownership/borrow violation was found. Unsupported or unresolved ownership/lifetime semantics fail closed and cannot contribute to PASS.
 
-C&1 alone does **not** claim general array-bounds safety, arbitrary pointer-arithmetic safety, data-race freedom, integer safety, null-dereference freedom, arbitrary pointer/integer provenance correctness, inline-assembly correctness, or correctness inside explicit unsafe/unsupported regions.
+C&1/v1 does **not** claim spatial or bounds safety, arbitrary pointer arithmetic, null safety, integer safety, general pointer/integer provenance safety, inline-assembly correctness, general concurrency/data-race safety, unsupported language/compiler constructs, unsupported cross-TU ownership semantics, or correctness inside unsafe/unsupported regions. It does not claim “memory-safe C”, Rust-equivalent whole-language safety, or safety outside the qualified profile.
 
 ## Result semantics: trustworthy PASS
 
