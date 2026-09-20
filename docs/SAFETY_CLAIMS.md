@@ -7,12 +7,12 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 ## Current status
 
 The parameter-lifetime repair for [#46](https://github.com/cand-project/cand/issues/46)
-restores the C&1/v1 claim on protected main only after the exact reviewed
-candidate has passed the complete requalification gate and merged. The
-immutable `v0.1.0` tag is not rewritten or retagged: its historical claim and
-dependent evidence remain suspended. The exact repaired HEAD, merge identity,
-reviewer, and evidence are recorded in the incident record and the final issue
-resolution. Issue #25 remains separate and open. This document never claims
+restores the C&1/v1 claim on protected main at reviewed repair HEAD
+`bffe48e8d884d074825e2b762557d7fe05d14a12`, merged as
+`ba12416810d940e8e4ba32ac3022728580cdd5a6` after fresh approval by
+`senolcolak` and passing required CI. The immutable `v0.1.0` tag is not
+rewritten or retagged: its historical claim and dependent evidence remain
+suspended. Issue #25 remains separate and open. This document never claims
 that arbitrary C accepted by `cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:

@@ -5,8 +5,9 @@
 > supplemental requalification recorded below restore the current protected
 > main claim after merge; the immutable v0.1.0 tag is not rewritten.
 
-Status: final qualification complete; the parameter-lifetime repair is fully
-requalified for protected-main claim restoration after merge.
+Status: final qualification complete; C&1/v1 is restored on protected main at
+repair HEAD `bffe48e8d884d074825e2b762557d7fe05d14a12`, merged as
+`ba12416810d940e8e4ba32ac3022728580cdd5a6`.
 
 ## Release identities
 
@@ -16,6 +17,9 @@ requalified for protected-main claim restoration after merge.
 - Merge/release commit: `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`
 - Branch: `cand1-e-final-qualification` (merged)
 - PR: #34
+- Parameter-lifetime repair HEAD: `bffe48e8d884d074825e2b762557d7fe05d14a12`
+- Parameter-lifetime repair merge: `ba12416810d940e8e4ba32ac3022728580cdd5a6` (PR #48)
+- Repair reviewer: `senolcolak`
 
 The precursor contains the qualified implementation and no semantic changes
 are made by the claim-activation commit. The active merge authority is
