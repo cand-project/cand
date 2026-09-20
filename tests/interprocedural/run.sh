@@ -81,7 +81,7 @@ done
 check incomplete tests/interprocedural/parameter_owner_conditional_destroy_fail.c
 check incomplete tests/interprocedural/parameter_owner_loop_destroy_fail.c
 
-for sibling_case in ARRAY MULTI NULL NULL_LIVE OWNED_RETURN; do
+for sibling_case in ARRAY MULTI NULL NULL_LIVE BORROW_ALIAS OWNED_RETURN; do
   set +e
   sibling_output="$($cand check --format=json tests/interprocedural/parameter_lifetime_siblings.c \
     -- -std=c11 -DSIB_$sibling_case 2>/dev/null)"
@@ -101,6 +101,14 @@ for sibling_case in TYPEDEF CONST ALIAS_PARAMS SAME; do
     echo "sibling invalid case was not FAIL: SIB_$sibling_case"; exit 1;
   }
 done
+set +e
+sibling_output="$($cand check --format=json tests/interprocedural/parameter_lifetime_siblings.c \
+  --level=cand1 -- -std=c11 -DSIB_BORROW_MOVE 2>/dev/null)"
+sibling_status=$?
+set -e
+grep -Fq '"result": "incomplete"' <<<"$sibling_output" || {
+  echo "borrowed parameter move was not fail-closed"; exit 1;
+}
 
 for case in A B C D E F G H I J K L N O; do
   expected=incomplete

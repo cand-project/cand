@@ -42,6 +42,13 @@ int main(void) { return nullable_owner(NULL); }
 #elif defined(SIB_NULL_LIVE)
 static int nullable_owner(int *p CAND_TAKES) { return p ? *p : 0; }
 int main(void) { int *p = malloc(sizeof *p); *p = 1; return nullable_owner(CAND_MOVE(p)); }
+#elif defined(SIB_BORROW_ALIAS)
+static int borrowed_alias_read(int *p CAND_BORROW) { int *q = p; return *q; }
+int main(void) { int *p = malloc(sizeof *p); *p = 1; int r = borrowed_alias_read(p); free(p); return r; }
+#elif defined(SIB_BORROW_MOVE)
+static void consume(int *p CAND_TAKES) { free(p); }
+static void move_borrow(int *p CAND_BORROW) { consume(CAND_MOVE(p)); }
+int main(void) { move_borrow(malloc(sizeof(int))); return 0; }
 #elif defined(SIB_OWNED_RETURN)
 #define CAND_RETURNS_OWN CAND_A("cand:returns_own")
 static CAND_RETURNS_OWN int *return_owner(int *p CAND_TAKES) { return p; }
