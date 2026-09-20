@@ -40,6 +40,8 @@ artifacts include `libhiredis.so.1.5.0` and `hiredis-test`.
 - `HIREDIS-OWNERSHIP-INVENTORY.md` — reviewed boundary inventory.
 - `HIREDIS-INTEGRATION-RESULTS.md` — H0/H1/H2/H3 measurements and controls.
 - `HIREDIS-ASYNC-BOUNDARY.md` — explicit async exclusion and blockers.
+- `HIREDIS-CONTRACT-RECONCILIATION.md` — bounded #43 representation,
+  diagnostics, and rerun evidence.
 - `contracts/h1-reviewed.yaml` — proposed high-confidence contract bundle.
 - `patches/0001-reviewed-cand1-ownership-metadata.patch` — reproducible
   annotation-only experiment patch (apply with `git apply --unidiff-zero
@@ -55,3 +57,8 @@ exported-symbol results. H1, H2, and H3 did not increase coverage over H0;
 the dominant blockers remain external ownership, pointer storage/aliasing,
 and cross-translation-unit effects. Therefore this is evidence for adoption
 ergonomics and future work, not a reason to broaden C&1/v1 or start C&2.
+
+The #43 reconciliation follow-up preserves that result: compatible partial
+contracts are now represented without treating omitted fields as explicit
+no-effect, but the exact Hiredis run produced no function-level
+`BLOCKED -> CLEAR` transition. Redis remains deferred.
