@@ -221,12 +221,28 @@ struct Unsupported {
     std::string source_storage;
     std::string destination_storage;
     std::string tracked_state;
+    std::string conflict_reason;
+    std::string contract_fact;
+    std::string body_fact;
+    std::optional<unsigned> parameter_index;
     bool transport = false;
 };
 
 enum class ReturnEffect { None, Owned, BorrowFromArg, Unknown };
 enum class ParamEffect { None, Borrow, TakeOwnership, Destroy, Unknown };
 enum class SummaryOrigin { BodyVerified, BuiltinTrusted, ExternalTrusted, CandidateUntrusted, Unknown };
+
+struct ContractConflict {
+    std::string reason;
+    std::optional<unsigned> parameter;
+    std::string contract_fact;
+    std::string body_fact;
+
+    bool operator==(const ContractConflict &other) const {
+        return reason == other.reason && parameter == other.parameter &&
+               contract_fact == other.contract_fact && body_fact == other.body_fact;
+    }
+};
 
 struct FunctionSummary {
     const FunctionDecl *function = nullptr;
@@ -235,13 +251,41 @@ struct FunctionSummary {
     std::vector<ParamEffect> params;
     SummaryOrigin origin = SummaryOrigin::Unknown;
     bool conflict = false;
+    std::vector<ContractConflict> conflicts;
 
     bool operator==(const FunctionSummary &other) const {
         return return_effect == other.return_effect &&
                return_borrow_arg == other.return_borrow_arg && params == other.params &&
-               origin == other.origin && conflict == other.conflict;
+               origin == other.origin && conflict == other.conflict && conflicts == other.conflicts;
     }
 };
+
+struct ContractSummary {
+    std::optional<ReturnEffect> return_effect;
+    std::optional<unsigned> return_borrow_arg;
+    std::vector<std::optional<ParamEffect>> params;
+};
+
+const char *returnEffectName(ReturnEffect effect) {
+    switch (effect) {
+    case ReturnEffect::None: return "none";
+    case ReturnEffect::Owned: return "owned";
+    case ReturnEffect::BorrowFromArg: return "borrow_from_arg";
+    case ReturnEffect::Unknown: return "unknown";
+    }
+    return "unknown";
+}
+
+const char *paramEffectName(ParamEffect effect) {
+    switch (effect) {
+    case ParamEffect::None: return "no_ownership_effect";
+    case ParamEffect::Borrow: return "borrow";
+    case ParamEffect::TakeOwnership: return "consumes";
+    case ParamEffect::Destroy: return "destroys";
+    case ParamEffect::Unknown: return "unknown";
+    }
+    return "unknown";
+}
 
 bool hasCandAnnotation(const clang::Decl *decl, llvm::StringRef name) {
     if (decl == nullptr) return false;
@@ -478,6 +522,12 @@ public:
             if (!item.source_storage.empty()) obj["source_storage"] = item.source_storage;
             if (!item.destination_storage.empty()) obj["destination_storage"] = item.destination_storage;
             if (!item.tracked_state.empty()) obj["tracked_state"] = item.tracked_state;
+            if (!item.conflict_reason.empty()) obj["conflict_reason"] = item.conflict_reason;
+            if (!item.contract_fact.empty()) obj["contract_fact"] = item.contract_fact;
+            if (!item.body_fact.empty()) obj["body_fact"] = item.body_fact;
+            if (item.parameter_index) {
+                obj["parameter_index"] = static_cast<std::int64_t>(*item.parameter_index);
+            }
             if (item.transport) obj["transport"] = true;
             obj["primary_location"] = locationJson(item.primary);
             unsupported.push_back(std::move(obj));
@@ -1510,6 +1560,21 @@ private:
         emitUnsupported({kind.str(), "", location(stmt.getBeginLoc())});
     }
 
+    void markContractConflict(const CallExpr &call, const FunctionSummary &summary) {
+        Unsupported unsupported{"contract-body-conflict", "", location(call.getExprLoc())};
+        if (const FunctionDecl *callee = call.getDirectCallee()) {
+            unsupported.symbol = callee->getNameAsString();
+        }
+        if (!summary.conflicts.empty()) {
+            const ContractConflict &detail = summary.conflicts.front();
+            unsupported.conflict_reason = detail.reason;
+            unsupported.contract_fact = detail.contract_fact;
+            unsupported.body_fact = detail.body_fact;
+            unsupported.parameter_index = detail.parameter;
+        }
+        emitUnsupported(std::move(unsupported));
+    }
+
     void markUnsupportedAt(SourceLocation loc, llvm::StringRef kind) {
         emitUnsupported({kind.str(), "", location(loc)});
     }
@@ -2211,7 +2276,7 @@ private:
         }
         if (const FunctionSummary *summary = summaryFor(call)) {
             if (summary->conflict) {
-                markUnsupported(call, "contract-body-conflict");
+                markContractConflict(call, *summary);
                 return;
             }
             if (summary->return_effect == ReturnEffect::Unknown) {
@@ -3730,7 +3795,7 @@ public:
         std::optional<unsigned> last_index;
         std::optional<ReturnEffect> return_seen;
         bool borrow_index_seen = false;
-        FunctionSummary summary;
+        ContractSummary contract;
         bool in_symbol = false;
         bool schema_seen = false, name_seen = false, version_seen = false;
         bool symbols_seen = false, kind_seen = false;
@@ -3748,29 +3813,106 @@ public:
             if (!in_symbol || symbol.empty()) return true;
             if (!kind_seen) return false;
             if (seen_param_indices.size() != seen_param_effects.size()) return false;
-            if (summary.return_effect == ReturnEffect::BorrowFromArg && !summary.return_borrow_arg) return false;
-            if (summary.return_effect != ReturnEffect::BorrowFromArg && summary.return_borrow_arg) return false;
+            if (contract.return_effect && *contract.return_effect == ReturnEffect::BorrowFromArg &&
+                !contract.return_borrow_arg) return false;
+            if (contract.return_effect && *contract.return_effect != ReturnEffect::BorrowFromArg &&
+                contract.return_borrow_arg) return false;
             const FunctionDecl *decl = nullptr;
             for (const clang::Decl *item : context_.getTranslationUnitDecl()->decls()) {
                 const auto *candidate = dyn_cast<FunctionDecl>(item);
                 if (candidate && candidate->getNameAsString() == symbol) { decl = candidate; break; }
             }
-            if (decl && (summary.params.size() > decl->param_size() ||
-                         (summary.return_borrow_arg && *summary.return_borrow_arg >= decl->param_size()))) return false;
-            if (decl) summary.params.resize(decl->param_size(), ParamEffect::None);
-            summary.origin = SummaryOrigin::ExternalTrusted;
+            if (decl && (contract.params.size() > decl->param_size() ||
+                         (contract.return_borrow_arg && *contract.return_borrow_arg >= decl->param_size()))) return false;
+
+            FunctionSummary external;
+            external.function = decl;
+            external.origin = SummaryOrigin::ExternalTrusted;
+            external.return_effect = contract.return_effect.value_or(
+                decl && decl->getReturnType()->isPointerType() ? ReturnEffect::Unknown : ReturnEffect::None);
+            external.return_borrow_arg = contract.return_borrow_arg;
+            const unsigned parameter_count = decl ? decl->param_size() :
+                static_cast<unsigned>(contract.params.size());
+            external.params.assign(parameter_count, ParamEffect::Unknown);
+            for (unsigned i = 0; i < contract.params.size(); ++i) {
+                if (contract.params[i]) external.params[i] = *contract.params[i];
+            }
             // realloc's success/failure and old-object lifetime are conditional
             // and cannot be represented by P0.4's simple effects.
             if (symbol == "realloc") {
-                summary.return_effect = ReturnEffect::Unknown;
-                summary.return_borrow_arg.reset();
-                std::fill(summary.params.begin(), summary.params.end(), ParamEffect::Unknown);
+                external.return_effect = ReturnEffect::Unknown;
+                external.return_borrow_arg.reset();
+                std::fill(external.params.begin(), external.params.end(), ParamEffect::Unknown);
             }
             const FunctionSummary *body = summaries_.find(symbol);
-            if (body && body->origin == SummaryOrigin::BodyVerified &&
-                (body->return_effect != summary.return_effect || body->return_borrow_arg != summary.return_borrow_arg || body->params != summary.params)) {
-                FunctionSummary conflict = *body; conflict.conflict = true; summaries_.set(symbol, std::move(conflict));
-            } else if (!body || body->origin == SummaryOrigin::Unknown) summaries_.set(symbol, summary);
+            if (body && body->origin == SummaryOrigin::BodyVerified) {
+                FunctionSummary conflict = *body;
+                const bool has_annotation = decl &&
+                    (hasCandAnnotation(decl, "cand:returns_own") ||
+                     borrowReturnParameter(decl).has_value() ||
+                     std::any_of(decl->param_begin(), decl->param_end(), [](const ParmVarDecl *param) {
+                         return hasCandAnnotation(param, "cand:takes") ||
+                                hasCandAnnotation(param, "cand:destroys") ||
+                                hasCandAnnotation(param, "cand:borrow") ||
+                                hasCandAnnotation(param, "cand:borrow_shared") ||
+                                hasCandAnnotation(param, "cand:borrow_mut");
+                     }));
+                const auto bodyReason = [&](const std::string &fact) {
+                    if (has_annotation)
+                        return std::string("annotation/body mismatch");
+                    if (body->conflict)
+                        return std::string("conditional/unrepresentable body behavior");
+                    if (fact == "unknown") return std::string("unknown body effect");
+                    return std::string("conditional/unrepresentable body behavior");
+                };
+                const auto addConflict = [&](const std::string &reason,
+                                             std::optional<unsigned> parameter,
+                                             const std::string &contract_fact,
+                                             const std::string &body_fact) {
+                    conflict.conflicts.push_back(
+                        {reason, parameter, contract_fact, body_fact});
+                };
+                if (contract.return_effect && *contract.return_effect != ReturnEffect::Unknown) {
+                    const bool borrow_match = *contract.return_effect != ReturnEffect::BorrowFromArg ||
+                        (body->return_effect == ReturnEffect::BorrowFromArg &&
+                         body->return_borrow_arg == contract.return_borrow_arg);
+                    if (body->return_effect == ReturnEffect::Unknown) {
+                        addConflict(bodyReason("unknown"), std::nullopt,
+                                    returnEffectName(*contract.return_effect), "unknown");
+                    } else if (!borrow_match) {
+                        addConflict("return borrow-origin mismatch", std::nullopt,
+                                    returnEffectName(*contract.return_effect),
+                                    returnEffectName(body->return_effect));
+                    } else if (body->return_effect != *contract.return_effect) {
+                        addConflict(*contract.return_effect == ReturnEffect::None
+                                        ? "explicit no-effect mismatch"
+                                        : "return ownership mismatch",
+                                    std::nullopt, returnEffectName(*contract.return_effect),
+                                    returnEffectName(body->return_effect));
+                    }
+                }
+                for (unsigned i = 0; i < contract.params.size(); ++i) {
+                    if (!contract.params[i] || *contract.params[i] == ParamEffect::Unknown) continue;
+                    const ParamEffect body_effect = i < body->params.size()
+                        ? body->params[i] : ParamEffect::Unknown;
+                    if (body_effect == ParamEffect::Unknown) {
+                        addConflict(bodyReason("unknown"), i,
+                                    paramEffectName(*contract.params[i]), "unknown");
+                    } else if (body_effect != *contract.params[i]) {
+                        addConflict(*contract.params[i] == ParamEffect::None
+                                        ? "explicit no-effect mismatch"
+                                        : "param effect mismatch",
+                                    i, paramEffectName(*contract.params[i]),
+                                    paramEffectName(body_effect));
+                    }
+                }
+                if (!conflict.conflicts.empty()) {
+                    conflict.conflict = true;
+                    summaries_.set(symbol, std::move(conflict));
+                }
+            } else if (!body || body->origin == SummaryOrigin::Unknown) {
+                summaries_.set(symbol, std::move(external));
+            }
             return true;
         };
         while (std::getline(input, line)) {
@@ -3810,7 +3952,7 @@ public:
                     if (indent != 2 || !symbols_seen || !schema_seen || !name_seen || !version_seen) { collector_.noteContractError(); return; }
                     symbol = trim(t.substr(t.find(':') + 1));
                     in_symbol = !symbol.empty();
-                    summary = FunctionSummary{};
+                    contract = ContractSummary{};
                     last_index.reset(); return_seen.reset(); kind_seen = false;
                     seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
                     if (!in_symbol || !seen_symbols.insert(symbol).second) { collector_.noteContractError(); return; }
@@ -3832,7 +3974,7 @@ public:
             if (t.rfind("- symbol:", 0) == 0) {
                 if (indent != 2) { collector_.noteContractError(); return; }
                 if (in_symbol && !finish()) { collector_.noteContractError(); return; }
-                symbol = trim(t.substr(t.find(':') + 1)); in_symbol = !symbol.empty(); summary = FunctionSummary{}; last_index.reset(); return_seen.reset();
+                symbol = trim(t.substr(t.find(':') + 1)); in_symbol = !symbol.empty(); contract = ContractSummary{}; last_index.reset(); return_seen.reset();
                 seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
                 kind_seen = false;
                 if (!in_symbol) { collector_.noteContractError(); return; }
@@ -3849,25 +3991,25 @@ public:
                 else if (v == "unknown") effect = ReturnEffect::Unknown;
                 else { collector_.noteContractError(); return; }
                 if (return_seen) { collector_.noteContractError(); return; }
-                return_seen = effect; summary.return_effect = effect;
+                return_seen = effect; contract.return_effect = effect;
             } else if (t.rfind("from_param:", 0) == 0) {
                 if (indent != 8) { collector_.noteContractError(); return; }
                 unsigned index;
                 if (borrow_index_seen || !parseUnsigned(trim(t.substr(11)), index)) { collector_.noteContractError(); return; }
                 borrow_index_seen = true;
-                summary.return_borrow_arg = index;
+                contract.return_borrow_arg = index;
             } else if (t.rfind("index:", 0) == 0 || t.rfind("- index:", 0) == 0) {
                 if (indent != 6) { collector_.noteContractError(); return; }
                 unsigned index;
                 const std::size_t colon = t.find(':');
                 if (!parseUnsigned(trim(t.substr(colon + 1)), index)) { collector_.noteContractError(); return; }
                 if (!seen_param_indices.insert(index).second) { collector_.noteContractError(); return; }
-                if (summary.params.size() <= index) summary.params.resize(index + 1, ParamEffect::None);
+                if (contract.params.size() <= index) contract.params.resize(index + 1);
                 last_index = index;
-                summary.params[index] = ParamEffect::Unknown;
+                contract.params[index].reset();
             } else if (t.rfind("effect:", 0) == 0) {
                 if (indent != 8) { collector_.noteContractError(); return; }
-                if (!last_index || *last_index >= summary.params.size() ||
+                if (!last_index || *last_index >= contract.params.size() ||
                     !seen_param_effects.insert(*last_index).second) { collector_.noteContractError(); return; }
                 std::string v = trim(t.substr(7));
                 ParamEffect effect;
@@ -3877,7 +4019,7 @@ public:
                 else if (v == "no_ownership_effect") effect = ParamEffect::None;
                 else if (v == "unknown") effect = ParamEffect::Unknown;
                 else { collector_.noteContractError(); return; }
-                summary.params[*last_index] = effect;
+                contract.params[*last_index] = effect;
             } else if (t == "kind: function") {
                 if (indent != 4) { collector_.noteContractError(); return; }
                 if (kind_seen) { collector_.noteContractError(); return; }

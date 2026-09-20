@@ -1,0 +1,32 @@
+schema: cand.api-contract/v1
+name: partial-contract-conflicts
+version: "1"
+symbols:
+  - symbol: explicit_no_effect
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+  - symbol: owned_but_borrowed
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: destroys_but_borrows
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: unknown_body
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: conditional_body
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: annotation_disagrees
+    kind: function
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0

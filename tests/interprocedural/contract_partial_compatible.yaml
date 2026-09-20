@@ -1,0 +1,21 @@
+schema: cand.api-contract/v1
+name: partial-contract-compatible
+version: "1"
+symbols:
+  - symbol: owned_exact
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: owned_with_borrow
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: destroy_with_borrow
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: annotated_owned
+    kind: function
+    returns:
+      ownership: owned

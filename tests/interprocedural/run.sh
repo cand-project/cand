@@ -61,4 +61,24 @@ check incomplete tests/interprocedural/consumes_wrapper_incomplete.c --contracts
 check incomplete tests/interprocedural/consumes_then_use_incomplete.c --contracts=tests/interprocedural/consumes.yaml
 check incomplete tests/interprocedural/recursive_return_incomplete.c
 check incomplete tests/interprocedural/mutual_recursive_return_incomplete.c
+
+check pass tests/interprocedural/contract_partial_compatible.c \
+  --contracts=tests/interprocedural/contract_partial_compatible.yaml
+conflict_output="$($cand check --format=json tests/interprocedural/contract_partial_conflicts.c \
+  --contracts=tests/interprocedural/contract_partial_conflicts.yaml -- -std=c11 2>/dev/null)"
+grep -Fq '"result": "incomplete"' <<<"$conflict_output" || {
+  echo "partial contract conflicts unexpectedly became decidable"; exit 1;
+}
+for reason in "explicit no-effect mismatch" "return ownership mismatch" \
+             "param effect mismatch" "unknown body effect" \
+             "conditional/unrepresentable body behavior" \
+             "annotation/body mismatch"; do
+  grep -Fq '"conflict_reason": "'"$reason"'"' <<<"$conflict_output" || {
+    echo "missing contract conflict reason: $reason"; exit 1;
+  }
+done
+grep -Fq '"parameter_index": 0' <<<"$conflict_output" || {
+  echo "contract conflict parameter index missing"; exit 1;
+}
+check incomplete tests/interprocedural/external_annotation_only.c
 echo "interprocedural OK"

@@ -46,3 +46,22 @@ The `realloc` model remains unknown even when present in a bundle because its
 conditional old/new-object semantics are outside this summary language. The
 loader accepts the canonical block-structured ownership subset and rejects
 unsupported YAML forms instead of guessing their meaning.
+
+## Authority and partial-contract reconciliation
+
+The proof-input authority distinction is normative:
+
+1. verified same-translation-unit body facts are proof input;
+2. explicitly selected trusted external contracts are proof input;
+3. built-in trusted models are proof input;
+4. candidate/source declaration annotations on an external declaration are not
+   independent proof authority; and
+5. suggested or inferred contracts are not proof authority.
+
+An external declaration annotation may provide a hint, consistency expectation,
+or ergonomics aid, but it cannot seed an authoritative external ownership
+summary without a selected trusted contract or built-in model. A visible body
+remains proof input and a trusted contract constrains it; neither source blindly
+overrides the other. An omitted contract field makes no claim, while an
+explicit `no_ownership_effect` is a known fact. Only compatible facts may be
+combined; contradictions remain `INCOMPLETE`.

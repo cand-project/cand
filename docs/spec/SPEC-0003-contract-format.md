@@ -62,6 +62,12 @@ Core effects are:
 - `no_ownership_effect`
 - `unknown`
 
+An omitted parameter effect is not the same as `no_ownership_effect`: omission
+means that the contract supplies no fact for that parameter. An explicit
+`no_ownership_effect` is a known fact and must be checked against any visible
+same-translation-unit body. A trusted contract must not use an omitted field to
+override or contradict a body-derived fact.
+
 ## 7. Conditional effects
 
 Contracts may define bounded path-sensitive behavior based on return/parameter conditions. The condition language must remain schema-defined; arbitrary executable scripts are forbidden.
