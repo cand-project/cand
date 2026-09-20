@@ -1,6 +1,9 @@
 # ADR-0022 — C&1/v1 Final Qualification Boundary
 
-Status: Release candidate; technical qualification is complete on the precursor head, and acceptance remains pending final exact-head review and protected merge.
+Status: Accepted; C&1/v1 qualified on protected main.
+
+Reviewed qualification HEAD: `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860`
+Merge/release commit: `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`
 
 ## Decision
 
@@ -26,7 +29,8 @@ effects, unsafe regions, and unmodeled pointer transport.
 - Evidence replay and two clean builds are release requirements.
 - A confirmed false PASS suspends and revokes the claim until complete
   requalification.
-- README and `docs/SAFETY_CLAIMS.md` carry the narrow candidate wording; protected main remains non-claiming until the final gate.
+- README and `docs/SAFETY_CLAIMS.md` carry the narrow qualified wording; the
+  public claim remains bounded by SPEC-0010 and the qualified profile.
 
 ## Rejected alternatives
 

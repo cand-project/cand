@@ -21,7 +21,8 @@ different analyzer or build compiler before a binary can be qualified.
 * Host-default headers are represented by an explicit sysroot identity rather
   than an unsafe ad hoc hash of an arbitrary host filesystem.
 * LLVM/Clang and target expansion require a new qualification profile.
-* The public C&1 claim remains disabled until final release qualification.
+* The qualified public C&1 claim uses this profile; expansion requires a new
+  qualification profile and evidence.
 
 ## Rejected alternatives
 

@@ -2,8 +2,15 @@
 
 This is the executable companion to the requirement matrix in
 `CAND1-E-QUALIFICATION-PLAN.md`. A row is not PASS because a nearby test exists;
-the named positive, negative, unsupported, adversarial, and evidence checks must
-be run and recorded at the final exact head.
+the named positive, negative, unsupported, adversarial, and evidence checks were
+run and recorded at the final exact head.
+
+Qualification identities:
+
+- Reviewed qualification HEAD: `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860`.
+- Merge/release commit: `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`.
+- Confirmed temporal false PASS count: `0`.
+- Issue #25 remains a conservative mutable-borrow precision limitation only.
 
 | Rule | Implementation path | Positive | Negative | Unsupported boundary | Adversarial | Evidence/result | Status |
 |---|---|---|---|---|---|---|---|

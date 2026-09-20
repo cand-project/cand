@@ -1,14 +1,14 @@
-# C&1/v1 Qualification Report — Final Release Candidate
+# C&1/v1 Qualification Report — Final Qualification
 
-Status: release candidate. Protected main remains unchanged until the exact
-candidate head receives fresh approval and is merged through protected review.
+Status: final qualification complete; C&1/v1 is enabled on protected main.
 
 ## Release identities
 
 - D-qualified base: `36b2547b7bc364572d02e97e459b7eeeb626935c`
 - Technical E precursor: `e929372c18a55ab364e2089a55d230222b0c8bc8`
-- Final release-candidate head: `FINAL_CANDIDATE_HEAD` (the containing commit)
-- Branch: `cand1-e-final-qualification`
+- Reviewed qualification head: `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860`
+- Merge/release commit: `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`
+- Branch: `cand1-e-final-qualification` (merged)
 - PR: #34
 
 The precursor contains the qualified implementation and no semantic changes
@@ -90,5 +90,6 @@ The final claim requires exact-head `scripts/check.sh`, complete CTest,
 conformance, adversarial, sanitizer, fuzz, policy/evidence, toolchain,
 reproducibility, and `git diff --check` results; required GitHub CI; and a
 fresh human approval reviewing the implementation, SPEC, ADR, evidence,
-traceability, limitations, and public wording. Issues #11 and #26 remain open
-until those conditions are satisfied.
+traceability, limitations, and public wording. Issues #11 and #26 are closed;
+issue #25 remains open as conservative precision debt only. The exact-head
+qualification, review, required CI, and protected merge conditions are complete.

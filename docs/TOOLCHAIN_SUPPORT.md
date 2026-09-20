@@ -1,6 +1,7 @@
 # C&1/v1 toolchain support
 
-Status: C&1-D qualification target; the public C&1 claim remains disabled.
+Status: qualified C&1/v1 profile; the public claim is limited to this profile
+and the exact SPEC-0010 evidence/policy boundaries.
 
 The first release-qualified profile is deliberately narrow:
 

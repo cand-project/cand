@@ -1,6 +1,6 @@
 # SPEC-0009 — C&1-D toolchain qualification
 
-Status: Draft release gate; C&1 public claim remains disabled
+Status: Historical qualification component; completed for the SPEC-0010 gate.
 
 ## Normative profile
 
