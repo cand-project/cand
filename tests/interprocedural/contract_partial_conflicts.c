@@ -16,6 +16,7 @@ static void destroys_but_borrows(int *p)
 }
 
 extern int *unknown_body_source(void);
+extern int *conditional_source(void);
 static int *unknown_body(void)
 {
     return unknown_body_source();
@@ -23,7 +24,8 @@ static int *unknown_body(void)
 
 static int *conditional_body(int *p, int choose)
 {
-    return choose ? malloc(sizeof(int)) : p;
+    (void)p;
+    return choose ? conditional_source() : malloc(sizeof(int));
 }
 
 #define CAND_RETURNS_OWN __attribute__((annotate("cand:returns_own")))
