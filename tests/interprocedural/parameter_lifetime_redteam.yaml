@@ -1,0 +1,9 @@
+schema: cand.api-contract/v1
+name: parameter-lifetime-redteam
+version: "1"
+symbols:
+  - symbol: vendor_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys

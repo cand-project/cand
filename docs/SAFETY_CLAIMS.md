@@ -6,14 +6,14 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 ## Current status
 
-C&1/v1 is qualified on protected main as the first qualified C& temporal
-ownership and borrow safety profile. Qualification was completed on reviewed
-exact HEAD `7a6f4b65fb6e7506d073f9c93aa615c0e6bf8860` and merged as release
-commit `3a2672b6b6a6742c8ac19c2894a698cdd1970b7a`. The qualification evidence
-is documented in [the final qualification report](CAND1-V1-QUALIFICATION-REPORT.md)
-and bounded by SPEC-0010 and ADR-0022. Issue #25 remains open as conservative
-mutable-borrow last-use precision debt only. This document never claims that
-arbitrary C accepted by `cand` is generally memory-safe.
+The C&1/v1 public claim is **suspended** after a confirmed parameter-lifetime
+false PASS on protected main `5199206fe67e9ddeec4048d14edf7bec66235283`.
+The affected immutable `v0.1.0` release identity is not rewritten, but its
+active claim and dependent qualification evidence are invalid pending repair
+and exact-head requalification. See [the incident record](CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md)
+and [#46](https://github.com/cand-project/cand/issues/46). Issue #25 remains
+separate and open. This document never claims that arbitrary C accepted by
+`cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 

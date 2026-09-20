@@ -1,5 +1,10 @@
 # C&1/v1 Qualification Report — Final Qualification
 
+> Historical qualification status: a later confirmed parameter-lifetime false
+> PASS suspended the active C&1/v1 public claim. See
+> [C&1 Parameter-Lifetime Soundness Incident](CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md)
+> and issue #46. This report is not current authorization to claim C&1/v1.
+
 Status: final qualification complete; C&1/v1 is enabled on protected main.
 
 ## Release identities
