@@ -6,14 +6,14 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 ## Current status
 
-The C&1/v1 public claim is **suspended** after a confirmed parameter-lifetime
-false PASS on protected main `5199206fe67e9ddeec4048d14edf7bec66235283`.
-The affected immutable `v0.1.0` release identity is not rewritten, but its
-active claim and dependent qualification evidence are invalid pending repair
-and exact-head requalification. See [the incident record](CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md)
-and [#46](https://github.com/cand-project/cand/issues/46). Issue #25 remains
-separate and open. This document never claims that arbitrary C accepted by
-`cand` is generally memory-safe.
+The parameter-lifetime repair for [#46](https://github.com/cand-project/cand/issues/46)
+restores the C&1/v1 claim on protected main only after the exact reviewed
+candidate has passed the complete requalification gate and merged. The
+immutable `v0.1.0` tag is not rewritten or retagged: its historical claim and
+dependent evidence remain suspended. The exact repaired HEAD, merge identity,
+reviewer, and evidence are recorded in the incident record and the final issue
+resolution. Issue #25 remains separate and open. This document never claims
+that arbitrary C accepted by `cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 

@@ -8,7 +8,7 @@ C& (pronounced **“C and”**) is a compile-time ownership and borrowing safety
 
 C& is deliberately narrower than Rust. It does not redesign C into a new general-purpose language. It makes ownership rules that mature C projects already maintain informally—who owns an allocation, who borrows it, who consumes it, what outlives what, and where responsibility crosses an external API—explicit and machine-checkable.
 
-**Current version:** `0.1.0` — v0.1.0 remains immutable, but its active C&1/v1 safety claim is **suspended** after the confirmed parameter-lifetime false PASS governed by [#46](https://github.com/cand-project/cand/issues/46) on protected main `5199206fe67e9ddeec4048d14edf7bec66235283`. See [the incident record](docs/CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md). No v0.2.0 release is authorized.
+**Current version:** `0.1.0` — the immutable v0.1.0 tag and its historical C&1/v1 claim remain suspended after [#46](https://github.com/cand-project/cand/issues/46). The parameter-lifetime repair in this exact reviewed candidate restores the C&1/v1 claim only after its protected merge and exact-head qualification are complete; see [the incident record](docs/CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md). No v0.2.0 release is authorized in this task.
 
 ## Core thesis: LLMs synthesize. C& verifies.
 
@@ -165,7 +165,7 @@ C& does not use “memory-safe C” as an unqualified promise. Safety claims are
 | Level | Meaning | Status in 0.1.0 |
 |---|---|---|
 | **C&0** | Observe/report only | baseline vocabulary defined |
-| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | suspended pending soundness repair and requalification |
+| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | restored by the exact reviewed parameter-lifetime repair after protected merge; v0.1.0 tag remains suspended |
 | **C&2** | Spatial safety | reserved |
 | **C&3** | Concurrency safety | reserved |
 

@@ -79,3 +79,50 @@ unsupported, but direct parameter use bypasses the same fail-closed boundary.
   and protected-main approval are required before claim restoration.
 
 No semantic repair has been attempted in this incident response.
+
+## Repair and resolution evidence
+
+The repair replaces the unsound direct-parameter fast paths with real
+callee-side lifetime state. Each modeled parameter receives a deterministic
+symbolic object in a reserved parameter-object namespace, with separate
+origin, liveness, and capability fields. `TakeOwnership` creates the owning
+capability, `Destroy` creates destructive authority without unrestricted
+ownership transfer, and `Borrow` creates no destruction authority. Local
+aliases preserve the same object identity; destruction is therefore visible
+through every proven alias. Flow-state joins preserve `Dead`/`MaybeDead`
+states rather than restoring a definitely-live parameter. Candidate
+declaration annotations remain non-authoritative.
+
+The affected release range is the immutable `v0.1.0` tag and the protected
+main lineage through incident-suspended commit
+`5199206fe67e9ddeec4048d14edf7bec66235283` (including documentation-only
+incident-response merge `36670f1ceb7555e967dec7c23e098186f3e8204d`). The tag
+is not rewritten or retagged.
+
+On the repaired candidate, the permanent matrix is:
+
+| Case | Repaired C& result | ASan/UBSan | Outcome |
+|---|---:|---:|---|
+| A/B | PASS | clean | safe controls |
+| C–L | FAIL | temporal violation | detected |
+| M | FAIL | temporal violation | detected |
+| N/O | INCOMPLETE | temporal violation | fail-closed |
+
+In particular, CASE_F, CASE_G, CASE_H, and CASE_I are `FAIL`, not
+`INCOMPLETE`. The nine existing Hiredis temporal mutation controls remain
+independently sanitizer-confirmed and all return `INCOMPLETE`, with zero PASS.
+The added permanent parameter suite covers borrow, destroy, ownership,
+aliases, moves, nullability, multiple parameters, typedef/const parameters,
+conditional/loop joins, and same-argument aliasing. Conditional and loop
+destruction remain intentionally fail-closed because their summary behavior is
+not representable by the current qualified contract model.
+
+The repair qualification records 19/19 CTest tests passed, zero confirmed
+false PASS, zero false PASS in 20,000 deterministic fuzz cases across seeds
+12345 and 67890, zero policy/evidence/contract/toolchain attack escapes, and
+two clean verifier builds with identical SHA256
+`43bda36b7472661d0bea942e5e5471297eff7a6914ffed6786b350218f61b8b0`.
+The exact reviewed repair HEAD, reviewer, and protected-main merge SHA are
+recorded in the final #46 resolution comment. Claim restoration is effective
+only after that exact candidate passes protected review and merges. No v0.2.0
+release is authorized by this repair.

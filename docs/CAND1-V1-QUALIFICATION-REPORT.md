@@ -1,11 +1,12 @@
 # C&1/v1 Qualification Report — Final Qualification
 
-> Historical qualification status: a later confirmed parameter-lifetime false
-> PASS suspended the active C&1/v1 public claim. See
-> [C&1 Parameter-Lifetime Soundness Incident](CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md)
-> and issue #46. This report is not current authorization to claim C&1/v1.
+> Historical qualification status: the original v0.1.0 qualification was
+> suspended by the parameter-lifetime false PASS. The exact-head repair and
+> supplemental requalification recorded below restore the current protected
+> main claim after merge; the immutable v0.1.0 tag is not rewritten.
 
-Status: final qualification complete; C&1/v1 is enabled on protected main.
+Status: final qualification complete; the parameter-lifetime repair is fully
+requalified for protected-main claim restoration after merge.
 
 ## Release identities
 
@@ -54,6 +55,35 @@ whole-language safety, or that all temporal bugs are impossible.
 - Cross-TU: safe no-ownership control PASS; uncontracted ownership/lifetime effects INCOMPLETE.
 - Policy/evidence attacks: weakened policy, scope, frontend, base, source, policy, verifier, toolchain, digest, and evidence mutations fail closed.
 - Toolchain attacks: launcher, external-toolchain, config, target, sysroot, compiler, CMake, Ninja, PATH-shadow, response-file, plugin, include-root, frontend, and evidence substitutions fail closed.
+
+## Parameter-lifetime repair requalification
+
+The repair seeds deterministic symbolic parameter objects into each modeled
+callee entry state. Object liveness is distinct from parameter capability;
+aliases share the parameter object identity, destruction transitions that
+object to `Dead`, and later accesses or repeated destruction are reported.
+Borrowed parameters cannot acquire destruction or ownership-transfer
+authority. Conditional and loop destruction whose summary remains
+unrepresentable stays `INCOMPLETE`.
+
+- Pre-fix false PASS cases F/G/H/I: 4; post-fix authoritative false PASS: 0.
+- Parameter red-team CASE_A–O: A/B PASS; C–L and M FAIL; N/O INCOMPLETE.
+- Individual parameter regressions: all definite temporal invalid cases FAIL;
+  conditional/loop cases remain fail-closed INCOMPLETE.
+- Existing Hiredis temporal mutation controls: 9/9 INCOMPLETE, 0 PASS.
+- Complete CTest: 19/19 passed.
+- Deterministic fuzz: seeds 12345 and 67890, 10,000 cases each; zero false
+  PASS, coverage gap, false positive, harness error, or wrong failure class.
+- Two clean reproducibility builds: SHA256
+  `43bda36b7472661d0bea942e5e5471297eff7a6914ffed6786b350218f61b8b0` for
+  both binaries.
+- Qualified environment: Ubuntu 24.04/x86_64, Clang 18.1.3, C11, with the
+  existing toolchain, policy, evidence, contract, and sanitizer gates.
+
+The repair is within the existing SPEC-0010 checked parameter-lifetime scope;
+it does not add cross-TU summaries, pointer-output ownership, realloc, callback
+retention, or a broader public claim. The immutable v0.1.0 release remains
+historically suspended; no v0.2.0 release is created by this repair.
 
 ## Qualified toolchain and reproducibility
 
