@@ -64,8 +64,14 @@ check incomplete tests/interprocedural/mutual_recursive_return_incomplete.c
 
 check pass tests/interprocedural/contract_partial_compatible.c \
   --contracts=tests/interprocedural/contract_partial_compatible.yaml
+set +e
 conflict_output="$($cand check --format=json tests/interprocedural/contract_partial_conflicts.c \
   --contracts=tests/interprocedural/contract_partial_conflicts.yaml -- -std=c11 2>/dev/null)"
+conflict_status=$?
+set -e
+[[ "$conflict_status" == 3 ]] || {
+  echo "partial contract conflicts returned unexpected exit: $conflict_status"; exit 1;
+}
 grep -Fq '"result": "incomplete"' <<<"$conflict_output" || {
   echo "partial contract conflicts unexpectedly became decidable"; exit 1;
 }
