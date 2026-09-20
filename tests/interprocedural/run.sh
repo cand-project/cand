@@ -81,7 +81,7 @@ done
 check incomplete tests/interprocedural/parameter_owner_conditional_destroy_fail.c
 check incomplete tests/interprocedural/parameter_owner_loop_destroy_fail.c
 
-for sibling_case in ARRAY MULTI NULL; do
+for sibling_case in ARRAY MULTI NULL NULL_LIVE OWNED_RETURN; do
   set +e
   sibling_output="$($cand check --format=json tests/interprocedural/parameter_lifetime_siblings.c \
     -- -std=c11 -DSIB_$sibling_case 2>/dev/null)"
