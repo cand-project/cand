@@ -23,7 +23,13 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0015](ADR-0015-trusted-agent-attestation.md) | Historical protected-agent-attestation design; GitHub review is the active merge authority | Superseded |
 | [ADR-0016](ADR-0016-unique-ownership-and-move-semantics.md) | Explicit moves transfer one ownership capability without changing ordinary C runtime semantics | Accepted (P1) |
 | [ADR-0017](ADR-0017-p2-borrow-lifetime-verification.md) | Explicit borrow relationships derive their lifetime from an ObjectId parent and fail closed after invalidation | Proposed (P2) |
+| [ADR-0018](ADR-0018-cand1-profile-and-heap-abstraction.md) | C&1 strict profile and bounded heap generations | Accepted (C&1-A) |
+| [ADR-0019](ADR-0019-cand1-transport-boundary.md) | C&1 fail-closed pointer transport boundary | Accepted (C&1-B) |
+| [ADR-0020](ADR-0020-cand1-differential-verification.md) | C&1 differential verification infrastructure | Accepted (C&1-C) |
+| [ADR-0021](ADR-0021-cand1-toolchain-profile.md) | Narrow reproducible C&1 toolchain profile | Accepted (C&1-D) |
 | [ADR-0022](ADR-0022-cand1-v1-final-qualification.md) | C&1/v1 is a narrow generated-profile, evidence-bound temporal ownership claim | Release candidate; final review pending |
+| [ADR-0023](ADR-0023-cand1-parameter-lifetime-repair.md) | C&1 parameter-lifetime soundness repair | Proposed (#46 repair branch) |
+| [ADR-0024](ADR-0024-parameter-identity-completion.md) | Parameter-identity completion: Unknown-capability pointer parameters are tracked live-at-entry objects with no authority | Proposed |
 
 ## Design chain
 
