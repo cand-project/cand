@@ -16,7 +16,7 @@ python3 -c 'import jsonschema' >/dev/null
 
 echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \
-  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/agent-policy.yaml
+  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/libc-borrow.yaml contracts/agent-policy.yaml
 
 echo "==> Agent evidence verifier syntax"
 python3 -m py_compile .github/trusted/attest.py

@@ -1,0 +1,164 @@
+schema: cand.api-contract/v1
+name: cand-libc-borrow
+version: "0.1.0"
+
+# Reviewed no-ownership-effect borrow bundle for the most common C library
+# data-movement and file-descriptor functions.
+#
+# Trusted claim for every symbol in this bundle: each pointer argument is used
+# only to read and/or write the pointee's raw bytes within the call's lifetime.
+# No argument is destroyed, retained beyond the call, or stored for later use.
+# Pointer return values, where present, alias argument 0 (borrow-from-arg) and
+# do not introduce a new ownership transfer.
+#
+# Review boundary (deliberately EXCLUDED, per the SEED documents):
+#   - strerror / __errno_location / __ctype_b_loc  -> returns point at static/
+#     thread-local storage; needs a distinct static-lifetime origin.
+#   - getaddrinfo / getnameinfo                      -> out-owner results; needs
+#     SPEC-0003 conditional/out-owner effects.
+#   - realloc                                        -> path-sensitive lifetime
+#     (see contracts/libc.yaml note and SPEC-0003).
+#   - __builtin_va_*                                 -> varargs state object.
+#
+# Each accepted symbol must stay in this "read/write pointee bytes only" claim;
+# any symbol whose libc implementation can escape or retain a pointer argument is
+# out of scope and must be removed, not approximated.
+
+symbols:
+  - symbol: memcpy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memmove
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memset
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memcmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: memchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strlen
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+  - symbol: strnlen
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+  - symbol: strchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strncmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: strncpy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strcasecmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: strncasecmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: snprintf
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 2
+        effect: borrow
+  - symbol: vsnprintf
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 2
+        effect: borrow
+  - symbol: connect
+    kind: function
+    params:
+      - index: 1
+        effect: borrow
+  - symbol: setsockopt
+    kind: function
+    params:
+      - index: 3
+        effect: borrow
+  - symbol: getsockopt
+    kind: function
+    params:
+      - index: 3
+        effect: borrow
+  - symbol: send
+    kind: function
+    params:
+      - index: 1
+        effect: borrow
+  - symbol: recv
+    kind: function
+    params:
+      - index: 1
+        effect: borrow

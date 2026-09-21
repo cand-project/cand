@@ -78,8 +78,76 @@ for invalid in \
   parameter_owner_move_then_use_fail.c; do
   check fail "tests/interprocedural/$invalid"
 done
-check incomplete tests/interprocedural/parameter_owner_conditional_destroy_fail.c
-check incomplete tests/interprocedural/parameter_owner_loop_destroy_fail.c
+# The parameter-identity repair tracks summary-Unknown parameters as live-at-entry
+# objects with no authority. Conditional and loop destruction of such a parameter
+# followed by a use therefore joins to MaybeDead and is reported as a `possible`
+# use-after-destruction FAIL, exactly matching the qualified local-variable
+# semantics (see tests/cfg/branch_null_or_free_possible_uaf.c). This is a
+# reviewed verdict STRENGTHENING (INCOMPLETE -> FAIL(possible)); it can never
+# pass, and is stronger than the previous fail-closed INCOMPLETE.
+check fail tests/interprocedural/parameter_owner_conditional_destroy_fail.c
+check fail tests/interprocedural/parameter_owner_loop_destroy_fail.c
+
+# Unknown-capability red-team matrix (see parameter_unknown_capability_redteam.c):
+# every escape of an unannotated pointer parameter to an opaque callee must be
+# reported (never PASS); destruction/transfer stays fail-closed; return-by-param
+# stays safe. These are the soundness probes for the parameter-identity repair.
+for unknown_case in \
+  ESCAPE ESCAPE_READ ESCAPE_FREE_READ COND_FREE_READ ALIAS_FREE_READ \
+  DOUBLE_FREE FREE_READ MOVE; do
+  expected=incomplete
+  case "$unknown_case" in
+    ESCAPE|ESCAPE_READ|MOVE) expected=incomplete ;;
+    *) expected=fail ;;
+  esac
+  set +e
+  uo="$($cand check --format=json tests/interprocedural/parameter_unknown_capability_redteam.c \
+    -- -std=c11 -DCASE_UNKNOWN_$unknown_case 2>/dev/null)"
+  us=$?
+  set -e
+  grep -Fq '"result": "'"$expected"'"' <<<"$uo" || {
+    echo "unexpected result for Unknown-capability case $unknown_case (expected $expected)"; exit 1;
+  }
+done
+set +e
+uo="$($cand check --format=json tests/interprocedural/parameter_unknown_capability_redteam.c \
+  -- -std=c11 -DCASE_UNKNOWN_RETURN_PARAM 2>/dev/null)"
+us=$?
+set -e
+grep -Fq '"result": "pass"' <<<"$uo" || {
+  echo "return-by-parameter case was not PASS"; exit 1;
+}
+
+# Reviewed libc borrow bundle (contracts/libc-borrow.yaml): with the bundle active,
+# memcpy/memmove/memset/memcmp/snprintf operating on tracked heap allocations are
+# modeled as borrows (decidable, non-retaining) and the fixture PASSES. This guard
+# pins both that the contract file loads and that it clears the opaque-call
+# obligation without weakening any destroy/retention soundness.
+check pass tests/interprocedural/libc_borrow_bundle_safe.c --contracts=contracts/libc-borrow.yaml
+
+# Variadic-argument escape matrix (see variadic_argument_escape.c): tracked
+# pointers passed at argument positions beyond the callee's modelled parameter
+# list must be reported as escapes, never PASS. Regression guard for the
+# variadic false-PASS incident (the summary path previously skipped these
+# positions entirely, including on v0.2.0).
+for va_case in ESCAPE DEAD; do
+  set +e
+  va_output="$($cand check --format=json tests/interprocedural/variadic_argument_escape.c \
+    -- -std=c11 -DCASE_VA_$va_case 2>/dev/null)"
+  va_status=$?
+  set -e
+  grep -Fq '"result": "incomplete"' <<<"$va_output" || {
+    echo "unexpected result for variadic case $va_case (expected incomplete)"; exit 1;
+  }
+done
+set +e
+va_output="$($cand check --format=json tests/interprocedural/variadic_argument_escape.c \
+  --contracts=contracts/libc-borrow.yaml -- -std=c11 -DCASE_VA_SNPRINTF 2>/dev/null)"
+va_status=$?
+set -e
+grep -Fq '"result": "incomplete"' <<<"$va_output" || {
+  echo "unexpected result for variadic case SNPRINTF (expected incomplete)"; exit 1;
+}
 
 for sibling_case in ARRAY MULTI NULL NULL_LIVE BORROW_ALIAS OWNED_RETURN; do
   set +e
@@ -115,6 +183,10 @@ for case in A B C D E F G H I J K L N O; do
   case "$case" in
     A|B) expected=pass ;;
     C|D|E|F|G|H|I|J|K|L) expected=fail ;;
+    # N/O (conditional/loop destruction of a parameter, then use) are reported
+    # as `possible` use-after-destruction FAIL since the parameter-identity
+    # repair; see the note at the parameter_owner_*_destroy_fail expectations.
+    N|O) expected=fail ;;
   esac
   set +e
   output="$($cand check --format=json tests/interprocedural/parameter_lifetime_redteam.c \

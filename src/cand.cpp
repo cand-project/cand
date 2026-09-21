@@ -2331,6 +2331,32 @@ private:
                 else if (summary->params[i] == ParamEffect::Unknown && containsTrackedStorage(call.getArg(i), state))
                     markUnsupported(call, "unknown-call-with-tracked-pointer");
             }
+            // Variadic and other argument positions beyond the modelled
+            // parameter list carry no param effect, yet the callee may read
+            // or retain tracked storage passed there (the summary scan
+            // already treats such positions as ParamEffect::Unknown). Report
+            // the same escape and borrow-retention obligations the
+            // unknown-call path below would report, so these positions can
+            // never yield a trustworthy PASS.
+            for (unsigned i = summary->params.size(); i < call.getNumArgs(); ++i) {
+                const Expr *arg = call.getArg(i);
+                if (!containsTrackedStorage(arg, state)) continue;
+                std::string kind = "unknown-call-with-tracked-pointer";
+                if (const FunctionDecl *callee = call.getDirectCallee())
+                    kind += ":" + callee->getNameAsString();
+                else
+                    kind += ":indirect";
+                markUnsupported(call, kind);
+                if (borrowFor(arg, state) != nullptr) {
+                    std::string retention = "unknown-call-borrow-retention";
+                    if (const FunctionDecl *callee = call.getDirectCallee())
+                        retention += ":" + callee->getNameAsString();
+                    else
+                        retention += ":indirect";
+                    markUnsupported(call, retention);
+                    if (emitting_) collector_.noteUnsupportedBorrow();
+                }
+            }
             return;
         }
         if (call.getType()->isPointerType()) {
@@ -3280,7 +3306,21 @@ private:
                 break;
             case ParamEffect::None:
             case ParamEffect::Unknown:
-                continue;
+                // Parameters neither proven-borrowed nor proven-consumed by the
+                // verified body are still tracked objects: they are live at
+                // function entry regardless of who ultimately holds authority,
+                // so reads and writes through them are decidable until a destroy
+                // or an opaque escape is actually observed. Ownership authority
+                // is deliberately absent (ParameterCapability::Unknown), which
+                // keeps every transfer operation fail-closed via the capability
+                // checks in moveBinding/transferBinding, and makes an escape
+                // into an unknown or indirect call produce the same
+                // unknown-call-with-tracked-pointer obligation a local pointer
+                // would (parity; the escape can no longer pass silently).
+                // ParamEffect::None parameters are never referenced by the
+                // verified body, so seeding them is a no-op.
+                capability = ParameterCapability::Unknown;
+                break;
             }
 
             const auto object_id = parameterObjectIdForIndex(index);
