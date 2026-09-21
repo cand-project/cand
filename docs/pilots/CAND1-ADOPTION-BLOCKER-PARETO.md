@@ -30,3 +30,62 @@ The 29 same-project cross-TU candidates are evidence for a follow-up, not
 permission to add cross-TU semantics to C&1/v1. Redis is deferred until one of
 these bounded improvements demonstrates a material, sound reduction in a
 realistic corpus.
+
+## Addendum: post-parameter-identity-repair re-baseline (ADR-0024)
+
+The top row above ("Pointer parameter effects", 685
+`unmodelled-pointer-parameter` observations over 100 functions) was measured
+before the parameter-identity completion. Re-measured on the same pinned
+Hiredis tree (`redis/hiredis@33a12fb`) after ADR-0024, with a corrected
+measurement method (the earlier baseline-with-contracts comparison had
+mistakenly compared the patched binary against itself; both binaries are now
+built and pinned separately):
+
+| Config (same tree, same invocation) | Obligations | `unmodelled-pointer-parameter` | Reported escapes | Findings | CLEAR / BLOCKED functions |
+|---|---:|---:|---:|---:|---|
+| baseline v0.2.0, no contracts | 1,247 | 674 | 33 | 0 | 32 / 147 |
+| baseline v0.2.0 + libc-borrow bundle | 1,237 | 708 | 26 | 0 | 36 / 143 |
+| ADR-0024 seeded, no contracts | 987 | 0 | 391 | 3 | 13 / 166 |
+| ADR-0024 seeded + libc-borrow bundle | 887 | 2 | 333 | 4 | 17 / 162 |
+
+Method note: unlike the per-TU strict generated-policy H3 methodology of the
+original table above, these are whole-corpus single runs in the default
+semantic profile (179 defined functions across the seven representative
+translation units); they are internally comparable but not row-for-row
+comparable with the original H3 counts. The final seeded+bundle row reflects
+the complete change set, including two review corrections made after the
+first measurement: the `strncpy` borrowed-return declaration (removing one
+spurious `unknown-pointer-return-ownership` at `net.c:688`) and the
+variadic-argument escape fix (adding one genuine
+`unknown-call-with-tracked-pointer:snprintf` escape at `net.c:108`, where a
+tracked parameter is read at a variadic position — see ADR-0024's companion
+soundness fix). Both affected functions were already BLOCKED, so CLEAR/BLOCKED
+counts are unchanged.
+
+Reading of the re-baseline:
+
+- The 674-observation `unmodelled-pointer-parameter` blocker class is
+  eliminated outright (0 without contracts; 2 residual with the libc bundle,
+  both by-value struct-parameter address-taken sites in `net.c`, not pointer
+  parameter binding).
+- CLEAR functions drop 32 → 13 not because valid programs were lost, but
+  because 19 functions whose pointer parameters silently escaped to opaque
+  callees previously received untrustworthy PASS verdicts; those escapes are
+  now reported (`unknown-call-with-tracked-pointer` obligations rise 33 → 391),
+  which is the ADR-0010 soundness restoration, not an adoption regression.
+- The reviewed libc borrow bundle remains a net win on both binaries
+  (+4 CLEAR on baseline, +4 CLEAR on the seeded build; 10 obligations removed
+  on baseline, 100 on the seeded build) and never regresses a CLEAR function.
+- Three to four genuine `CAND-B003` return-ownership boundary findings surface
+  on the seeded build (undeclared borrow-returns), which were previously
+  invisible for the same untracked-parameter reason.
+
+Consequence for this roadmap: the "pointer parameter effects" row is resolved
+by ADR-0024 and should be retired from the blocker Pareto. On this corpus the
+measured residual obligation classes are now, in order: reported parameter/
+allocation escapes (`unknown-call-with-tracked-pointer*`, 333 observations —
+55 of them to named same-project callees addressable by cross-TU summaries,
+20 to named libc/builtin callees addressable by further reviewed contracts,
+and the remainder to generic or indirect callees), alias/storage precision
+(`ambiguous-alias-target`, 176), unknown pointer returns (162), and
+pointer-output effects (100).

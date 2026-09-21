@@ -45,6 +45,33 @@ guarantee. v0.1.0 is historical and must not be cited as current C&1 evidence.
 
 ## Unreleased
 
+### Parameter-identity completion (ADR-0024)
+
+- seed summary-`Unknown` (and `None`) pointer parameters as tracked, live-at-entry
+  objects with no ownership authority, completing the ADR-0023 parameter model;
+- report escapes of such parameters to unknown/indirect callees as
+  `unknown-call-with-tracked-pointer` (local/parameter parity), closing a
+  trustworthy-PASS gap where a parameter escaping to an opaque call received
+  PASS with zero obligations;
+- eliminate the dominant `unmodelled-pointer-parameter` read-obligation class on
+  real code (Hiredis H0, no contracts: 674 → 0; with the reviewed libc bundle
+  active, 2 residual remain on by-value struct-parameter address-taken paths in
+  `net.c`, not pointer-parameter binding);
+- strengthen conditional/loop parameter-destruction verdicts from INCOMPLETE to
+  FAIL (certainty `possible`), matching qualified local semantics (cases N/O in
+  the incident matrix; `parameter_owner_*_destroy_fail.c`);
+- close a pre-existing false PASS in the direct-call summary path: tracked
+  pointers passed at argument positions beyond the callee's modelled
+  parameter list (variadic slots, e.g. `snprintf(buf, n, "%s", p)`) were
+  never examined and could yield PASS even when the pointee had been freed;
+  they now report the same escape and borrow-retention obligations as
+  unknown calls (ADR-0024 companion fix; pinned by
+  `tests/interprocedural/variadic_argument_escape.c`);
+- add the `contracts/libc-borrow.yaml` reviewed no-ownership-effect borrow bundle
+  for common C library data-movement and file-descriptor functions, and an
+  `Unknown`-capability red-team matrix
+  (`tests/interprocedural/parameter_unknown_capability_redteam.c`).
+
 ### P1 — Explicit unique ownership and move semantics
 
 - added the normative P1 unique-owner state model and analysis-only

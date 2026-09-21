@@ -115,6 +115,33 @@ On the repaired candidate, the permanent matrix is:
 | M | FAIL | temporal violation | detected |
 | N/O | INCOMPLETE | temporal violation | fail-closed |
 
+> **Addendum (parameter-identity completion, ADR-0024).** The unreleased
+> post-v0.2.0 change completes the parameter-entry model by tracking
+> summary-`Unknown` (and `None`)
+> pointer parameters as live-at-entry objects with no authority. Because those
+> parameters are now tracked, conditional/loop destruction followed by a use
+> joins to `MaybeDead` and is reported as a `possible` use-after-destruction
+> **FAIL**, exactly matching the qualified local-variable semantics
+> (`tests/cfg/branch_null_or_free_possible_uaf.c`). Case **N/O therefore become
+> FAIL (certainty `possible`)**, a reviewed verdict strengthening (INCOMPLETE →
+> FAIL) that can never pass and is strictly stronger than the prior fail-closed
+> INCOMPLETE recorded above. The `parameter_owner_conditional_destroy_fail.c`
+> and `parameter_owner_loop_destroy_fail.c` expectations were updated to match,
+> and the `Unknown`-capability red-team matrix
+> (`tests/interprocedural/parameter_unknown_capability_redteam.c`) pins the new
+> fail-closed boundary.
+>
+> **Companion false PASS found and closed during this change set's
+> qualification review** (see ADR-0024, "Companion soundness fix"): tracked
+> pointers passed at argument positions beyond a callee's modelled parameter
+> list (variadic slots, e.g. `snprintf(buf, n, "%s", freed_ptr)`) were skipped
+> by the direct-call summary path and could receive PASS with zero
+> obligations, although the callee reads the pointee (ASan-confirmed
+> heap-use-after-free). This hole pre-dates the parameter-identity change
+> (it reproduces on v0.2.0 with a local variadic function and no contracts)
+> and is now fail-closed, pinned by
+> `tests/interprocedural/variadic_argument_escape.c`.
+
 In particular, CASE_F, CASE_G, CASE_H, and CASE_I are `FAIL`, not
 `INCOMPLETE`. The nine existing Hiredis temporal mutation controls remain
 independently sanitizer-confirmed and all return `INCOMPLETE`, with zero PASS.
