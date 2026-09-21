@@ -87,7 +87,8 @@ unrepresentable stays `INCOMPLETE`.
 The repair is within the existing SPEC-0010 checked parameter-lifetime scope;
 it does not add cross-TU summaries, pointer-output ownership, realloc, callback
 retention, or a broader public claim. The immutable v0.1.0 release remains
-historically suspended; no v0.2.0 release is created by this repair.
+historically suspended. The first post-incident qualified release identity is
+v0.2.0; this release does not expand the SPEC-0010 C&1/v1 scope.
 
 ## Qualified toolchain and reproducibility
 

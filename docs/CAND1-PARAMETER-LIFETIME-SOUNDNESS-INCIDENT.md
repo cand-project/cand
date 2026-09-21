@@ -1,8 +1,15 @@
 # C&1 Parameter-Lifetime Soundness Incident
 
-Status: **BLOCKER — public C&1/v1 claim suspended pending repair and exact-head requalification.**
+Status: **RESOLVED — parameter-lifetime soundness repaired and C&1/v1 fully requalified on protected main.**
 
 Incident issue: [#46](https://github.com/cand-project/cand/issues/46)
+
+## Historical incident state
+
+At discovery, this was a **BLOCKER**: the public C&1/v1 claim was suspended
+from `5199206fe67e9ddeec4048d14edf7bec66235283` until exact-head repair,
+independent review, and complete requalification completed. The four
+historical false PASS cases remain preserved below.
 
 ## Reproducer and authority
 
@@ -65,9 +72,9 @@ Consequently, repeated destruction and accesses after destruction cannot observe
 an `ObjectState::Dead` transition. Local aliases remain conservatively
 unsupported, but direct parameter use bypasses the same fail-closed boundary.
 
-## Required response
+## Historical required response
 
-- All adoption work, Redis analysis, C&2 work, and v0.2.0 release work are
+- All adoption work, Redis analysis, C&2 work, and v0.2.0 release work were
   suspended.
 - The public C&1/v1 claim and affected evidence/release identities are
   suspended; `v0.1.0` is not rewritten or retagged.
@@ -78,7 +85,7 @@ unsupported, but direct parameter use bypasses the same fail-closed boundary.
 - Complete exact-head C&1 qualification, independent review, fresh evidence,
   and protected-main approval are required before claim restoration.
 
-No semantic repair has been attempted in this incident response.
+No semantic repair had been attempted at that incident-response stage.
 
 ## Repair and resolution evidence
 
@@ -126,4 +133,5 @@ The exact reviewed repair HEAD is
 `bffe48e8d884d074825e2b762557d7fe05d14a12`; it was approved by `senolcolak`
 and merged through PR #48 as protected-main commit
 `ba12416810d940e8e4ba32ac3022728580cdd5a6`. Claim restoration is effective on
-that protected-main merge. No v0.2.0 release is authorized by this repair.
+that protected-main merge. The first post-incident qualified release is
+documented in [the v0.2.0 release evidence](CAND1-V0.2.0-RELEASE-EVIDENCE.md).

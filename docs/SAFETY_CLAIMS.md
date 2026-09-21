@@ -15,6 +15,10 @@ rewritten or retagged: its historical claim and dependent evidence remain
 suspended. Issue #25 remains separate and open. This document never claims
 that arbitrary C accepted by `cand` is generally memory-safe.
 
+The current qualified release identity is **v0.2.0**. Its semantic source is
+the repaired protected-main lineage above; v0.1.0 is an immutable historical
+identity and must not be cited as current C&1 qualification evidence.
+
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 
 > **If C& encounters ownership/lifetime semantics inside its checked scope that it cannot soundly model, the result must be `INCOMPLETE`, not `PASS`.**
