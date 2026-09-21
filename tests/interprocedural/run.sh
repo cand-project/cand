@@ -128,7 +128,8 @@ check pass tests/interprocedural/libc_borrow_bundle_safe.c --contracts=contracts
 # Variadic-argument escape matrix (see variadic_argument_escape.c): tracked
 # pointers passed at argument positions beyond the callee's modelled parameter
 # list must be reported as escapes, never PASS. Regression guard for the
-# variadic false-PASS incident (pre-v0.2.1 summary path skipped these positions).
+# variadic false-PASS incident (the summary path previously skipped these
+# positions entirely, including on v0.2.0).
 for va_case in ESCAPE DEAD; do
   set +e
   va_output="$($cand check --format=json tests/interprocedural/variadic_argument_escape.c \
