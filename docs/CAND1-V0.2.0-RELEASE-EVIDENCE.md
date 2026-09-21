@@ -42,6 +42,9 @@ guarantee.
 - Reproducibility: two clean verifier builds identical.
 - Verifier binary SHA256:
   `06aa9120a5cd0d33b15ebc0e6cfc465b73a60113ba086aca1a7437406c89cc0a`.
+- Release-candidate metadata rebuild SHA256:
+  `c582daaf5142b0666980342cadd39dc9d367f3d77596df61a752aa12646a8a47`;
+  two clean builds produced this identical hash.
 
 ## Qualified toolchain
 
