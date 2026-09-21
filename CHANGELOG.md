@@ -2,6 +2,47 @@
 
 All notable project changes are recorded here.
 
+## 0.2.0 — 2026-09-21
+
+First post-incident fully requalified C&1/v1 release. The C&1/v1 scope is
+unchanged; this release restores sound implementation of the existing
+SPEC-0010 qualified scope.
+
+### Soundness repair
+
+- fixed callee-side parameter lifetime tracking;
+- added deterministic symbolic parameter object identity;
+- separated object lifetime from parameter capability;
+- defined distinct `TakeOwnership`, `Destroy`, and `Borrow` entry semantics;
+- made proven aliases observe a common parameter-object lifetime;
+- detected double destruction and post-destruction parameter access;
+- preserved `Dead`/`MaybeDead` state at CFG joins;
+- removed the direct-parameter summary fast-path bypass around lifetime state.
+
+### Incident
+
+- resolved [#46](https://github.com/cand-project/cand/issues/46);
+- kept the immutable v0.1.0 tag unchanged;
+- retained the affected historical claim as suspended/revoked;
+- permanently preserved the original false-PASS reproducer and incident record.
+
+### Qualification
+
+- CTest: 19/19 PASS;
+- deterministic fuzz: 20,000 cases across seeds 12345 and 67890;
+- confirmed false PASS: zero;
+- parameter-lifetime incident matrix: repaired, with CASE_F/G/H/I now FAIL;
+- Clang 18.1.3 ASan/UBSan differential: no false PASS;
+- policy, evidence, contract, and toolchain attacks: PASS;
+- exact-head independent review and protected CI: PASS;
+- reproducibility SHA256: `06aa9120a5cd0d33b15ebc0e6cfc465b73a60113ba086aca1a7437406c89cc0a`.
+
+### Scope and non-claims
+
+C&1/v1 scope is unchanged. This release adds no C&2, general memory-safety
+claim, cross-TU ownership guarantee, callback-retention guarantee, or `realloc`
+guarantee. v0.1.0 is historical and must not be cited as current C&1 evidence.
+
 ## Unreleased
 
 ### P1 — Explicit unique ownership and move semantics

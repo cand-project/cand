@@ -47,9 +47,9 @@ PY
 
 echo "==> Version metadata"
 version="$(tr -d '[:space:]' < VERSION)"
-test "$version" = "0.1.0"
-grep -Fq 'Current version:** `0.1.0`' README.md
-grep -Fq '## 0.1.0 — 2026-09-14' CHANGELOG.md
+test "$version" = "0.2.0"
+grep -Fq 'Current version:** `0.2.0`' README.md
+grep -Fq '## 0.2.0 — 2026-09-21' CHANGELOG.md
 
 echo "==> Required architecture invariants"
 grep -q "no new compiler" README.md

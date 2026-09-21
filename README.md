@@ -8,7 +8,7 @@ C& (pronounced **“C and”**) is a compile-time ownership and borrowing safety
 
 C& is deliberately narrower than Rust. It does not redesign C into a new general-purpose language. It makes ownership rules that mature C projects already maintain informally—who owns an allocation, who borrows it, who consumes it, what outlives what, and where responsibility crosses an external API—explicit and machine-checkable.
 
-**Current version:** `0.1.0` — protected main restores the C&1/v1 claim at reviewed repair HEAD `bffe48e8d884d074825e2b762557d7fe05d14a12`, merged as `ba12416810d940e8e4ba32ac3022728580cdd5a6`. The immutable v0.1.0 tag and its historical claim remain suspended; see [the incident record](docs/CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md). No v0.2.0 release is authorized in this task.
+**Current version:** `0.2.0` — the first post-incident qualified release. Protected main carries the repaired, fully requalified C&1/v1 implementation at reviewed repair HEAD `bffe48e8d884d074825e2b762557d7fe05d14a12`, merged as `ba12416810d940e8e4ba32ac3022728580cdd5a6`, with claim restoration on `f8f9e7ae71133abcb6f74b71dd94814b0e2ddc63`. The immutable v0.1.0 tag and its affected historical claim remain suspended; it must not be cited as current C&1 evidence. See [the incident record](docs/CAND1-PARAMETER-LIFETIME-SOUNDNESS-INCIDENT.md) and [v0.2.0 release evidence](docs/CAND1-V0.2.0-RELEASE-EVIDENCE.md).
 
 ## Core thesis: LLMs synthesize. C& verifies.
 
@@ -162,10 +162,10 @@ The described P1 subset alone is not the full C&1/v1 release claim.
 
 C& does not use “memory-safe C” as an unqualified promise. Safety claims are explicit and scoped:
 
-| Level | Meaning | Status in 0.1.0 |
+| Level | Meaning | Status in 0.2.0 |
 |---|---|---|
 | **C&0** | Observe/report only | baseline vocabulary defined |
-| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | qualified on protected main at `ba12416810d940e8e4ba32ac3022728580cdd5a6`; v0.1.0 tag remains suspended |
+| **C&1/v1** | Qualified temporal ownership and borrow safety for the documented checked subset | current qualified release; v0.1.0 tag remains historical and suspended |
 | **C&2** | Spatial safety | reserved |
 | **C&3** | Concurrency safety | reserved |
 
@@ -365,7 +365,7 @@ Run the repository checks with:
 bash scripts/check.sh
 ```
 
-The 0.1.0 baseline validates contract syntax, SVG syntax, required architecture invariants, version metadata, and compatibility of the annotation surface with ordinary GCC/Clang C11 plus the Clang analysis-annotation profile.
+The v0.1.0 historical baseline validated contract syntax, SVG syntax, required architecture invariants, version metadata, and compatibility of the annotation surface with ordinary GCC/Clang C11 plus the Clang analysis-annotation profile.
 
 ## Project identity
 
