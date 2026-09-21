@@ -72,6 +72,35 @@ grep -Fq 'new_suppressions: 0' contracts/agent-policy.yaml
 grep -Fq 'trusted_contract_promotion: forbidden' contracts/agent-policy.yaml
 grep -Fq 'llm_generated_safety_claims: no_proof_status' contracts/agent-policy.yaml
 
+echo "==> PASS-path audit drift guard (docs/CAND1-PASS-PATH-AUDIT.md)"
+bash scripts/pass-path-guard.sh
+
+echo "==> CVE replay registry structure"
+python3 - <<'PY'
+import json, os, sys
+
+registry = json.load(open("tests/cve-replay/registry.json"))
+assert registry["schema"] == "cand.cve-replay/v1", "unknown registry schema"
+assert isinstance(registry["entries"], list) and registry["entries"], "no entries"
+
+allowed_status = {"validated", "candidate"}
+allowed_expected = {"DETECTED", "BOUNDED-INCOMPLETE"}
+for entry in registry["entries"]:
+    for field in ("id", "cwe", "defect", "project", "repo",
+                  "vulnerable_commit", "fix_commit", "driver", "sources",
+                  "asan_site", "expected", "status", "analysis"):
+        assert entry.get(field), f"{entry.get('id', '?')}: missing field {field}"
+    assert entry["status"] in allowed_status, entry["status"]
+    assert entry["expected"] in allowed_expected, entry["expected"]
+    if entry["status"] == "validated":
+        assert entry.get("validated_at"), f"{entry['id']}: validated entry needs validated_at"
+    driver = os.path.join("tests/cve-replay", entry["driver"])
+    assert os.path.isfile(driver), f"{entry['id']}: driver missing: {driver}"
+    assert entry["vulnerable_commit"] != entry["fix_commit"], f"{entry['id']}: commits must differ"
+
+print(f"CVE replay registry: {len(registry['entries'])} entr{'y' if len(registry['entries']) == 1 else 'ies'} structurally valid")
+PY
+
 echo "==> GCC ordinary-C compatibility"
 gcc -std=c11 -Wall -Wextra -Werror -Iinclude -fsyntax-only examples/ownership.c
 
