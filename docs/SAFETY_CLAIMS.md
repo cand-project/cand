@@ -6,18 +6,25 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 ## Current status
 
-The parameter-lifetime repair for [#46](https://github.com/cand-project/cand/issues/46)
-restores the C&1/v1 claim on protected main at reviewed repair HEAD
-`bffe48e8d884d074825e2b762557d7fe05d14a12`, merged as
-`ba12416810d940e8e4ba32ac3022728580cdd5a6` after fresh approval by
-`senolcolak` and passing required CI. The immutable `v0.1.0` tag is not
-rewritten or retagged: its historical claim and dependent evidence remain
-suspended. Issue #25 remains separate and open. This document never claims
-that arbitrary C accepted by `cand` is generally memory-safe.
+The `v0.2.0` release's C&1/v1 claim is **suspended** following incident
+[#53](https://github.com/cand-project/cand/issues/53): tracked pointers passed
+at variadic argument positions were skipped by the direct-call summary path
+and could receive an authoritative PASS with zero obligations. The defect is
+confirmed on the immutable `v0.2.0` tag (the tag is not rewritten or
+retagged); its historical qualification evidence remains available but must
+not be cited as a current soundness claim.
 
-The current qualified release identity is **v0.2.0**. Its semantic source is
-the repaired protected-main lineage above; v0.1.0 is an immutable historical
-identity and must not be cited as current C&1 qualification evidence.
+The repair (fail-closed escape/borrow-retention obligations at every
+unmodelled argument position) and the parameter-identity completion
+(ADR-0024) are merged on protected main through PR #51, reviewed and passing
+required CI, together with the C&1 proof-plan infrastructure from PR #52.
+The current qualified release identity is **v0.2.1**, whose exact-head
+qualification evidence is recorded in
+[the v0.2.1 release evidence](CAND1-V0.2.1-RELEASE-EVIDENCE.md). The
+immutable `v0.1.0` tag remains suspended from incident
+[#46](https://github.com/cand-project/cand/issues/46). Issue #25 remains
+separate and open. This document never claims that arbitrary C accepted by
+`cand` is generally memory-safe.
 
 The founding implementation focuses on temporal heap-lifetime reasoning and on one architectural invariant:
 
