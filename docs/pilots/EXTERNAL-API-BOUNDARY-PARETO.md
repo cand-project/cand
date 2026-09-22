@@ -7,6 +7,15 @@ inventory, the unlock ranking that drove bundle selection, and the measured
 outcome. It supersedes the coarser split in
 `docs/pilots/CAND1-ADOPTION-BLOCKER-PARETO.md` (see "corrections" below).
 
+> **XTU row correction (2026-09-22, milestone #42):** the XTU row in the
+> family table below (210 obligations / 66 functions / 19 sole) over-credits
+> the cross-TU family by 16 same-TU rows: this document's AST mapping used
+> `-std=c11` dumps that missed `__redisReaderSetError` (same-TU in
+> `read.c`), and 5 `_EL_*` macro rows belong to IND. The corrected E1-frame
+> attribution is **194 / 62 / 17**. The measured cross-TU ceiling is in
+> `docs/pilots/CROSS-TU-ADOPTION-PARETO.md` (Hiredis amalgamation
+> counterfactual: +1 CLEAR).
+
 Measurement frame:
 
 - verifier: exact main `3fc8563`, binary digest
