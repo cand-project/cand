@@ -15,8 +15,8 @@ Specifications Issue 7) 12.2. Implementation inspected: Linux kernel
   C pointer object in the caller changes ownership; buffer lifetimes in
   the caller are untouched. The idiom `close(c->fd)` reads `c->fd`
   caller-side and is validated by the ordinary expression walk.
-- Negative/adversarial fixture: `posix_io_scalar.c` (a dangling `c` read
-  inside `close(c->fd)` is still found).
+- Negative/adversarial fixture: `close_member_uaf.c` in the conformance
+  harness (a dangling `c` read inside `close(c->fd)` is still found).
 
 Excluded (fail-closed, no measured demand yet — add with fresh evidence
 first): `read`/`write` (buffer positions are borrow-shaped), `fcntl`

@@ -85,6 +85,16 @@ alias precision) dominate the remaining Pareto.
 Categories: A = ISO C, B = POSIX/system/compiler runtime, C = external
 library.
 
+Aggregation semantics: **Sites** counts unique obligation locations
+(file, line, column); a site with two obligation kinds (the four two-kind
+symbols: `__builtin_va_start`, `__builtin_va_copy`, `strtol`,
+`getaddrinfo`) contributes one site but two obligations, so sites sum to
+105 while the family total is 117 obligations. **Functions** counts
+functions containing at least one row for that symbol and is per-symbol,
+not unique: a function blocked by both `memcpy` and `strerror` rows is
+counted in both rows, so the column sums to more than the 38 unique
+EXT-blocked functions.
+
 ### Root cause of most EXT obligations
 
 89 of the 117 EXT rows sit at symbols that were *already contracted* in the

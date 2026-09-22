@@ -14,8 +14,10 @@ within-call read/write contract) and musl `src/string/mem*.c`.
 - `void *memcpy(void *restrict s1, const void *restrict s2, size_t n)`.
 - Params 0,1 borrow (raw byte read/write within the call); param 2
   (`n`, size_t) no_ownership_effect. Return borrows from param 0.
-- Negative/adversarial fixture: `borrow_scope_memcpy.c` (use of a moved
-  borrow across the call is still rejected) and the bundle conformance
+- Negative/adversarial fixtures: `memchr_borrowed_return_uaf.c` pins the
+  borrowed-return class (use of the result after the source buffer is
+  freed is a FAIL), and the borrow-parameter class is pinned by
+  `tests/interprocedural/borrow_wrapper_uaf.c` plus the bundle conformance
   harness `tests/contracts/run.sh`.
 
 ## memmove

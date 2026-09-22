@@ -2,6 +2,16 @@
 
 Status: final. Date: 2026-09-22.
 
+> **Erratum (2026-09-22, milestone #58):** the Hiredis blocker-attribution
+> figures quoted in sections 9 and 14 of this report (179 functions /
+> 17 CLEAR; "23 functions solely blocked on external APIs"; "101
+> containing") were produced by the coarser attribution available at
+> release time and were corrected the same day by the callee-resolved
+> re-measurement in `docs/pilots/EXTERNAL-API-BOUNDARY-PARETO.md`:
+> the function universe is **181** (18 CLEAR / 163 BLOCKED), the sole-EXT
+> count is **7** (38 functions containing external-boundary obligations).
+> The release evidence, verdicts, and all other figures are unaffected.
+
 **Release state:** `v0.2.1` tagged on merge commit
 `a362306a741c2af694197fa2b63468f1bd4aa9ea` (PR #56), published at
 https://github.com/cand-project/cand/releases/tag/v0.2.1. `main` at `3fc8563`

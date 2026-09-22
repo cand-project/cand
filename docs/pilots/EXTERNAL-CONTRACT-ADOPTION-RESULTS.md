@@ -56,7 +56,7 @@ binary digest `e5ee4952b01cbd78ea1e00404e732eb78b54c898dda3a6d17b8ddbab0e89fd14`
 | zlib @d81c2d7 | 15 TUs | 159 | 49 | 49 | 0 | 0 | 928 → 921 (−7, +0) | 2 → 2 |
 | libgit2 @0551dfd4a | first 40 `src/libgit2/*.c` | 1076 | 223 | 226 | +3 | 0 | 5659 → 5638 (−21, +0) | 0 → 0 |
 | curl @a40991b97c | first 40 `lib/*.c` | 601 | 119 | 127 | +8 | 0 | 3349 → 3331 (−18, +0) | 2 → 2 |
-| **total** | | **1917** | 409 | 425 | **+16** | **0** | −75, +0 | unchanged |
+| **total** | | **2017** | 409 | 425 | **+16** | **0** | −75, +0 | unchanged |
 
 Gained functions:
 
@@ -96,7 +96,7 @@ rather than ad-hoc.
 - 22 newly trusted symbols (plus 4 audited allocator symbols) → 16 CLEAR
   functions across 4 projects: **0.73 CLEAR per new trusted symbol**
   (0.62 per trusted symbol including the allocator core).
-- Per 1,000 analyzed functions: 16 / 1.917 ≈ **8.3 CLEAR per 1,000 LOC-functions**.
+- Per 1,000 analyzed functions: 16 / 2.017 ≈ **7.9 CLEAR per 1,000 analyzed functions**.
 - Each trusted symbol carries: an authoritative-document citation, a
   signature table entry in the checker, a provenance section, and at least
   one adversarial fixture class in `tests/contracts/`.

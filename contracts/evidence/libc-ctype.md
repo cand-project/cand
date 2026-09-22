@@ -15,7 +15,7 @@ value; they never dereference it as a pointer.
   at this position. The idiom `tolower(*p)` reads `*p` caller-side; that
   read is validated by the ordinary expression walk (checkAccess on the
   deref), so no temporal violation can be hidden by this entry.
-- Negative/adversarial fixture: `ctype_scalar.c` in the conformance
+- Negative/adversarial fixture: `ctype_scalar_uaf.c` in the conformance
   harness (a use-after-free read through `*p` inside a `tolower(*p)`
   argument is still found).
 

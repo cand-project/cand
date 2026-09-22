@@ -141,7 +141,9 @@ forbidden`).
 - `scripts/contracts/merge_contracts.py` deterministically concatenates the
   bundle list into the single file `cand check --contracts` accepts. It:
   - rejects duplicate symbols across bundles (exit nonzero; no last-wins);
-  - rejects schema/indentation errors;
+  - rejects malformed bundles (missing headers, wrong schema, content
+    outside symbol entries; the inner per-parameter format is validated by
+    `check_bundles.py` and the verifier's own loader);
   - emits the SHA-256 of every input bundle and of the merged file for
     evidence records;
   - produces byte-identical output for identical inputs.

@@ -10,7 +10,9 @@ to produce that file:
     plus every contracts/bundles/*.yaml in sorted order);
   - duplicate symbols across bundles are REJECTED (exit 1, no last-wins);
   - malformed bundles (missing schema/name/version/symbols, wrong schema
-    id, stray keys) are REJECTED;
+    id, content outside symbol entries) are REJECTED; the inner
+    per-parameter format is validated by check_bundles.py and the
+    verifier's own loader;
   - output is byte-identical for identical inputs (stable order, stable
     comments);
   - with --digests, the SHA-256 of every input bundle and of the merged

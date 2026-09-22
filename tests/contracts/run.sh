@@ -130,7 +130,7 @@ check incomplete tests/contracts/fixtures/snprintf_variadic_escape.c -std=c11
 check incomplete tests/contracts/fixtures/excluded_symbols_uncontracted.c "-std=c11 -D_POSIX_C_SOURCE=200809L"
 
 echo "==> contracts: positive fixtures are INCOMPLETE without contracts"
-for f in libc_conformance_safe.c socket_borrow_safe.c; do
+for f in libc_conformance_safe.c memchr_borrowed_return_safe.c socket_borrow_safe.c; do
   set +e
   output="$($cand check --format=json "tests/contracts/fixtures/$f" -- -std=c11 -D_POSIX_C_SOURCE=200809L 2>/dev/null)"; status=$?
   set -e
