@@ -1,6 +1,6 @@
 # ADR-0024 — Parameter-Identity Completion (Unknown-Capability Parameters)
 
-Status: proposed
+Status: accepted (2026-09-21, PR #51)
 
 ## Context
 

@@ -2,6 +2,27 @@
 
 All notable project changes are recorded here.
 
+## Unreleased
+
+### Proof plan and qualification infrastructure (ADR-0024 follow-up)
+
+- added `docs/CAND1-PROOF-PLAN.md`: the C1–C6 proof obligations and phased
+  acceptance gates (structural audit, ≥10⁶-case fuzzing campaign, ≥30-CVE
+  replay corpus, decidability demonstration, replication, claim assembly);
+- Phase A: added `docs/CAND1-PASS-PATH-AUDIT.md`, an exhaustive
+  line-referenced inventory of every PASS-emitting site in the verifier and
+  its gate, with `scripts/pass-path-guard.sh` wired into `scripts/check.sh`
+  failing on inventory drift or gate weakening;
+- Phase B: nightly extended fuzzing now runs three date-derived rotating
+  seeds per scheduled run (fresh ~3×10⁴ cases per night toward the ≥10⁶
+  cumulative target) in addition to the fixed regression seeds;
+- Phase C: added the CVE replay suite `tests/cve-replay/` (registry, engine,
+  weekly/on-demand CI job) with ASan ground-truth validation at both the
+  vulnerable and fix revisions, MISSED (false PASS) treated as a loud
+  soundness incident, and expectation-drift detection; first validated entry
+  CVE-2026-87933 (cJSON `merge_patch` heap-use-after-free): BOUNDED-INCOMPLETE
+  with defect-path obligations, no false PASS.
+
 ## 0.2.0 — 2026-09-21
 
 First post-incident fully requalified C&1/v1 release. The C&1/v1 scope is
