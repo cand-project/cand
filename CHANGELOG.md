@@ -55,7 +55,11 @@ the C&1 proof-program infrastructure. No new semantic claim is introduced.
   and fix revisions, per-entry build/compile commands (registry schema v2,
   supporting CMake-based upstream projects), and classifications
   DETECTED / BOUNDED-INCOMPLETE / MISSED with MISSED treated as a loud
-  soundness incident; validated entries: CVE-2026-87933 (cJSON `merge_patch`
+  soundness incident; the engine merges the two reviewed contract bundles
+  into a single per-run file (`cand check --contracts` accepts exactly one
+  file; a repeated flag is last-wins — both entries were re-validated under
+  the merged-bundle configuration with identical classifications and
+  obligation counts); validated entries: CVE-2026-87933 (cJSON `merge_patch`
   heap-use-after-free) and CVE-2026-50219 (libexpat handler-reentry
   use-after-free, fix released in 2.8.2), both BOUNDED-INCOMPLETE with
   defect-path obligations and no false PASS;
@@ -112,34 +116,13 @@ C&1/v1 scope is unchanged. This release adds no C&2, general memory-safety
 claim, cross-TU ownership guarantee, callback-retention guarantee, or `realloc`
 guarantee. v0.1.0 is historical and must not be cited as current C&1 evidence.
 
-## Unreleased
+### Semantic implementation archive
 
-### Parameter-identity completion (ADR-0024)
-
-- seed summary-`Unknown` (and `None`) pointer parameters as tracked, live-at-entry
-  objects with no ownership authority, completing the ADR-0023 parameter model;
-- report escapes of such parameters to unknown/indirect callees as
-  `unknown-call-with-tracked-pointer` (local/parameter parity), closing a
-  trustworthy-PASS gap where a parameter escaping to an opaque call received
-  PASS with zero obligations;
-- eliminate the dominant `unmodelled-pointer-parameter` read-obligation class on
-  real code (Hiredis H0, no contracts: 674 → 0; with the reviewed libc bundle
-  active, 2 residual remain on by-value struct-parameter address-taken paths in
-  `net.c`, not pointer-parameter binding);
-- strengthen conditional/loop parameter-destruction verdicts from INCOMPLETE to
-  FAIL (certainty `possible`), matching qualified local semantics (cases N/O in
-  the incident matrix; `parameter_owner_*_destroy_fail.c`);
-- close a pre-existing false PASS in the direct-call summary path: tracked
-  pointers passed at argument positions beyond the callee's modelled
-  parameter list (variadic slots, e.g. `snprintf(buf, n, "%s", p)`) were
-  never examined and could yield PASS even when the pointee had been freed;
-  they now report the same escape and borrow-retention obligations as
-  unknown calls (ADR-0024 companion fix; pinned by
-  `tests/interprocedural/variadic_argument_escape.c`);
-- add the `contracts/libc-borrow.yaml` reviewed no-ownership-effect borrow bundle
-  for common C library data-movement and file-descriptor functions, and an
-  `Unknown`-capability red-team matrix
-  (`tests/interprocedural/parameter_unknown_capability_redteam.c`).
+The subsections below archive the semantic implementation phases shipped in
+the 0.1.0 → 0.2.0 lineage; they were previously mis-filed under a stale
+`Unreleased` heading. The ADR-0024 parameter-identity completion that landed
+after v0.2.0 is summarized under 0.2.1 above and specified in full in
+`docs/adr/ADR-0024-parameter-identity-completion.md`.
 
 ### P1 — Explicit unique ownership and move semantics
 

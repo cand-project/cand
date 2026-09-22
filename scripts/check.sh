@@ -50,6 +50,11 @@ version="$(tr -d '[:space:]' < VERSION)"
 test "$version" = "0.2.1"
 grep -Fq 'Current version:** `0.2.1`' README.md
 grep -Fq '## 0.2.1 — 2026-09-22' CHANGELOG.md
+# At most one Unreleased section, and it must precede the first version header
+# (guards against stale Unreleased blocks left behind by release cuts).
+if grep -q '^## Unreleased' CHANGELOG.md; then
+    test "$(grep -m1 '^## ' CHANGELOG.md)" = "## Unreleased"
+fi
 
 echo "==> Required architecture invariants"
 grep -q "no new compiler" README.md

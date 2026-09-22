@@ -93,7 +93,10 @@ pointer-output effects (100).
 ## Addendum: exact-head function-level blocker Pareto (2026-09-22)
 
 Re-measured on protected main `1e1f582` (v0.2.1 candidate) with the libc and
-libc-borrow contract bundles, same pinned tree
+libc-borrow contract bundles (loaded as one merged contract file;
+`cand check --contracts` accepts a single file, and the measurement is
+identical under the libc-borrow bundle alone because the verifier hardcodes
+the libc allocator family), same pinned tree
 (`redis/hiredis@33a12fb`, 7 representative TUs, 179 defined functions),
 classifying every obligation by whether its callee/return symbol is defined
 inside the pilot scope (same-project cross-TU), an external API, or an
@@ -104,7 +107,7 @@ alias/precision condition:
   (for example the `memchr`-based line scanner in `read.c` returning an
   interior pointer into the caller's buffer).
 - 915 obligations: escapes into same-project cross-TU callees (198),
-  alias/storage precision (`ambiguous-alias-target` + 
+  alias/storage precision (`ambiguous-alias-target` +
   `unresolved-pointee-storage`, 205), external-API returns (137), external
   calls (82), same-project out-parameters (43), same-project returns (25),
   external out-parameters (57), and other classes.

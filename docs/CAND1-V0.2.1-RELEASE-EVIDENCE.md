@@ -79,16 +79,26 @@ Release builds; fresh clone of the exact head.
 | Clean-room CI on the merge commit `1e1f582` | `contract-and-compatibility` success and `C&1 supported toolchain qualification` success (pinned Docker reference environment: clean-room build, complete CTest, toolchain suite, reproducibility) |
 | CVE replay at exact head (`tests/cve-replay/run.sh`) | 2/2 entries green: CVE-2026-87933 (cJSON) and CVE-2026-50219 (libexpat), both BOUNDED-INCOMPLETE with defect-path obligations, vulnerable revisions ASan-confirmed, fix revisions clean |
 
-Additional campaign evidence at the same semantic source (binary
-`0d002e4e26aa91736dcb43a003dbad7f7974f5fc2533ee0bfb8e208d8556044b`, built
-from content-identical `src/`):
+Additional campaign evidence at the same semantic source:
 
 - Rotating campaign seeds 20260922 and 20260923: 10,000 cases each, zero
-  false PASS, zero false positive, zero harness error. Seed 20260923
-  exercised the expanded 35-operator mutation suite with all 35 operators
-  correct, and is the first provenance-carrying campaign run
-  (`generator_sha256`, `cand_sha256`, `source_commit 1e1f582…`) acceptable
-  to the cumulative accounting in `tests/fuzz/accumulate.py`.
+  false PASS, zero false positive, zero harness error. These ran a verifier
+  binary built from main `1e1f582` with a different (non-canonical) build
+  recipe than the reproducibility gate — hence SHA-256
+  `0d002e4e26aa91736dcb43a003dbad7f7974f5fc2533ee0bfb8e208d8556044b`,
+  distinct from `6caa27b6…`, which is scoped to the toolchain-qualification
+  recipe above; the semantic source is identical and no `src/` file differed.
+- Seed 20260923 exercised the expanded 35-operator mutation suite with all
+  35 operators correct, and is the first provenance-carrying campaign run
+  acceptable to the cumulative accounting in `tests/fuzz/accumulate.py`
+  (`generator_sha256 95b9eca4…` — the generator merged unchanged as PR #55
+  commit `19abafe`; `cand_sha256 0d002e4e…`). Provenance caveat, recorded
+  honestly: the runner stamped `source_commit 1e1f582…` (the repository HEAD
+  at run time) while the working tree carried the then-uncommitted generator
+  changes that became PR #55; the generator identity is attributable to
+  `19abafe`, not to the stamped HEAD. The cumulative ledger therefore starts
+  from a clean-checkout run of the release source (below), for which the
+  provenance triple is self-consistent.
 
 ## Required gate summary
 
