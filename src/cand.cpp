@@ -3801,15 +3801,32 @@ private:
                 std::optional<unsigned> borrow;
                 ReturnEffect effect = ReturnEffect::Unknown;
                 if ((borrow = borrowedParameterIndex(value, f))) {
-                    effect = s.params[*borrow] == ParamEffect::TakeOwnership
-                                 ? ReturnEffect::Owned
-                                 : ReturnEffect::BorrowFromArg;
+                    // Incident #62: a pointer parameter that is assigned
+                    // anywhere in the body no longer holds its entry value at
+                    // the return site, so the syntactically referenced
+                    // parameter is not a sound borrow/ownership origin.
+                    // Fail closed to Unknown.
+                    if (assignedLater(f.getBody(), f.getParamDecl(*borrow))) {
+                        effect = ReturnEffect::Unknown;
+                        borrow.reset();
+                    } else {
+                        effect = s.params[*borrow] == ParamEffect::TakeOwnership
+                                     ? ReturnEffect::Owned
+                                     : ReturnEffect::BorrowFromArg;
+                    }
                 }
                 else if (const auto *call = dyn_cast<CallExpr>(value)) {
                     effect = returnEffect(*call, old_, borrow);
                     if (effect == ReturnEffect::BorrowFromArg && borrow && *borrow < call->getNumArgs()) {
                         const auto mapped = parameterIndex(call->getArg(*borrow), f);
-                        if (mapped) borrow = mapped;
+                        if (mapped && assignedLater(f.getBody(), f.getParamDecl(*mapped))) {
+                            // Incident #62 (callee-mapping form): the argument
+                            // name does not identify the object passed once
+                            // that parameter is reassigned in this body.
+                            effect = ReturnEffect::Unknown;
+                            borrow.reset();
+                        }
+                        else if (mapped) borrow = mapped;
                         else effect = ReturnEffect::Unknown;
                     }
                 }

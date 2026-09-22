@@ -44,6 +44,10 @@ check fail tests/interprocedural/member_parameter_uaf.c
 check fail tests/interprocedural/borrow_chain_argument_remap_uaf.c
 check fail tests/interprocedural/reordered_destroy_chain_uaf.c
 check incomplete tests/interprocedural/out_parameter_incomplete.c
+check incomplete tests/interprocedural/reassigned_borrow_origin_incomplete.c
+check incomplete tests/interprocedural/reassigned_borrow_origin_helper_incomplete.c
+check incomplete tests/interprocedural/reassigned_via_outparam_incomplete.c
+check fail tests/interprocedural/reassigned_origin_direct_return_uaf.c
 check fail tests/interprocedural/local_alias_parameter_uaf.c
 check pass tests/interprocedural/read_parameter_safe.c
 check incomplete tests/interprocedural/unknown_external.c

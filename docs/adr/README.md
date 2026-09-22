@@ -30,6 +30,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0022](ADR-0022-cand1-v1-final-qualification.md) | C&1/v1 is a narrow generated-profile, evidence-bound temporal ownership claim | Release candidate; final review pending |
 | [ADR-0023](ADR-0023-cand1-parameter-lifetime-repair.md) | C&1 parameter-lifetime soundness repair | Proposed (#46 repair branch) |
 | [ADR-0024](ADR-0024-parameter-identity-completion.md) | Parameter-identity completion: Unknown-capability pointer parameters are tracked live-at-entry objects with no authority | Accepted |
+| [ADR-0025](ADR-0025-reassigned-parameter-origin-repair.md) | Reassigned-parameter borrow-origin repair: a parameter assigned anywhere in the body is not a sound return borrow origin (incident #62) | Accepted |
 
 ## Design chain
 

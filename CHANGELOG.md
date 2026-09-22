@@ -4,6 +4,39 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Incident #62: borrow-origin misattribution through parameter reassignment (BLOCKER)
+
+- confirmed false PASS inside the published C&1/v1 claim, pre-existing in
+  v0.2.0 and v0.2.1 (`src/cand.cpp` identical between the v0.2.1 tag and
+  the fix's parent main): `SummaryBuilder` resolved a returned pointer's
+  borrow origin (and callee borrow-origin mappings) to the syntactically
+  referenced parameter name without recognizing pointer-parameter
+  reassignment, so `p = r; return p;` was summarized `borrow_from_arg@0`
+  while the returned pointer aliases arg 1; a caller that destroyed the
+  true origin and used the returned pointer received PASS with zero
+  findings on an ASan-confirmed use-after-free (see issue #62 for the
+  reproducer, the two confirmed false-PASS shapes, the fail-closed
+  controls, and the claim suspension);
+- fix (fail-closed, no semantic-scope change): when the parameter
+  resolved as a return borrow origin — directly or through the
+  return-call argument mapping — is the target of any assignment in the
+  body, the return effect becomes `Unknown`;
+- permanent paired regressions in `tests/interprocedural/`:
+  `reassigned_borrow_origin_incomplete.c` and
+  `reassigned_borrow_origin_helper_incomplete.c` (must never PASS) plus
+  the correct-attribution control
+  `reassigned_origin_direct_return_uaf.c` (must stay a detection);
+- five-pilot before/after (obligation-diff method): findings preserved
+  except two `CAND-B003` borrow-escape findings in curl `splay.c` that
+  were derived from `splay()`'s misattributed summary (the returned
+  pointer is a different tree node, not the parameter's pointee) — the
+  premise of those findings was the incident defect itself; every
+  obligation change is Unknown-ward at the creation sites of pointers
+  that became untracked, matching the standard unknown-return semantics;
+- v0.2.1's C&1/v1 claim is suspended/superseded pending the
+  post-incident release and complete exact-head requalification
+  (`docs/SAFETY_CLAIMS.md`).
+
 ### Reviewed external API boundary library (milestone #58)
 
 - six reviewed contract bundles under `contracts/bundles/` (22 symbols:
