@@ -244,3 +244,10 @@ grep -Fq '"parameter_index": 0' <<<"$conflict_output" || {
 }
 check incomplete tests/interprocedural/external_annotation_only.c
 echo "interprocedural OK"
+check incomplete tests/interprocedural/compound_origin_conditional_incomplete.c
+check incomplete tests/interprocedural/compound_origin_condptr_incomplete.c
+check fail tests/interprocedural/compound_origin_comma_uaf.c
+check incomplete tests/interprocedural/compound_origin_subscript_incomplete.c
+check pass tests/interprocedural/compound_origin_controls_safe.c
+check fail tests/interprocedural/compound_origin_controls_detect.c
+check incomplete tests/interprocedural/compound_origin_callargs_incomplete.c
