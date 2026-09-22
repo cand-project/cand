@@ -100,6 +100,23 @@ Additional campaign evidence at the same semantic source:
   from a clean-checkout run of the release source (below), for which the
   provenance triple is self-consistent.
 
+### Cumulative ledger start (clean checkout of release candidate `0815216`)
+
+A fresh clone of the release branch commit `0815216` (clean tree verified),
+built and fuzzed end-to-end with the merged generator:
+
+- verifier SHA-256 `889995d0e0461ff9e2f6d601ecc9b04f244faa981afa769cfd8612f02f5a9756`;
+- extended differential campaign, seed 20260924: 10,000 cases — 3,334
+  correct PASS, 3,333 correct FAIL, 3,333 correct INCOMPLETE; **0 false
+  PASS, 0 false positive, 0 coverage gap, 0 wrong failure class, 0 harness
+  error**; all 35 mutation operators correct;
+- provenance triple fully self-consistent and acceptable to
+  `tests/fuzz/accumulate.py`: `source_commit 0815216…`,
+  `generator_sha256 95b9eca4…` (identical to the PR #55 generator, which
+  also confirms the seed-20260923 generator attribution above),
+  `cand_sha256 889995d0…`. Cumulative ledger: 10,000 unique campaign cases,
+  1 unique run, zero false PASS.
+
 ## Required gate summary
 
 - BLOCKER = 0
