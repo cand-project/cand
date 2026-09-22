@@ -1,7 +1,16 @@
 # C&1/v1 v0.2.0 Release Evidence
 
-Status: **release candidate — metadata-only finalization from fully qualified
-protected main**.
+Status: **SUSPENDED / SUPERSEDED by v0.2.1** — incident
+[#53](https://github.com/cand-project/cand/issues/53) confirmed that tracked
+pointers at variadic argument positions could receive authoritative PASS with
+zero obligations on this release. The qualification evidence below is
+preserved unchanged for historical record; it must not be cited as a current
+C&1 soundness claim. The `v0.2.0` tag is immutable and is not moved or
+retagged. The current qualified release evidence is
+[the v0.2.1 release evidence](CAND1-V0.2.1-RELEASE-EVIDENCE.md).
+
+Previous status: **release candidate — metadata-only finalization from fully
+qualified protected main**.
 
 ## Release identity
 

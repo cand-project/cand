@@ -2,26 +2,78 @@
 
 All notable project changes are recorded here.
 
-## Unreleased
+## 0.2.1 — 2026-09-22
 
-### Proof plan and qualification infrastructure (ADR-0024 follow-up)
+Second post-incident qualified release. The public C&1/v1 scope is unchanged;
+this is a soundness patch release: it repairs the variadic-argument false PASS
+confirmed on v0.2.0 (incident #53, which suspends the v0.2.0 claim) and adds
+the C&1 proof-program infrastructure. No new semantic claim is introduced.
 
-- added `docs/CAND1-PROOF-PLAN.md`: the C1–C6 proof obligations and phased
-  acceptance gates (structural audit, ≥10⁶-case fuzzing campaign, ≥30-CVE
-  replay corpus, decidability demonstration, replication, claim assembly);
-- Phase A: added `docs/CAND1-PASS-PATH-AUDIT.md`, an exhaustive
-  line-referenced inventory of every PASS-emitting site in the verifier and
-  its gate, with `scripts/pass-path-guard.sh` wired into `scripts/check.sh`
-  failing on inventory drift or gate weakening;
-- Phase B: nightly extended fuzzing now runs three date-derived rotating
-  seeds per scheduled run (fresh ~3×10⁴ cases per night toward the ≥10⁶
-  cumulative target) in addition to the fixed regression seeds;
-- Phase C: added the CVE replay suite `tests/cve-replay/` (registry, engine,
-  weekly/on-demand CI job) with ASan ground-truth validation at both the
-  vulnerable and fix revisions, MISSED (false PASS) treated as a loud
-  soundness incident, and expectation-drift detection; first validated entry
-  CVE-2026-87933 (cJSON `merge_patch` heap-use-after-free): BOUNDED-INCOMPLETE
-  with defect-path obligations, no false PASS.
+### Soundness repair (incident #53)
+
+- repaired the direct-call summary path so tracked pointers passed at
+  argument positions beyond a callee's modelled parameter list (variadic
+  slots) emit the same escape/borrow-retention obligations as the unknown-call
+  path — v0.2.0 could emit authoritative PASS with zero obligations for a
+  destroyed or escaping tracked pointer at such positions;
+- permanent regression: `tests/interprocedural/variadic_argument_escape.c`
+  (no case may PASS);
+- the `v0.2.0` tag is immutable and not rewritten; its C&1/v1 claim is
+  suspended and superseded by this release.
+
+### Parameter-identity completion (ADR-0024)
+
+- summary-`Unknown`/`None` pointer parameters are tracked as live-at-entry
+  objects with no authority;
+- conditional/loop parameter destruction followed by use now joins to
+  `MaybeDead` and FAILs with certainty `possible` (reviewed strengthening,
+  previously fail-closed INCOMPLETE);
+- reviewed libc borrow bundle `contracts/libc-borrow.yaml` (strncpy
+  borrowed-return declaration);
+- red-team matrices: `parameter_unknown_capability_redteam.c`,
+  `variadic_argument_escape.c`, `libc_borrow_bundle_safe.c`.
+
+### Proof program (Phase A/B/C start)
+
+- `docs/CAND1-PROOF-PLAN.md`: C1–C6 proof obligations and phased acceptance
+  gates;
+- Phase A: exhaustive PASS-path audit
+  (`docs/CAND1-PASS-PATH-AUDIT.md`) with `scripts/pass-path-guard.sh` wired
+  into `scripts/check.sh`;
+- Phase B: nightly extended fuzzing with three date-derived rotating seeds
+  (~3×10⁴ fresh cases per scheduled run toward the ≥10⁶ cumulative target);
+  mutation-operator suite expanded from 14 to 35 operators (including the
+  historical soundness-incident mechanisms as generator mechanisms:
+  variadic-argument escapes from incident #53 and the parameter-lifetime
+  classes from incident #46); machine-readable cumulative campaign
+  accounting — every report embeds provenance (verifier SHA-256, generator
+  SHA-256, source commit) and `tests/fuzz/accumulate.py` aggregates reports
+  with a defined unique campaign case `(generator_sha256, seed, case index)`
+  so duplicate seeds cannot inflate the cumulative total;
+- Phase C: CVE replay suite `tests/cve-replay/` (registry, engine, weekly +
+  on-demand CI job) with ASan ground-truth validation at both the vulnerable
+  and fix revisions, per-entry build/compile commands (registry schema v2,
+  supporting CMake-based upstream projects), and classifications
+  DETECTED / BOUNDED-INCOMPLETE / MISSED with MISSED treated as a loud
+  soundness incident; the engine merges the two reviewed contract bundles
+  into a single per-run file (`cand check --contracts` accepts exactly one
+  file; a repeated flag is last-wins — both entries were re-validated under
+  the merged-bundle configuration with identical classifications and
+  obligation counts); validated entries: CVE-2026-87933 (cJSON `merge_patch`
+  heap-use-after-free) and CVE-2026-50219 (libexpat handler-reentry
+  use-after-free, fix released in 2.8.2), both BOUNDED-INCOMPLETE with
+  defect-path obligations and no false PASS;
+- refreshed Hiredis adoption-blocker Pareto at function level
+  (`docs/pilots/CAND1-ADOPTION-BLOCKER-PARETO.md`): same-project cross-TU
+  effects are the largest sole-blocker family (26 functions), external-API
+  effects touch the most functions (101), alias/storage precision ranks
+  third (6 solely blocked).
+
+### CI repair
+
+- pinned `CMAKE_MAKE_PROGRAM=/usr/bin/ninja` in the host-building workflows
+  (nightly extended fuzzing had been failing since 2026-09-20 because the
+  GitHub runner image now ships a shadowing `/usr/local/bin/ninja`).
 
 ## 0.2.0 — 2026-09-21
 
@@ -64,34 +116,13 @@ C&1/v1 scope is unchanged. This release adds no C&2, general memory-safety
 claim, cross-TU ownership guarantee, callback-retention guarantee, or `realloc`
 guarantee. v0.1.0 is historical and must not be cited as current C&1 evidence.
 
-## Unreleased
+### Semantic implementation archive
 
-### Parameter-identity completion (ADR-0024)
-
-- seed summary-`Unknown` (and `None`) pointer parameters as tracked, live-at-entry
-  objects with no ownership authority, completing the ADR-0023 parameter model;
-- report escapes of such parameters to unknown/indirect callees as
-  `unknown-call-with-tracked-pointer` (local/parameter parity), closing a
-  trustworthy-PASS gap where a parameter escaping to an opaque call received
-  PASS with zero obligations;
-- eliminate the dominant `unmodelled-pointer-parameter` read-obligation class on
-  real code (Hiredis H0, no contracts: 674 → 0; with the reviewed libc bundle
-  active, 2 residual remain on by-value struct-parameter address-taken paths in
-  `net.c`, not pointer-parameter binding);
-- strengthen conditional/loop parameter-destruction verdicts from INCOMPLETE to
-  FAIL (certainty `possible`), matching qualified local semantics (cases N/O in
-  the incident matrix; `parameter_owner_*_destroy_fail.c`);
-- close a pre-existing false PASS in the direct-call summary path: tracked
-  pointers passed at argument positions beyond the callee's modelled
-  parameter list (variadic slots, e.g. `snprintf(buf, n, "%s", p)`) were
-  never examined and could yield PASS even when the pointee had been freed;
-  they now report the same escape and borrow-retention obligations as
-  unknown calls (ADR-0024 companion fix; pinned by
-  `tests/interprocedural/variadic_argument_escape.c`);
-- add the `contracts/libc-borrow.yaml` reviewed no-ownership-effect borrow bundle
-  for common C library data-movement and file-descriptor functions, and an
-  `Unknown`-capability red-team matrix
-  (`tests/interprocedural/parameter_unknown_capability_redteam.c`).
+The subsections below archive the semantic implementation phases shipped in
+the 0.1.0 → 0.2.0 lineage; they were previously mis-filed under a stale
+`Unreleased` heading. The ADR-0024 parameter-identity completion that landed
+after v0.2.0 is summarized under 0.2.1 above and specified in full in
+`docs/adr/ADR-0024-parameter-identity-completion.md`.
 
 ### P1 — Explicit unique ownership and move semantics
 

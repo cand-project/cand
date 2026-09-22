@@ -132,7 +132,10 @@ On the repaired candidate, the permanent matrix is:
 > fail-closed boundary.
 >
 > **Companion false PASS found and closed during this change set's
-> qualification review** (see ADR-0024, "Companion soundness fix"): tracked
+> qualification review** (see ADR-0024, "Companion soundness fix"; formalized
+> as soundness incident
+> [#53](https://github.com/cand-project/cand/issues/53), which suspends the
+> v0.2.0 release claim): tracked
 > pointers passed at argument positions beyond a callee's modelled parameter
 > list (variadic slots, e.g. `snprintf(buf, n, "%s", freed_ptr)`) were skipped
 > by the direct-call summary path and could receive PASS with zero
