@@ -83,8 +83,10 @@ zero ungated sites; independent reviewer sign-off on the audit; CI guard live.
    parameter-lifetime incident, variadic-argument incident) permanently
    encoded as generated-corpus mechanisms, not just hand fixtures.
 4. External adversarial window: publish the generator and corpus format and
-   invite red-team submissions; each accepted false PASS is a paid/incident-
-   class finding.
+   invite red-team submissions; each accepted false PASS is an incident-class
+   finding handled per the challenge procedure
+   ([`docs/CAND1-ADVERSARIAL-CHALLENGE.md`](CAND1-ADVERSARIAL-CHALLENGE.md);
+   recognition and incident handling, not a monetary bounty).
 
 **Acceptance gate.** ≥10⁶ cases with zero false PASS, zero unexplained
 false positive, zero harness error; ≥30 mutation operators correct; ≥1
