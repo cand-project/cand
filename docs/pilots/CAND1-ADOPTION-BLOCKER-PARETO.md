@@ -89,3 +89,59 @@ allocation escapes (`unknown-call-with-tracked-pointer*`, 333 observations —
 and the remainder to generic or indirect callees), alias/storage precision
 (`ambiguous-alias-target`, 176), unknown pointer returns (162), and
 pointer-output effects (100).
+
+## Addendum: exact-head function-level blocker Pareto (2026-09-22)
+
+Re-measured on protected main `1e1f582` (v0.2.1 candidate) with the libc and
+libc-borrow contract bundles, same pinned tree
+(`redis/hiredis@33a12fb`, 7 representative TUs, 179 defined functions),
+classifying every obligation by whether its callee/return symbol is defined
+inside the pilot scope (same-project cross-TU), an external API, or an
+alias/precision condition:
+
+- 17 CLEAR / 162 BLOCKED functions; 4 findings, all rule-correct
+  `CAND-B003` borrow-escape detections on undeclared borrow-returning APIs
+  (for example the `memchr`-based line scanner in `read.c` returning an
+  interior pointer into the caller's buffer).
+- 915 obligations: escapes into same-project cross-TU callees (198),
+  alias/storage precision (`ambiguous-alias-target` + 
+  `unresolved-pointee-storage`, 205), external-API returns (137), external
+  calls (82), same-project out-parameters (43), same-project returns (25),
+  external out-parameters (57), and other classes.
+
+Function-level blocker families (a function can contain several):
+
+| Blocker family | Functions containing | Functions blocked **only** by it |
+|---|---:|---:|
+| Same-project cross-TU effects (calls, returns, out-params) | 88 | 26 |
+| External-API effects (libc/socket/errno/ctype, undeclared) | 101 | 23 |
+| Alias/storage precision (`ambiguous-alias-target`, pointee storage) | 71 | 6 |
+| Other (statement expressions, stack-pointer-return, indirect calls, …) | — | remainder |
+
+Readings:
+
+- Full same-project cross-TU summaries would take CLEAR functions from 17 to
+  **43** on this corpus (26 functions are blocked *only* by same-project
+  cross-TU effects, including `sdscat`, `sdscpy`, `sdsfree`,
+  `redisContextConnectTcp`, `freeReplyObject`). This supersedes the earlier
+  "approximately +3" estimate, which counted only directly identified
+  boundaries rather than resolving every escape obligation's callee. Cross-TU
+  is now the largest single *sole-blocker* family — but per the #42 evidence
+  gate it still requires confirmation on at least two additional pilot
+  projects before implementation, and it carries the highest soundness risk
+  of the candidates (it widens the proof surface).
+- External-API effects touch the most functions (101) and are addressable
+  **without any verifier semantic change** through reviewed contract-bundle
+  expansion (the same trust model as the reviewed libc-borrow bundle:
+  per-symbol review, red-team fixtures, fail-closed preserved). This is the
+  smallest sound generalization with the largest immediately measurable
+  decidability gain.
+- Alias/storage precision ranks third at function level (6 functions solely
+  blocked), consistent with the documented alias-through-free false-FAIL
+  being a precision item rather than a dominant adoption blocker on this
+  corpus.
+- The two replayed CVE defect vectors (CVE-2026-87933 cJSON
+  `cJSON_Delete`/`cJSON_Duplicate` boundary; CVE-2026-50219 libexpat
+  handler-reentry `XML_ParserFree`) are both cross-boundary calls into
+  callee semantics C& does not yet model — the same boundary family that
+  dominates this Pareto.

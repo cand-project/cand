@@ -80,18 +80,23 @@ python3 - <<'PY'
 import json, os, sys
 
 registry = json.load(open("tests/cve-replay/registry.json"))
-assert registry["schema"] == "cand.cve-replay/v1", "unknown registry schema"
+assert registry["schema"] == "cand.cve-replay/v2", "unknown registry schema"
 assert isinstance(registry["entries"], list) and registry["entries"], "no entries"
 
 allowed_status = {"validated", "candidate"}
 allowed_expected = {"DETECTED", "BOUNDED-INCOMPLETE"}
 for entry in registry["entries"]:
     for field in ("id", "cwe", "defect", "project", "repo",
-                  "vulnerable_commit", "fix_commit", "driver", "sources",
+                  "vulnerable_commit", "fix_commit", "driver", "prepare",
+                  "asan_command", "cand_sources", "cand_flags",
                   "asan_site", "expected", "status", "analysis"):
-        assert entry.get(field), f"{entry.get('id', '?')}: missing field {field}"
+        assert entry.get(field) is not None, f"{entry.get('id', '?')}: missing field {field}"
     assert entry["status"] in allowed_status, entry["status"]
     assert entry["expected"] in allowed_expected, entry["expected"]
+    assert isinstance(entry["cand_sources"], list) and entry["cand_sources"], f"{entry['id']}: cand_sources must be a non-empty list"
+    assert isinstance(entry["cand_flags"], list), f"{entry['id']}: cand_flags must be a list"
+    for source in entry["cand_sources"]:
+        assert not source.startswith("/"), f"{entry['id']}: cand_sources must be clone-relative: {source}"
     if entry["status"] == "validated":
         assert entry.get("validated_at"), f"{entry['id']}: validated entry needs validated_at"
     driver = os.path.join("tests/cve-replay", entry["driver"])
@@ -99,6 +104,49 @@ for entry in registry["entries"]:
     assert entry["vulnerable_commit"] != entry["fix_commit"], f"{entry['id']}: commits must differ"
 
 print(f"CVE replay registry: {len(registry['entries'])} entr{'y' if len(registry['entries']) == 1 else 'ies'} structurally valid")
+PY
+
+echo "==> Cumulative campaign accounting smoke test"
+python3 - <<'PY'
+import json, subprocess, sys, tempfile
+
+with tempfile.TemporaryDirectory(prefix="cand-accumulate.") as tmp:
+    # A synthetic provenance-carrying report; passing the SAME report twice
+    # must not inflate the unique-case total, and a gate-failing report must
+    # be rejected outright.
+    report = {
+        "schema": "cand.fuzz-report/v2",
+        "seed": 424242,
+        "cases": 3,
+        "deterministic_json": True,
+        "results": {"correct_fail": 1, "correct_incomplete": 1, "correct_pass": 1,
+                    "coverage_gap": 0, "false_pass": 0, "false_positive": 0,
+                    "harness_error": 0, "wrong_failure_class": 0},
+        "provenance": {"cand_sha256": "a" * 64, "generator_sha256": "b" * 64,
+                       "source_commit": "c" * 40},
+    }
+    good = f"{tmp}/good"
+    import os
+    os.makedirs(good)
+    json.dump(report, open(f"{good}/report.json", "w"))
+    out = subprocess.run([sys.executable, "tests/fuzz/accumulate.py", good, good],
+                         capture_output=True, text=True, check=True).stdout
+    cumulative = json.loads(out)
+    assert cumulative["unique_cases"] == 3, cumulative["unique_cases"]
+    assert cumulative["unique_runs"] == 1
+    assert len(cumulative["runs"]) == 2  # both runs recorded, cases counted once
+    assert len(cumulative["duplicate_runs_excluded"]) == 1
+
+    bad = dict(report)
+    bad["results"] = dict(report["results"], false_pass=1)
+    baddir = f"{tmp}/bad"
+    os.makedirs(baddir)
+    json.dump(bad, open(f"{baddir}/report.json", "w"))
+    rc = subprocess.run([sys.executable, "tests/fuzz/accumulate.py", baddir],
+                        capture_output=True, text=True)
+    assert rc.returncode != 0, "a false-PASS report must be rejected"
+
+print("cumulative accounting: dedup and gate rejection verified")
 PY
 
 echo "==> GCC ordinary-C compatibility"

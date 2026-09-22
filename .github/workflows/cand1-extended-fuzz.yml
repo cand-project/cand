@@ -33,6 +33,7 @@ jobs:
           /usr/bin/cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=clang++-18
+          -DCMAKE_MAKE_PROGRAM=/usr/bin/ninja
           && /usr/bin/cmake --build build
       - name: Run extended differential corpus
         run: |
