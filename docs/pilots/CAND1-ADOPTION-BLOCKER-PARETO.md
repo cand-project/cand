@@ -9,6 +9,16 @@
 > callee-resolved analysis and
 > `docs/pilots/EXTERNAL-CONTRACT-ADOPTION-RESULTS.md` for the measured
 > adoption outcome. The roadmap table above is unaffected.
+>
+> **The addendum's cross-TU figures below are also historical** (measured at
+> main `1e1f582` with 17 CLEAR, before the reviewed external-boundary
+> library): its "26 functions blocked only by same-project cross-TU
+> effects / 17→43" uses a coarse family definition that folds same-project
+> out-params and returns into the XTU family. The corrected callee-resolved
+> attribution at current main (`ec03ea7`, with reviewed bundles, 23
+> CLEAR/181) is **19 sole-XTU-blocked functions, 210 XTU obligations in 66
+> functions** — see `docs/pilots/EXTERNAL-API-BOUNDARY-PARETO.md` and
+> `docs/pilots/CROSS-TU-ADOPTION-PARETO.md`.
 
 This is an evidence-ranked roadmap, not a promise of coverage. Counts are
 Hiredis H3 diagnostic observations and are nonexclusive where stated. No item

@@ -161,8 +161,18 @@ BOUNDED-INCOMPLETE; zero MISSED-with-PASS; per-CVE results published
    database/engine, a protocol library, a parser, a systems daemon, an
    embedded stack), each pinned and measured with the fnmap methodology
    (obligations, CLEAR/BLOCKED functions, class Pareto).
-2. Land cross-TU summaries (measured ≈+3 CLEAR upper bound on Hiredis;
-   addresses the 55 named same-project escape obligations).
+2. Land cross-TU summaries. Current measured evidence (exact main
+   `ec03ea7`, post external-boundary milestone, callee-resolved
+   attribution reproduced fresh on 2026-09-22): 210 XTU obligations in 66
+   Hiredis functions, **19 functions solely XTU-blocked** — the XTU-only
+   CLEAR upper bound on Hiredis is +19 (23→42 of 181). Historical estimates
+   are superseded: "≈+3 CLEAR / 55 named escape obligations" (directly
+   identified boundaries only, pre-resolution) and "26 sole / 17→43"
+   (coarse addendum attribution that folded out-params and returns into the
+   XTU family). See
+   `docs/pilots/EXTERNAL-API-BOUNDARY-PARETO.md` and
+   `docs/pilots/CROSS-TU-ADOPTION-PARETO.md`; #42 additionally requires
+   multi-project confirmation before any implementation.
 3. Fix the documented alias-through-free false positive (raises C3 as well).
 4. Track per-release: CLEAR rate, obligation density, and residual-class
    Pareto, published in the adoption-blocker document.
