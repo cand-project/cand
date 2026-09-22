@@ -90,14 +90,27 @@ zero ungated sites; independent reviewer sign-off on the audit; CI guard live.
 false positive, zero harness error; ≥30 mutation operators correct; ≥1
 external adversarial cycle completed with all submissions triaged.
 
-> **Status: rotating-seed campaign live.** The nightly
+> **Status: rotating-seed campaign live; operator and accounting gates met.**
+> The nightly
 > [`cand1-extended-fuzz.yml`](../.github/workflows/cand1-extended-fuzz.yml)
 > now runs three date-derived rotating seeds per scheduled run (~3×10⁴ fresh
 > cases per night toward the ≥10⁶ target) in addition to the two fixed
-> regression-anchor seeds; cumulative accounting accrues through the run
-> artifacts. Mutation-operator expansion (beyond the current 14), the
-> incident-replay generator mechanisms, and the external adversarial window
-> remain open.
+> regression-anchor seeds. The mutation-operator suite is expanded from 14 to
+> **35 operators**, all green through the strict differential gate
+> (13 KNOWN_VIOLATION detections, 19 fail-closed UNSUPPORTED, 3 SAFE), and
+> now encodes the historical soundness-incident mechanisms as generator
+> mechanisms (`VARIADIC_ESCAPE_LIVE`/`VARIADIC_ESCAPE_DEAD` pin the #53
+> variadic-escape class; `SUMMARY_DESTROY_USE`/`LOCAL_ALIAS_DESTROY_USE`/
+> `CONDITIONAL_ALIAS_DESTROY_USE`/`LOOP_DESTROY_USE` pin the #46
+> parameter-lifetime classes). Cumulative accounting is machine-readable and
+> auditable: every report embeds provenance (`cand_sha256`,
+> `generator_sha256`, `source_commit`), and
+> [`tests/fuzz/accumulate.py`](../tests/fuzz/accumulate.py) aggregates
+> reports with a defined **unique campaign case** —
+> `(generator_sha256, seed, case index)` — so duplicate (generator, seed)
+> pairs cannot inflate the total and gate-failing reports contribute
+> nothing. First provenance-carrying campaign seed: 20260923 (10,000 cases,
+> zero false PASS). The external adversarial window remains open.
 
 ### Phase C — Historical-bug replay (C2, C3 — the decisive external test)
 
@@ -119,17 +132,25 @@ is the closest available analogue to an external oracle.
 BOUNDED-INCOMPLETE; zero MISSED-with-PASS; per-CVE results published
 (machine-readable plus narrative).
 
-> **Status: harness live, 1/30 replayed.** The replay suite is
+> **Status: harness live, 2/30 replayed.** The replay suite is
 > [`tests/cve-replay/`](../tests/cve-replay/README.md) (registry + engine +
 > CI job [`cand1-cve-replay.yml`](../.github/workflows/cand1-cve-replay.yml),
 > weekly and on demand). It validates each entry's ground truth under ASan at
 > both the vulnerable revision (must crash) and the fix revision (must be
 > clean), classifies the C& verdict, fails loudly on MISSED (false PASS =
-> soundness incident) and on expectation drift. First validated entry:
+> soundness incident) and on expectation drift; the registry is schema v2
+> with per-entry build/compile commands so CMake-based upstream projects are
+> supported. Validated entries:
 > **CVE-2026-87933** (cJSON heap-use-after-free in `merge_patch`, CWE-416,
-> fix DaveGamble/cJSON#1065) — classification **BOUNDED-INCOMPLETE**: zero
-> findings, 697 obligations with the free site, the UAF use site, and the
-> driver call all carrying obligations. No false PASS.
+> fix DaveGamble/cJSON#1065) — **BOUNDED-INCOMPLETE**: zero findings, 697
+> obligations with the free site, the UAF use site, and the driver call all
+> carrying obligations. **CVE-2026-50219** (libexpat use-after-free via
+> handler reentry, CWE-416, fix libexpat/libexpat#1246, released in 2.8.2) —
+> **BOUNDED-INCOMPLETE**: zero findings, 1,459 obligations with the
+> reentrant-free vector (`XML_ParserFree` inside the character-data handler)
+> carrying an obligation. No false PASS. Both defect vectors are
+> cross-boundary calls into callee semantics outside the current model — the
+> same family that dominates the refreshed Hiredis blocker Pareto.
 
 ### Phase D — Decidability demonstration (C4)
 

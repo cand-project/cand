@@ -23,6 +23,28 @@ OPERATORS = {
     "WRAP_IN_LOOP": "UNSUPPORTED",
     "WRAP_IN_BRANCH": "SAFE",
     "CHANGE_DIRECT_CALL_TO_INDIRECT": "UNSUPPORTED",
+    # --- operator expansion (C&1 proof plan Phase B) ---
+    "LOCAL_ALIAS_DESTROY_USE": "KNOWN_VIOLATION",
+    "LOCAL_ALIAS_TRANSFER": "SAFE",
+    "VARIADIC_ESCAPE_LIVE": "UNSUPPORTED",
+    "VARIADIC_ESCAPE_DEAD": "UNSUPPORTED",
+    "SUMMARY_DESTROY_USE": "KNOWN_VIOLATION",
+    "SUMMARY_STASH_RETENTION": "UNSUPPORTED",
+    "CONDITIONAL_DESTROY_USE": "KNOWN_VIOLATION",
+    "LOOP_DESTROY_USE": "KNOWN_VIOLATION",
+    "INTERIOR_POINTER_USE": "UNSUPPORTED",
+    "STORE_INTO_GLOBAL": "UNSUPPORTED",
+    "UNKNOWN_CALL_DEAD_ARG": "UNSUPPORTED",
+    "UNKNOWN_POINTER_RETURN": "UNSUPPORTED",
+    "INDIRECT_DESTROY_USE": "UNSUPPORTED",
+    "REALLOC_TRANSPORT": "UNSUPPORTED",
+    "MOVE_AFTER_DESTROY": "KNOWN_VIOLATION",
+    "TRANSPORT_VIA_UNION": "UNSUPPORTED",
+    "RETURN_ALIAS_USE": "KNOWN_VIOLATION",
+    "CONDITIONAL_ALIAS_DESTROY_USE": "KNOWN_VIOLATION",
+    "VOLATILE_STORAGE_TRANSPORT": "KNOWN_VIOLATION",
+    "SETJMP_ACROSS_DESTROY": "UNSUPPORTED",
+    "ATOMIC_STORAGE_TRANSPORT": "UNSUPPORTED",
 }
 
 REQUIRED_SHAPES = {
@@ -40,7 +62,40 @@ REQUIRED_SHAPES = {
     "WRAP_IN_LOOP": (r"for \(int i = 0; i < 1; \+\+i\)", r"void \*loop_copy", r"memcpy"),
     "WRAP_IN_BRANCH": (r"if \(p != NULL\) free\(p\)",),
     "CHANGE_DIRECT_CALL_TO_INDIRECT": (r"\(\*destroy\)\(void \*\)", r"destroy\(p\)"),
+    "LOCAL_ALIAS_DESTROY_USE": (r"\*q = p;", r"free\(q\);", r"= q->value;"),
+    "LOCAL_ALIAS_TRANSFER": (r"\*q = p;", r"p = NULL;", r"free\(q\);"),
+    "VARIADIC_ESCAPE_LIVE": (r"cand1_va_sink\(0, p\);",),
+    "VARIADIC_ESCAPE_DEAD": (r"free\(p\);[\s\S]*cand1_va_sink\(0, p\);",),
+    "SUMMARY_DESTROY_USE": (r"cand1_destroy\(p\);", r"= p->value;"),
+    "SUMMARY_STASH_RETENTION": (r"cand1_stash\(p\);",),
+    "CONDITIONAL_DESTROY_USE": (r"if \(p->value >= 0\) free\(p\);", r"= p->value;"),
+    "LOOP_DESTROY_USE": (r"for \(int i = 0; i < 2; \+\+i\)", r"if \(i == 1\)"),
+    "INTERIOR_POINTER_USE": (r"int \*ip = &p->value;", r"= \*ip;"),
+    "STORE_INTO_GLOBAL": (r"static CandItem\d+ \*cand1_stash;", r"cand1_stash->value"),
+    "UNKNOWN_CALL_DEAD_ARG": (r"free\(p\);[\s\S]*cand1_unknown\(p\);",),
+    "UNKNOWN_POINTER_RETURN": (r"cand1_unknown_ret\(void\)", r"u != NULL"),
+    "INDIRECT_DESTROY_USE": (r"\(\*destroy\)\(void \*\) = free;", r"destroy\(p\);"),
+    "REALLOC_TRANSPORT": (r"p = realloc\(p,",),
+    "MOVE_AFTER_DESTROY": (r"free\(p\);[\s\S]*CAND_MOVE\(p\)",),
+    "TRANSPORT_VIA_UNION": (r"union Cand1Slot", r"slot\.ptr"),
+    "RETURN_ALIAS_USE": (r"cand1_identity\(p\)", r"= r->value;"),
+    "CONDITIONAL_ALIAS_DESTROY_USE": (r"if \(p->value >= 0\) \{[\s\S]*free\(q\);[\s\S]*\}",),
+    "VOLATILE_STORAGE_TRANSPORT": (r"void \* volatile v = p;",),
+    "SETJMP_ACROSS_DESTROY": (r"setjmp\(jb\)", r"longjmp\(jb, 1\)"),
+    "ATOMIC_STORAGE_TRANSPORT": (r"_Atomic\(void \*\) slot", r"atomic_store\(&slot, p\)"),
 }
+
+
+def _facts(source: str) -> tuple[str, str, str]:
+    """Extract (item type, sink variable, case function header) from a base case."""
+    typ = re.search(r"(\w+) \*p CAND_OWN", source).group(1)
+    sink = re.search(r"volatile int (cand1_sink\d+)", source).group(1)
+    casefn = re.search(r"int cand1_case_\d+\(void\)", source).group(0)
+    return typ, sink, casefn
+
+
+def _insert_before_case(source: str, casefn: str, helper: str) -> str:
+    return source.replace(casefn, helper + "\n\n" + casefn, 1)
 
 
 def apply(source: str, mutation: str) -> str:
@@ -86,6 +141,92 @@ def apply(source: str, mutation: str) -> str:
         return source.replace("free(p);", "if (p != NULL) free(p);", 1)
     if mutation == "CHANGE_DIRECT_CALL_TO_INDIRECT":
         return source.replace("free(p);", "void (*destroy)(void *) = free;\n    destroy(p);", 1)
+
+    typ, sink, casefn = _facts(source)
+
+    if mutation == "LOCAL_ALIAS_DESTROY_USE":
+        return source.replace(
+            "free(p);", f"{typ} *q = p;\n    free(q);\n    {sink} = q->value;", 1)
+    if mutation == "LOCAL_ALIAS_TRANSFER":
+        return source.replace(
+            "free(p);", f"{typ} *q = p;\n    p = NULL;\n    free(q);", 1)
+    if mutation == "VARIADIC_ESCAPE_LIVE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;",
+                           f"{sink} = p->value;\n    cand1_va_sink(0, p);", 1),
+            casefn, "static void cand1_va_sink(int fmt, ...) { (void)fmt; }")
+    if mutation == "VARIADIC_ESCAPE_DEAD":
+        return _insert_before_case(
+            source.replace("free(p);", "free(p);\n    cand1_va_sink(0, p);", 1),
+            casefn, "static void cand1_va_sink(int fmt, ...) { (void)fmt; }")
+    if mutation == "SUMMARY_DESTROY_USE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"cand1_destroy(p);\n    {sink} = p->value;", 1),
+            casefn, f"static void cand1_destroy({typ} *q) {{ free(q); }}")
+    if mutation == "SUMMARY_STASH_RETENTION":
+        return _insert_before_case(
+            source.replace("free(p);", "cand1_stash(p);\n    free(p);", 1),
+            casefn, f"static void cand1_stash({typ} *q) {{ static {typ} *kept; kept = q; }}")
+    if mutation == "CONDITIONAL_DESTROY_USE":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"if (p->value >= 0) free(p);\n    {sink} = p->value;", 1)
+    if mutation == "LOOP_DESTROY_USE":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"for (int i = 0; i < 2; ++i) {{\n        if (i == 1) {sink} = p->value;\n        free(p);\n    }}", 1)
+    if mutation == "INTERIOR_POINTER_USE":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"int *ip = &p->value;\n    free(p);\n    {sink} = *ip;", 1)
+    if mutation == "STORE_INTO_GLOBAL":
+        return source.replace(
+            "free(p);",
+            f"static {typ} *cand1_stash;\n    cand1_stash = p;\n    free(p);\n    {sink} = cand1_stash->value;", 1)
+    if mutation == "UNKNOWN_CALL_DEAD_ARG":
+        return _insert_before_case(
+            source.replace("free(p);", "free(p);\n    cand1_unknown(p);", 1),
+            casefn, "extern int cand1_unknown(void *);")
+    if mutation == "UNKNOWN_POINTER_RETURN":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"void *u = cand1_unknown_ret();\n    {sink} = u != NULL;\n    free(p);", 1),
+            casefn, "extern void *cand1_unknown_ret(void);")
+    if mutation == "INDIRECT_DESTROY_USE":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"void (*destroy)(void *) = free;\n    destroy(p);\n    {sink} = p->value;", 1)
+    if mutation == "REALLOC_TRANSPORT":
+        return source.replace("free(p);", "p = realloc(p, sizeof *p * 2);\n    free(p);", 1)
+    if mutation == "MOVE_AFTER_DESTROY":
+        return source.replace(
+            "free(p);", f"free(p);\n    {typ} *q CAND_OWN = CAND_MOVE(p);", 1)
+    if mutation == "TRANSPORT_VIA_UNION":
+        return source.replace(
+            "free(p);",
+            f"union Cand1Slot {{ {typ} *ptr; unsigned long raw; }} slot;\n    slot.ptr = p;\n    free(p);\n    {sink} = slot.ptr->value;", 1)
+    if mutation == "RETURN_ALIAS_USE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"{typ} *r = cand1_identity(p);\n    free(p);\n    {sink} = r->value;", 1),
+            casefn, f"static {typ} *cand1_identity({typ} *q) {{ return q; }}")
+    if mutation == "CONDITIONAL_ALIAS_DESTROY_USE":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"if (p->value >= 0) {{ {typ} *q = p; free(q); }}\n    {sink} = p->value;", 1)
+    if mutation == "VOLATILE_STORAGE_TRANSPORT":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"void * volatile v = p;\n    free(p);\n    {sink} = (({typ} *)v)->value;", 1)
+    if mutation == "SETJMP_ACROSS_DESTROY":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"jmp_buf jb;\n    if (setjmp(jb) == 0) {{ free(p); longjmp(jb, 1); }}\n    {sink} = p->value;", 1)
+    if mutation == "ATOMIC_STORAGE_TRANSPORT":
+        return source.replace(
+            f"{sink} = p->value;\n    free(p);",
+            f"_Atomic(void *) slot;\n    atomic_store(&slot, p);\n    free(p);\n    {sink} = (({typ} *)atomic_load(&slot))->value;", 1)
     raise AssertionError(mutation)
 
 

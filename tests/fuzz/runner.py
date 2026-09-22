@@ -25,6 +25,38 @@ from taxonomy import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _provenance(cand: Path) -> dict:
+    """Machine-readable run provenance for cumulative campaign accounting.
+
+    A unique campaign case is defined as (generator_sha256, seed, case index
+    within the seed corpus); re-running an identical (generator, seed) pair
+    cannot inflate the cumulative total (accumulate.py deduplicates on that
+    key and counts duplicates separately).
+    """
+    import hashlib
+
+    def digest(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    py_files = sorted(p for p in (ROOT / "tests" / "fuzz").glob("*.py"))
+    provenance = {
+        "cand_sha256": digest(cand.read_bytes()),
+        # The generator identity is the fuzz-harness source itself; re-running
+        # the same generator+seed pair cannot add unique campaign cases.
+        "generator_sha256": digest(b"".join(p.read_bytes() for p in py_files)),
+    }
+    try:
+        provenance["source_commit"] = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        provenance["source_commit"] = "unknown"
+    return provenance
+
+
 TEMPORAL_PATTERNS = (
     ("heap_use_after_free", re.compile(r"heap-use-after-free", re.IGNORECASE)),
     ("double_free", re.compile(r"double-free", re.IGNORECASE)),
@@ -190,6 +222,7 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
         "profile": "cand1/v1",
         "seed": seed,
         "cases": count,
+        "provenance": _provenance(cand),
         "results": {key.lower(): buckets[key] for key in (
             "CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE", "COVERAGE_GAP",
             "FALSE_PASS", "FALSE_POSITIVE", "WRONG_FAILURE_CLASS", "HARNESS_ERROR",
@@ -213,7 +246,8 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
         },
         "mutations": {
             "operators": len(OPERATORS), "semantically_executed": len(mutation_report),
-            "correct": mutation_correct, "cases": mutation_report,
+            "correct": mutation_correct, "operator_names": sorted(OPERATORS),
+            "cases": mutation_report,
         },
         "protocol": protocol,
         "deterministic_json": deterministic,
