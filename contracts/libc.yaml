@@ -6,12 +6,20 @@ platform:
 symbols:
   - symbol: malloc
     kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
     returns:
       ownership: owned
       allocation_family: c-heap
       nullable: true
   - symbol: calloc
     kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: no_ownership_effect
     returns:
       ownership: owned
       allocation_family: c-heap
@@ -28,6 +36,8 @@ symbols:
       - index: 0
         effect: consumes
         allocation_family: c-heap
+      - index: 1
+        effect: no_ownership_effect
     returns:
       ownership: owned
       allocation_family: c-heap

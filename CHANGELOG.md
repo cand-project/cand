@@ -2,6 +2,43 @@
 
 All notable project changes are recorded here.
 
+## Unreleased
+
+### Reviewed external API boundary library (milestone #58)
+
+- six reviewed contract bundles under `contracts/bundles/` (22 symbols:
+  libc memory/string/ctype/stdio, POSIX io/socket) supersede
+  `contracts/libc-borrow.yaml` (deleted; its parameter lists omitted
+  by-value scalar positions, which fired spurious fail-closed escape
+  obligations on argument expressions like `sizeof(*p)`);
+- `contracts/libc.yaml` audited for parameter completeness (allocator
+  scalar positions listed; `realloc` size parameter now
+  `no_ownership_effect`);
+- `scripts/contracts/merge_contracts.py`: deterministic single-file merge
+  for `cand check --contracts` (duplicate symbols rejected, no last-wins;
+  SHA-256 digests recorded; merged file is a build product, never
+  committed);
+- `scripts/contracts/check_bundles.py`: static bundle policy gate
+  (parameter completeness against an authoritative signature table,
+  scalar-only `no_ownership_effect`, excluded-symbol blacklist,
+  provenance presence);
+- `contracts/evidence/*.md`: per-symbol provenance records;
+  `docs/contracts/EXTERNAL-API-TRUST-MODEL.md`: normative trust model;
+- `tests/contracts/` conformance and adversarial harness (new CTest
+  `cand-p0-5-contracts`); CVE-replay and interprocedural harnesses moved
+  to the merge-tool bundle flow; `scripts/check.sh` gates bundle policy
+  and merge determinism;
+- measured adoption (obligation-diff method, zero analyzer semantic
+  changes): hiredis 18→23 CLEAR (+5), curl 119→127 (+8), libgit2
+  223→226 (+3), zlib 49→49; total +16 CLEAR across 2,017 functions,
+  75 obligations removed, 0 added, findings unchanged, false PASS = 0;
+  CVE replay re-verified BOUNDED-INCOMPLETE under the new bundles;
+- corrected the earlier external-boundary attribution (sole-EXT is 7
+  Hiredis functions, not 23; function universe 181, not 179) and the
+  intermediate "+17 CLEAR" measurement artifact; see
+  `docs/pilots/EXTERNAL-API-BOUNDARY-PARETO.md` and
+  `docs/pilots/EXTERNAL-CONTRACT-ADOPTION-RESULTS.md`.
+
 ## 0.2.1 — 2026-09-22
 
 Second post-incident qualified release. The public C&1/v1 scope is unchanged;

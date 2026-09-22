@@ -1,0 +1,26 @@
+schema: cand.api-contract/v1
+name: cand-libc-ctype
+version: "1.0.0"
+
+# Reviewed character-classification bundle (ISO C11 7.4).
+#
+# Trusted claim per symbol: the argument is a by-value int (the character,
+# or EOF); the function reads no memory, retains nothing, and returns an
+# int. The C type system forbids passing a pointer at this position, so
+# the parameter is no_ownership_effect. Tracked-pointer reads inside the
+# argument expression (for example tolower(*p)) are evaluated and
+# validated on the caller side by the ordinary expression walk.
+#
+# Provenance: contracts/evidence/libc-ctype.md.
+
+symbols:
+  - symbol: tolower
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+  - symbol: toupper
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect

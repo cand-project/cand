@@ -225,7 +225,11 @@ add_test(
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/interprocedural/run.sh $<TARGET_FILE:cand>
 )
 add_test(
-    NAME cand-p0-5-agent-verification
+    NAME cand-p0-5-contracts
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/contracts/run.sh $<TARGET_FILE:cand>
+)
+add_test(
+    NAME cand-p0-6-agent-verification
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/agent/run.sh $<TARGET_FILE:cand>
 )
 add_test(

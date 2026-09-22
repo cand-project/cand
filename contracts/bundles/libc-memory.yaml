@@ -1,0 +1,86 @@
+schema: cand.api-contract/v1
+name: cand-libc-memory
+version: "1.0.0"
+
+# Reviewed memory-data-movement bundle (ISO C11 7.24).
+#
+# Trusted claim per symbol: every pointer argument is used only to read
+# and/or write the pointee's raw bytes within the call's lifetime; no
+# argument is destroyed, retained beyond the call, or stored for later use.
+# By-value scalar positions (fill bytes, comparison/result sizes, lengths)
+# receive a copy of a scalar value: the C type system forbids passing a
+# pointer there, so they are declared no_ownership_effect. Tracked-pointer
+# reads that appear inside such argument expressions (for example
+# sizeof(*p) or *p) are evaluated and validated on the caller side by the
+# ordinary expression walk; the callee cannot retain anything it never
+# receives.
+#
+# Every parameter of each symbol is listed explicitly. Unlisted positions
+# default to the fail-closed unknown effect, so partial entries would
+# re-introduce escape obligations; completeness is enforced by
+# scripts/contracts/check_bundles.py.
+#
+# Provenance: contracts/evidence/libc-memory.md.
+
+symbols:
+  - symbol: memcpy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memmove
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memset
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memcmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+  - symbol: memchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0

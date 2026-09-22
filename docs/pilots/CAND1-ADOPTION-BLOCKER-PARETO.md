@@ -1,5 +1,15 @@
 # C&1 adoption blocker Pareto: Hiredis
 
+> **Superseded in part (2026-09-22):** the external-boundary figures in the
+> addendum section of this document use an obligation attribution that was
+> later shown to over-credit the external-API family (the "23 sole
+> external-blocked functions" figure was attribution error; the corrected
+> sole-EXT count is 7, and the E0 function universe is 181, not 179). See
+> `docs/pilots/EXTERNAL-API-BOUNDARY-PARETO.md` for the corrected,
+> callee-resolved analysis and
+> `docs/pilots/EXTERNAL-CONTRACT-ADOPTION-RESULTS.md` for the measured
+> adoption outcome. The roadmap table above is unaffected.
+
 This is an evidence-ranked roadmap, not a promise of coverage. Counts are
 Hiredis H3 diagnostic observations and are nonexclusive where stated. No item
 below changes C&1/v1 semantics in this phase.
