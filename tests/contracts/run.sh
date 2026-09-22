@@ -21,7 +21,14 @@ cand="$1"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+ctype_backup="$work/libc-ctype.yaml.bak"
+cleanup() {
+  # the digest-mutation check temporarily edits contracts/bundles/libc-ctype.yaml;
+  # always restore it so a failure never leaves the tree dirty
+  if [ -s "$ctype_backup" ]; then mv "$ctype_backup" contracts/bundles/libc-ctype.yaml; fi
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
 merged="$work/merged-contracts.yaml"
 
@@ -88,10 +95,10 @@ set -e
 
 echo "==> contracts: digest mutation changes the recorded digest"
 python3 scripts/contracts/merge_contracts.py --out "$work/m1.yaml" --digests | tail -1 > "$work/d1.txt"
-cp contracts/bundles/libc-ctype.yaml "$work/ctype-backup.yaml"
+cp contracts/bundles/libc-ctype.yaml "$ctype_backup"
 printf '\n# mutation\n' >> contracts/bundles/libc-ctype.yaml
 python3 scripts/contracts/merge_contracts.py --out "$work/m2.yaml" --digests | tail -1 > "$work/d2.txt"
-mv "$work/ctype-backup.yaml" contracts/bundles/libc-ctype.yaml
+mv "$ctype_backup" contracts/bundles/libc-ctype.yaml
 ! cmp -s "$work/d1.txt" "$work/d2.txt" || { echo "digest did not change on mutation"; exit 1; }
 # restore must reproduce the original merged bytes
 python3 scripts/contracts/merge_contracts.py --out "$work/m3.yaml" >/dev/null
