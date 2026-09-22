@@ -1,0 +1,83 @@
+schema: cand.api-contract/v1
+name: cand-libc-string
+version: "1.0.0"
+
+# Reviewed string-inspection bundle (ISO C11 7.24).
+#
+# Trusted claim per symbol: identical to the libc-memory bundle. Pointer
+# arguments are read (and for strncpy also written) only within the call's
+# lifetime; by-value scalar positions (characters, lengths) are
+# no_ownership_effect because the C type system forbids passing a pointer
+# there. strchr returns an interior borrowed pointer into its first
+# argument or NULL; strncpy returns its first argument.
+#
+# Deliberately excluded (see contracts/evidence/libc-string.md): strcat,
+# strcpy, strdup, strtok, and every function whose return or parameter
+# ownership is conditional, retained, or newly allocated. Those stay
+# fail-closed until a reviewed bundle represents them.
+#
+# Every parameter of each symbol is listed explicitly; completeness is
+# enforced by scripts/contracts/check_bundles.py.
+
+symbols:
+  - symbol: strlen
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+  - symbol: strnlen
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+  - symbol: strchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strncmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+  - symbol: strncpy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strcasecmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: strncasecmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect

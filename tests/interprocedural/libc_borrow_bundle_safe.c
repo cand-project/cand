@@ -3,14 +3,15 @@
 #include <stdio.h>
 
 /*
- * Guards the reviewed contracts/libc-borrow.yaml no-ownership-effect borrow
- * bundle. With the bundle active, memcpy/memmove interoperating with tracked
+ * Guards the reviewed libc borrow bundles (contracts/bundles/, merged by
+ * scripts/contracts/merge_contracts.py). With the bundles active,
+ * memcpy/memmove interoperating with tracked
  * heap allocations is treated as a borrow (a clean, decidable read/write of the
  * pointee bytes within the call) rather than an opaque
  * unknown-call-with-tracked-pointer obligation.
  *
- * This fixture must PASS with --contracts=contracts/libc-borrow.yaml. Without
- * the bundle it is INCOMPLETE; the contract test pins the net effect without
+ * This fixture must PASS with the merged reviewed bundles. Without
+ * the bundles it is INCOMPLETE; the contract test pins the net effect without
  * weakening any soundness obligation (each allocation here is freed exactly
  * once and never retained by the borrow).
  */

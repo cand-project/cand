@@ -16,7 +16,19 @@ python3 -c 'import jsonschema' >/dev/null
 
 echo "==> YAML syntax"
 ruby -e 'require "yaml"; ARGV.each { |f| YAML.safe_load(File.read(f), permitted_classes: [], permitted_symbols: [], aliases: false) }' \
-  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/libc-borrow.yaml contracts/agent-policy.yaml
+  contracts/safety-levels.yaml contracts/diagnostics.yaml contracts/libc.yaml contracts/agent-policy.yaml \
+  contracts/bundles/*.yaml
+
+echo "==> Contract bundle policy (completeness, excluded symbols, provenance)"
+python3 scripts/contracts/check_bundles.py
+
+echo "==> Contract bundle merge (determinism, duplicate rejection)"
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+python3 scripts/contracts/merge_contracts.py --out "$work/merged-contracts.yaml" >/dev/null
+python3 scripts/contracts/merge_contracts.py --out "$work/merged-again.yaml" >/dev/null
+cmp "$work/merged-contracts.yaml" "$work/merged-again.yaml" || {
+  echo "contract merge is not deterministic"; exit 1;
+}
 
 echo "==> Agent evidence verifier syntax"
 python3 -m py_compile .github/trusted/attest.py

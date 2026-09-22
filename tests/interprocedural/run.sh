@@ -2,6 +2,12 @@
 set -euo pipefail
 cand="$1"
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+# Reviewed bundles merged by the deterministic tool (same flow as the
+# CVE-replay harness and tests/contracts). See scripts/contracts/merge_contracts.py.
+merged="$work/merged-contracts.yaml"
+python3 scripts/contracts/merge_contracts.py --out "$merged" >/dev/null
 check() {
   local expected="$1" file="$2"; shift 2
   local output status
@@ -118,12 +124,13 @@ grep -Fq '"result": "pass"' <<<"$uo" || {
   echo "return-by-parameter case was not PASS"; exit 1;
 }
 
-# Reviewed libc borrow bundle (contracts/libc-borrow.yaml): with the bundle active,
-# memcpy/memmove/memset/memcmp/snprintf operating on tracked heap allocations are
-# modeled as borrows (decidable, non-retaining) and the fixture PASSES. This guard
-# pins both that the contract file loads and that it clears the opaque-call
-# obligation without weakening any destroy/retention soundness.
-check pass tests/interprocedural/libc_borrow_bundle_safe.c --contracts=contracts/libc-borrow.yaml
+# Reviewed libc borrow bundles (contracts/bundles/, merged): with the bundles
+# active, memcpy/memmove/memset/memcmp/snprintf operating on tracked heap
+# allocations are modeled as borrows (decidable, non-retaining) and the
+# fixture PASSES. This guard pins both that the merged contract file loads
+# and that it clears the opaque-call obligation without weakening any
+# destroy/retention soundness.
+check pass tests/interprocedural/libc_borrow_bundle_safe.c --contracts="$merged"
 
 # Variadic-argument escape matrix (see variadic_argument_escape.c): tracked
 # pointers passed at argument positions beyond the callee's modelled parameter
@@ -142,7 +149,7 @@ for va_case in ESCAPE DEAD; do
 done
 set +e
 va_output="$($cand check --format=json tests/interprocedural/variadic_argument_escape.c \
-  --contracts=contracts/libc-borrow.yaml -- -std=c11 -DCASE_VA_SNPRINTF 2>/dev/null)"
+  --contracts="$merged" -- -std=c11 -DCASE_VA_SNPRINTF 2>/dev/null)"
 va_status=$?
 set -e
 grep -Fq '"result": "incomplete"' <<<"$va_output" || {

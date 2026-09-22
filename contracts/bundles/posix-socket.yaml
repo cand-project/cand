@@ -1,0 +1,85 @@
+schema: cand.api-contract/v1
+name: cand-posix-socket
+version: "1.0.0"
+
+# Reviewed POSIX socket-option and data bundle (POSIX.1-2017 12.9-12.10).
+#
+# Trusted claim per symbol: every pointer argument is used only to read
+# and/or write the pointee's raw bytes within the call's lifetime. The
+# socket layer may copy the bytes into kernel buffers during the call, but
+# it does not retain the caller's buffer beyond the call, does not take
+# ownership, and does not destroy anything; buffer lifetime remains the
+# caller's responsibility for the duration of the call only. By-value
+# scalar positions (descriptors, levels, option names, lengths, flags) are
+# no_ownership_effect because the C type system forbids passing a pointer
+# there.
+#
+# getsockopt's optlen position (param 4, socklen_t *optlen) is read and
+# then written during the call (input size / output size); the pointed-to
+# object is a scalar length, never a pointer, so borrow is exact.
+#
+# Deliberately excluded (see contracts/evidence/posix-socket.md):
+# socket/bind/listen/accept (accept writes a sockaddr through a pointer),
+# getaddrinfo/freeaddrinfo (out-owner allocation family), shutdown,
+# sendto/recvfrom (no measured demand yet).
+#
+# Provenance: contracts/evidence/posix-socket.md.
+
+symbols:
+  - symbol: connect
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+  - symbol: setsockopt
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: no_ownership_effect
+      - index: 3
+        effect: borrow
+      - index: 4
+        effect: no_ownership_effect
+  - symbol: getsockopt
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: no_ownership_effect
+      - index: 3
+        effect: borrow
+      - index: 4
+        effect: borrow
+  - symbol: send
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+      - index: 3
+        effect: no_ownership_effect
+  - symbol: recv
+    kind: function
+    params:
+      - index: 0
+        effect: no_ownership_effect
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
+      - index: 3
+        effect: no_ownership_effect

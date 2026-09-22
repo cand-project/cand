@@ -1,0 +1,44 @@
+schema: cand.api-contract/v1
+name: cand-libc-stdio
+version: "1.0.0"
+
+# Reviewed formatted-output bundle (ISO C11 7.21.6).
+#
+# Trusted claim per symbol: the destination buffer (param 0) is written
+# only within the call's lifetime; the format string (param 2) is read
+# only within the call's lifetime; the size limit (param 1) is a by-value
+# scalar. Neither function retains or destroys any argument. Return value
+# is an int (write count or negative on error), not a pointer.
+#
+# Variadic argument positions (everything after the format string) are NOT
+# contractible: the checked-in verifier caps contract parameter lists at
+# the declared (fixed) parameter count, and tracked storage passed at a
+# variadic position keeps its fail-closed escape obligation from the
+# variadic-argument repair (incident #53 companion). %n-style writes are
+# not representable and are not granted by this bundle.
+#
+# vsnprintf's va_list argument (param 3) is deliberately left unlisted:
+# va_list is an opaque variadic-state object with implementation-defined
+# lifetime semantics, so the position stays fail-closed unknown.
+#
+# Provenance: contracts/evidence/libc-stdio.md.
+
+symbols:
+  - symbol: snprintf
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: borrow
+  - symbol: vsnprintf
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: borrow
