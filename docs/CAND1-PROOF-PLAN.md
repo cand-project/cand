@@ -161,8 +161,25 @@ BOUNDED-INCOMPLETE; zero MISSED-with-PASS; per-CVE results published
    database/engine, a protocol library, a parser, a systems daemon, an
    embedded stack), each pinned and measured with the fnmap methodology
    (obligations, CLEAR/BLOCKED functions, class Pareto).
-2. Land cross-TU summaries (measured ≈+3 CLEAR upper bound on Hiredis;
-   addresses the 55 named same-project escape obligations).
+2. Cross-TU summaries: **gated and not landed** (milestone #42 Gate A,
+   2026-09-22, evidence `docs/pilots/CROSS-TU-ADOPTION-PARETO.md`).
+   Full-scale measurement on five pilots (hiredis, zlib, curl, libgit2,
+   sqlite) plus the amalgamation counterfactual (every TU physically
+   merged so the qualified same-TU machinery computes the true merged
+   fixed point) puts the ceiling of perfect cross-TU summary visibility
+   at **+1/+1/+38/+30/+42 CLEAR (0.6-1.8% of functions)** with 0 lost
+   CLEAR and a small sound DETECTED-direction findings gain (+6 sqlite,
+   +1 libgit2 borrow-lifetime). Hiredis E1 XTU is 194 obligations / 62
+   functions / 17 sole-blocked (the earlier 210/66/19 and "26 sole /
+   17->43" figures were attribution errors; "~+3 CLEAR / 55 obligations"
+   was a pre-resolution estimate). Gate A failed its usefulness
+   criteria: H-shaped complex callee bodies (40-76% of XTU callee
+   sites) stay Unknown even merged, and the sole-STU audience
+   (28/12/150/356/291) matches or exceeds sole-XTU (17/1/193/532/278)
+   in four of five pilots without any new interposition, caching or
+   invalidation surface. Roadmap consequence: the decidability work
+   shifts to **same-TU summary precision (H bodies)**; cross-TU
+   summaries are revisited only if that work changes the shape census.
 3. Fix the documented alias-through-free false positive (raises C3 as well).
 4. Track per-release: CLEAR rate, obligation density, and residual-class
    Pareto, published in the adoption-blocker document.
