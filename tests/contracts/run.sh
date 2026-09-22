@@ -39,8 +39,11 @@ echo "==> contracts: no committed merge product"
 # The merged contract file is a build product and must never be committed:
 # a stale or candidate-modified merged file could silently replace the
 # reviewed bundle set. Only reviewed sources may be tracked.
-committed="$(git ls-files 'contracts/*.yaml' 'contracts/**/*.yaml')"
-expected="$(printf 'contracts/agent-policy.yaml\ncontracts/diagnostics.yaml\ncontracts/libc.yaml\ncontracts/safety-levels.yaml\n'; git ls-files 'contracts/bundles/*.yaml' | sort)"
+committed="$(git ls-files -- 'contracts/*.yaml' | sort)"
+expected="$(printf '%s\n' contracts/agent-policy.yaml contracts/diagnostics.yaml \
+  contracts/libc.yaml contracts/safety-levels.yaml
+  git ls-files -- 'contracts/bundles/*.yaml' | sort)"
+expected="$(sort <<<"$expected")"
 [ "$committed" = "$expected" ] || {
   echo "unexpected tracked contract files:"; diff <(echo "$expected") <(echo "$committed"); exit 1;
 }
