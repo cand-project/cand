@@ -3974,7 +3974,20 @@ private:
                 ParamEffect effect = ParamEffect::Unknown;
                 if (name == "free" && call->getNumArgs() == 1) effect = ParamEffect::Destroy;
                 else if (callee && argument < callee->params.size()) effect = callee->params[argument];
-                if (conditional) effect = ParamEffect::Unknown;
+                if (conditional) {
+                    if (effect == ParamEffect::Borrow || effect == ParamEffect::None) {
+                        // Milestone #61 (ADR-0027): a parameter that is at
+                        // most borrowed (or untouched) on every path is at
+                        // most borrowed overall. Conditional direct
+                        // member/deref/subscript borrows are already kept
+                        // unconditionally; this unifies call-mediated
+                        // borrows with that treatment. Conditional
+                        // consume/destroy and unresolved-callee effects
+                        // still fail closed to Unknown below.
+                    } else {
+                        effect = ParamEffect::Unknown;
+                    }
+                }
                 if (s.params[current] == ParamEffect::TakeOwnership &&
                     (effect == ParamEffect::TakeOwnership || effect == ParamEffect::Destroy)) {
                     // A consuming parameter may be destroyed by the callee;

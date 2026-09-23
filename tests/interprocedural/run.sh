@@ -251,3 +251,9 @@ check incomplete tests/interprocedural/compound_origin_subscript_incomplete.c
 check pass tests/interprocedural/compound_origin_controls_safe.c
 check fail tests/interprocedural/compound_origin_controls_detect.c
 check incomplete tests/interprocedural/compound_origin_callargs_incomplete.c
+check pass tests/interprocedural/conditional_join_borrow_safe.c
+check pass tests/interprocedural/conditional_join_none_safe.c
+check incomplete tests/interprocedural/conditional_join_destroy_incomplete.c
+check pass tests/interprocedural/conditional_join_uncond_destroy_safe.c
+check fail tests/interprocedural/conditional_join_uaf_detect.c
+check incomplete tests/interprocedural/conditional_join_branch_conflict_incomplete.c
