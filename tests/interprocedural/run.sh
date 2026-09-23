@@ -299,7 +299,9 @@ check fail tests/interprocedural/annotation_review_borrow_return_escape.c --anno
 check pass tests/interprocedural/annotation_review_destroy_param_safe.c --annotation-review=tests/interprocedural/annotation_review_destroy_param.yaml
 check fail tests/interprocedural/annotation_review_destroy_param_uaf.c --annotation-review=tests/interprocedural/annotation_review_destroy_param.yaml
 check pass tests/interprocedural/annotation_review_takes_param_safe.c --annotation-review=tests/interprocedural/annotation_review_takes_param.yaml
-check fail tests/interprocedural/annotation_review_takes_param_double_use.c --annotation-review=tests/interprocedural/annotation_review_takes_param.yaml
+# Consume-then-use is INCOMPLETE in both modes (access-unknown-ownership-state);
+# pinned to the identical contract-twin verdict (H1 parity).
+check incomplete tests/interprocedural/annotation_review_takes_param_double_use.c --annotation-review=tests/interprocedural/annotation_review_takes_param.yaml
 check pass tests/interprocedural/annotation_review_borrow_param_safe.c --annotation-review=tests/interprocedural/annotation_review_borrow_param.yaml
 check pass tests/interprocedural/annotation_review_callback_borrow.c --annotation-review=tests/interprocedural/annotation_review_callback_borrow.yaml
 check pass tests/interprocedural/contract_callback_borrow.c --contracts=tests/interprocedural/contract_callback_borrow.yaml

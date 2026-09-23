@@ -5,11 +5,9 @@ symbols:
   - symbol: reviewed_owned
     kind: function
     returns:
-      ownership: borrowed
-      lifetime:
-        from_param: 0
+      ownership: none
   - symbol: reviewed_destroy
     kind: function
     params:
       - index: 0
-        effect: destroys
+        effect: consumes
