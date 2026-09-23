@@ -4808,6 +4808,7 @@ struct AgentPolicyState {
     bool review_required = false;
     std::vector<std::string> policy_errors;
     std::vector<std::tuple<std::string, std::string, std::string>> contract_inputs;
+    std::vector<std::tuple<std::string, std::string, std::string>> annotation_review_inputs;
     unsigned unsafe_boundaries = 0;
     unsigned suppressions = 0;
     bool toolchain_supported = true;
@@ -4827,6 +4828,10 @@ bool canEmitCand1Pass(const Collector &collector, const AgentPolicyState &state,
     if (state.policy.scope_files.empty() || state.policy.sha256.empty()) return false;
     for (const auto &contract : state.contract_inputs) {
         const std::string &trust = std::get<2>(contract);
+        if (trust != "builtin" && trust != "verified" && trust != "reviewed") return false;
+    }
+    for (const auto &review : state.annotation_review_inputs) {
+        const std::string &trust = std::get<2>(review);
         if (trust != "builtin" && trust != "verified" && trust != "reviewed") return false;
     }
     return state.unsafe_boundaries == 0 && state.suppressions == 0;
@@ -5198,6 +5203,15 @@ llvm::json::Object buildEvidence(const Collector &collector,
         contracts.push_back(std::move(contract));
     }
     evidence["contracts"] = std::move(contracts);
+    llvm::json::Array annotation_reviews;
+    for (const auto &entry : state.annotation_review_inputs) {
+        llvm::json::Object review;
+        review["path"] = std::get<0>(entry);
+        review["sha256"] = std::get<1>(entry);
+        review["trust_class"] = std::get<2>(entry);
+        annotation_reviews.push_back(std::move(review));
+    }
+    evidence["annotation_reviews"] = std::move(annotation_reviews);
     llvm::json::Object policy_delta;
     policy_delta["weakened"] = state.delta.weakened || state.policy_failed;
     policy_delta["review_required"] = state.delta.review_required || state.review_required;
@@ -5356,6 +5370,17 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
         if (!contract_path || !relative_manifest_path(*contract_path) || !expected ||
             !cand::sha256File(contract_path->str(), actual, error) || actual != expected->str()) {
             status = "stale"; detail = "trusted contract changed or unavailable"; return false;
+        }
+    }
+    const auto *annotation_reviews = evidence.getArray("annotation_reviews");
+    if (annotation_reviews) for (const auto &item : *annotation_reviews) {
+        const auto *review = item.getAsObject();
+        auto review_path = review ? review->getString("path") : std::nullopt;
+        auto expected = review ? review->getString("sha256") : std::nullopt;
+        std::string actual;
+        if (!review_path || !relative_manifest_path(*review_path) || !expected ||
+            !cand::sha256File(review_path->str(), actual, error) || actual != expected->str()) {
+            status = "stale"; detail = "reviewed annotation manifest changed or unavailable"; return false;
         }
     }
     const auto *frontend = evidence.getObject("frontend");
@@ -5585,6 +5610,30 @@ bool validateAgentContract(AgentPolicyState &state) {
         return false;
     }
     state.contract_inputs.emplace_back(normalized, digest, trust);
+    return true;
+}
+
+// The reviewed annotation manifest is a trusted input exactly like a contract
+// bundle and is pinned through the same policy pin list (path + sha256 +
+// trust class). A candidate or substituted manifest never reaches the
+// analyzer (ADR-0029).
+bool validateAnnotationReview(AgentPolicyState &state) {
+    if (AnnotationReviewPath.empty()) return true;
+    std::string digest, error, trust;
+    const std::string normalized = cand::normalizedRelativePath(AnnotationReviewPath);
+    if (normalized.empty() || !cand::sha256File(AnnotationReviewPath, digest, error) ||
+        !cand::contractIsPinned(state.policy, normalized, digest, trust)) {
+        state.policy_failed = true;
+        state.review_required = true;
+        state.policy_errors.push_back("annotation review path/content is not pinned by the effective policy");
+        state.delta.review_required = true;
+        state.delta.classification = state.delta.weakened ? "PROOF_WEAKENING" : "REVIEW_REQUIRED";
+        state.delta.changes.push_back({"annotation-review-set-substitution", "pinned trusted inputs", normalized,
+                                       "REVIEW_REQUIRED"});
+        AnnotationReviewPath = ""; // candidate or substituted manifests never reach the analyzer
+        return false;
+    }
+    state.annotation_review_inputs.emplace_back(normalized, digest, trust);
     return true;
 }
 
@@ -5843,6 +5892,7 @@ int main(int argc, const char **argv) {
             agent_state.policy_errors.push_back("frontend arguments differ from the policy-pinned argument list");
         }
         (void)validateAgentContract(agent_state);
+        (void)validateAnnotationReview(agent_state);
     }
 
     clang::tooling::ClangTool tool(options_parser.getCompilations(),
