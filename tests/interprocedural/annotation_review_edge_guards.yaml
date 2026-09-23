@@ -1,0 +1,12 @@
+schema: cand.annotation-review/v1
+name: annotation-review-edge-guards
+version: "1"
+symbols:
+  - symbol: reviewed_knr
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: realloc
+    kind: function
+    returns:
+      ownership: owned

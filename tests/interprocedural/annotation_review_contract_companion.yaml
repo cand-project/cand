@@ -1,0 +1,22 @@
+schema: cand.api-contract/v1
+name: contract-merge-companion
+version: "1"
+symbols:
+  - symbol: reviewed_agree
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: reviewed_destroy_agree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: reviewed_disagree
+    kind: function
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+    params:
+      - index: 0
+        effect: borrow_shared

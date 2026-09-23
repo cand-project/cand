@@ -282,3 +282,51 @@ check incomplete tests/interprocedural/conditional_join_destroy_incomplete.c
 check pass tests/interprocedural/conditional_join_uncond_destroy_safe.c
 check fail tests/interprocedural/conditional_join_uaf_detect.c
 check incomplete tests/interprocedural/conditional_join_branch_conflict_incomplete.c
+
+# Milestone #39: reviewed declaration-site annotation propagation.
+# Candidate-only annotations (no review manifest) never gain PASS
+# authority: the annotated external boundary stays INCOMPLETE.
+check incomplete tests/interprocedural/annotation_review_owned_return.c
+check incomplete tests/interprocedural/annotation_review_borrow_return_safe.c
+check incomplete tests/interprocedural/annotation_review_destroy_param_safe.c
+check incomplete tests/interprocedural/annotation_review_takes_param_safe.c
+check incomplete tests/interprocedural/annotation_review_borrow_param_safe.c
+# With a matching reviewed manifest the boundary resolves like a contract.
+check pass tests/interprocedural/annotation_review_owned_return.c --annotation-review=tests/interprocedural/annotation_review_owned_return.yaml
+check incomplete tests/interprocedural/annotation_review_owned_return.c --annotation-review=tests/interprocedural/annotation_review_owned_return_mismatch.yaml
+check pass tests/interprocedural/annotation_review_borrow_return_safe.c --annotation-review=tests/interprocedural/annotation_review_borrow_return.yaml
+check fail tests/interprocedural/annotation_review_borrow_return_escape.c --annotation-review=tests/interprocedural/annotation_review_borrow_return.yaml
+check pass tests/interprocedural/annotation_review_destroy_param_safe.c --annotation-review=tests/interprocedural/annotation_review_destroy_param.yaml
+check fail tests/interprocedural/annotation_review_destroy_param_uaf.c --annotation-review=tests/interprocedural/annotation_review_destroy_param.yaml
+check pass tests/interprocedural/annotation_review_takes_param_safe.c --annotation-review=tests/interprocedural/annotation_review_takes_param.yaml
+check fail tests/interprocedural/annotation_review_takes_param_double_use.c --annotation-review=tests/interprocedural/annotation_review_takes_param.yaml
+check pass tests/interprocedural/annotation_review_borrow_param_safe.c --annotation-review=tests/interprocedural/annotation_review_borrow_param.yaml
+check pass tests/interprocedural/annotation_review_callback_borrow.c --annotation-review=tests/interprocedural/annotation_review_callback_borrow.yaml
+check pass tests/interprocedural/contract_callback_borrow.c --contracts=tests/interprocedural/contract_callback_borrow.yaml
+# Conflicting annotations across redeclarations can never match a single
+# reviewed manifest entry; fail closed.
+check incomplete tests/interprocedural/annotation_review_redecl_conflict_return.c --annotation-review=tests/interprocedural/annotation_review_redecl_conflict.yaml
+check incomplete tests/interprocedural/annotation_review_redecl_conflict_param.c --annotation-review=tests/interprocedural/annotation_review_redecl_conflict.yaml
+# Reviewed annotations merge with reviewed contracts: agreement keeps the
+# contract's provenance, disagreement fails closed.
+check pass tests/interprocedural/annotation_review_contract_agree.c --contracts=tests/interprocedural/annotation_review_contract_companion.yaml --annotation-review=tests/interprocedural/annotation_review_contract_merge.yaml
+check incomplete tests/interprocedural/annotation_review_contract_disagree.c --contracts=tests/interprocedural/annotation_review_contract_companion.yaml --annotation-review=tests/interprocedural/annotation_review_contract_merge.yaml
+# Scope guards: pointer-to-pointer shapes, unspecified-parameter (K&R)
+# declarations, realloc, malformed indices, and indirect calls stay
+# fail-closed even with a matching manifest.
+check incomplete tests/interprocedural/annotation_review_ptr_ptr_param.c --annotation-review=tests/interprocedural/annotation_review_scope_guards.yaml
+check incomplete tests/interprocedural/annotation_review_ptr_ptr_return.c --annotation-review=tests/interprocedural/annotation_review_scope_guards.yaml
+check incomplete tests/interprocedural/annotation_review_knr.c --annotation-review=tests/interprocedural/annotation_review_edge_guards.yaml
+check incomplete tests/interprocedural/annotation_review_realloc.c --annotation-review=tests/interprocedural/annotation_review_edge_guards.yaml
+check incomplete tests/interprocedural/annotation_review_malformed_borrow_index.c
+check incomplete tests/interprocedural/annotation_review_indirect.c
+# Same-TU prototype annotations follow the existing builder path (body
+# precedence, combineReturn conflict); unchanged pins.
+check incomplete tests/interprocedural/redecl_annotation_body_conflict.c
+check pass tests/interprocedural/redecl_annotation_body_agree.c
+# A malformed annotation review manifest is a hard input error.
+set +e
+"$cand" check --annotation-review=tests/interprocedural/annotation_review_malformed.yaml --format=json tests/interprocedural/annotation_review_owned_return.c >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == "2" ]] || { echo "invalid annotation review manifest was accepted"; exit 1; }

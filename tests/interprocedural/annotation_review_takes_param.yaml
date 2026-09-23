@@ -1,0 +1,9 @@
+schema: cand.annotation-review/v1
+name: annotation-review-takes-param
+version: "1"
+symbols:
+  - symbol: reviewed_queue_push
+    kind: function
+    params:
+      - index: 0
+        effect: consumes

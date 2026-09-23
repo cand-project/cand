@@ -1,0 +1,17 @@
+schema: cand.annotation-review/v1
+name: annotation-review-contract-agree
+version: "1"
+symbols:
+  - symbol: reviewed_agree
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: reviewed_destroy_agree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: reviewed_disagree
+    kind: function
+    returns:
+      ownership: owned

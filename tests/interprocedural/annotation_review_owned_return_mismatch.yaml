@@ -1,0 +1,15 @@
+schema: cand.annotation-review/v1
+name: annotation-review-owned-return-mismatch
+version: "1"
+symbols:
+  - symbol: reviewed_owned
+    kind: function
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: reviewed_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys

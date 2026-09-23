@@ -1,0 +1,9 @@
+schema: cand.annotation-review/v1
+name: annotation-review-borrow-param
+version: "1"
+symbols:
+  - symbol: reviewed_read
+    kind: function
+    params:
+      - index: 0
+        effect: borrow_shared

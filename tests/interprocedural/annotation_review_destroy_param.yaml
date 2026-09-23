@@ -1,0 +1,9 @@
+schema: cand.annotation-review/v1
+name: annotation-review-destroy-param
+version: "1"
+symbols:
+  - symbol: reviewed_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
