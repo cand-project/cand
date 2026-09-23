@@ -4,6 +4,33 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Milestone #61: conditional borrow/none effect join (bounded same-TU summary precision)
+
+- Gate A evidence (`docs/pilots/SAME-TU-SUMMARY-PRECISION-PARETO.md`,
+  census harness `scripts/pilots/same_tu_precision.py`): on the
+  post-#62/post-#64 baseline, conditional borrow/no-effect calls (H1) are
+  the dominant addressable root cause of same-TU summary imprecision
+  (54/50/357/669/424 undecided functions across the five pilots);
+  same-origin multi-return, decided-wrapper composition and member returns
+  are already sound, and local-return provenance has a near-zero
+  population post-#64;
+- fix (ADR-0027): a parameter passed to a borrow-effect or no-effect
+  callee only under a condition keeps that param effect instead of
+  collapsing the summary to Unknown — consistent with the existing
+  treatment of conditional direct member/deref/subscript borrows;
+  conditional consume/destroy and unresolved-callee effects still fail
+  closed;
+- measured five-pilot BLOCKED→CLEAR: +62 functions (zlib +3, curl +9,
+  libgit2 +39, sqlite +11; hiredis +0 with 18 obligations removed),
+  findings preserved exactly in every pilot, zero lost-clear, 431
+  additional decided summaries;
+- permanent paired regressions in `tests/interprocedural/`:
+  `conditional_join_borrow_safe.c`, `conditional_join_none_safe.c`,
+  `conditional_join_destroy_incomplete.c`,
+  `conditional_join_uncond_destroy_safe.c`,
+  `conditional_join_uaf_detect.c`,
+  `conditional_join_branch_conflict_incomplete.c`.
+
 ### Incident #64: compound return expressions misattribute borrow origin (BLOCKER)
 
 - confirmed false PASS inside the published C&1/v1 claim, pre-existing in

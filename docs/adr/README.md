@@ -32,6 +32,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0024](ADR-0024-parameter-identity-completion.md) | Parameter-identity completion: Unknown-capability pointer parameters are tracked live-at-entry objects with no authority | Accepted |
 | [ADR-0025](ADR-0025-reassigned-parameter-origin-repair.md) | Reassigned-parameter borrow-origin repair: a parameter assigned anywhere in the body is not a sound return borrow origin (incident #62) | Accepted |
 | [ADR-0026](ADR-0026-compound-origin-resolution-repair.md) | Compound-origin borrow-resolution repair: return origins resolve only from expressions unambiguously derived from a single pointer parameter (incident #64) | Accepted |
+| [ADR-0027](ADR-0027-conditional-borrow-none-join.md) | Conditional borrow/none effect join: a parameter at most borrowed (or untouched) on every path is at most borrowed overall (milestone #61) | Accepted |
 
 ## Design chain
 
