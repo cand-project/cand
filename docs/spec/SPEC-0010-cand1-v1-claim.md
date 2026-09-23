@@ -53,8 +53,15 @@ roots are outside the profile and must fail closed.
 10. Same-translation-unit bodies may contribute deterministic summaries for
     supported calls, wrappers, returns, and parameter transport.
 11. External effects require a builtin, verified, or separately reviewed
-    trusted contract. Unknown, indirect, callback, retention, and conflicting
-    effects fail closed.
+    trusted contract, or a declaration whose ownership annotations are
+    confirmed by a separately reviewed annotation-review manifest
+    (`cand.annotation-review/v1`, ADR-0029) with exactly equal facts.
+    Unknown, indirect, callback, retention, and conflicting effects fail
+    closed. Candidate-only annotations — no manifest, absent symbol, fact
+    mismatch, or conflicting redeclaration facts — fail closed and report
+    an `unreviewed-declaration-annotation` or
+    `conflicting-declaration-annotation` obligation. Visible bodies are
+    never overridden by annotations or manifests.
 12. General cross-translation-unit semantic analysis is not part of v1. A
     cross-TU fact without an accepted contract is UNSUPPORTED/INCOMPLETE.
 13. Aggregate, alias, pointer, global, out-parameter, and transport forms are

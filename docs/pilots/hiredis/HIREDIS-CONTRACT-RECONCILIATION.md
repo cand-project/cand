@@ -26,6 +26,12 @@ consistency expectations or ergonomics hints, but an unknown external effect
 remains INCOMPLETE without a selected trusted contract or builtin model.
 Suggested/inferred contracts are likewise not proof authority.
 
+Since milestone #39 (ADR-0029), a declaration's annotations seed a summary
+only when a separately reviewed annotation-review manifest
+(`cand.annotation-review/v1`, policy-pinned like a contract bundle) records
+exactly the same facts. The candidate-only control below is unchanged: an
+annotation without its reviewed manifest stays INCOMPLETE.
+
 For a visible body, a trusted contract constrains only fields it explicitly
 states. Omission means no claim. An explicit `no_ownership_effect` is a known
 fact and is checked against the body. Contradictions remain INCOMPLETE.
@@ -129,10 +135,11 @@ Observed `BLOCKED -> CLEAR` transitions: **0**.
   control;
 - policy/evidence replay and contract trust-boundary tests pass.
 
-The candidate-only external declaration annotation attack remains INCOMPLETE.
-Changing contract digests, substituting a candidate bundle, changing source
-after evidence, and changing policy inputs remain fail-closed under the
-existing evidence/policy tests.
+The candidate-only external declaration annotation attack remains INCOMPLETE
+(now reported as `unreviewed-declaration-annotation`; see
+`docs/pilots/DECL-ANNOTATION-PROPAGATION.md`). Changing contract digests,
+substituting a candidate bundle, changing source after evidence, and changing
+policy inputs remain fail-closed under the existing evidence/policy tests.
 
 ## Disposition
 

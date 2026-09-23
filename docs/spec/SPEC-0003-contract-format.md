@@ -107,3 +107,47 @@ Trusted bundles SHOULD include declaration checks, small runtime fixtures under 
 ## 16. Release binding
 
 A C& proof report MUST include cryptographic digests of every trusted contract bundle used. Contract changes invalidate dependent cached summaries/results.
+
+## 17. Declaration-annotation review manifest
+
+A declaration-annotation review manifest (ADR-0029) records that the C&
+ownership annotations on a set of external (body-less) declarations have
+been separately reviewed. A manifest is a YAML document with schema
+`cand.annotation-review/v1` whose `symbols` entries use exactly the symbol
+fact vocabulary of this specification:
+
+```yaml
+schema: cand.annotation-review/v1
+name: hiredis-cand1-reviewed-h2
+version: "1"
+symbols:
+  - symbol: reviewed_create
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: reviewed_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+```
+
+Semantics:
+
+- A body-less declaration carrying ownership annotations seeds an external
+  summary only when the manifest lists the symbol and the declaration's
+  gathered facts equal the manifest facts exactly. Otherwise the calls fail
+  closed with an `unreviewed-declaration-annotation` (or
+  `conflicting-declaration-annotation`) obligation.
+- Un-annotated declaration parameters mean `no_ownership_effect` (the
+  annotation-language semantics); unlisted contract parameters mean
+  `unknown`. Silence is compatible when merging with a contract; explicit
+  facts must agree exactly, and disagreement fails closed.
+- Visible bodies always take precedence; annotations never override them.
+- In the agent path the manifest is a trusted input pinned by the policy's
+  trusted pin list (path + sha256 + trust class), appears in evidence as
+  `annotation_reviews`, and participates in the evidence freshness check.
+- Suggested or LLM-generated manifests are not proof authority until
+  reviewed and pinned, exactly as with contracts.
+
