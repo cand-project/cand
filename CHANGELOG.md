@@ -2,7 +2,13 @@
 
 All notable project changes are recorded here.
 
-## Unreleased
+## 0.2.2 — 2026-09-23
+
+### Post-incident release: incidents #62 and #64 repaired, C&1/v1 claim restored
+
+- complete exact-head requalification of the release source (see
+  `docs/CAND1-V0.2.2-RELEASE-EVIDENCE.md`); the `v0.2.1` tag's C&1/v1
+  claim is suspended (not rewritten) and superseded by this release.
 
 ### Milestone #61: conditional borrow/none effect join (bounded same-TU summary precision)
 
