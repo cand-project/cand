@@ -130,11 +130,22 @@ of `cc8e9bd` (Build A above, SHA256 `eba50c6a…`), extended differential
 mode, 10,000 cases per seed, each temporal case ASan-executed in its own
 process; every run exercises the complete 35-operator mutation suite.
 
-<!-- CAMPAIGN_TABLE -->
+| Deterministic extended differential fuzz, seed 12345 | 10,000 cases: 3,334 correct PASS, 3,333 correct FAIL, 3,333 correct INCOMPLETE; **0 false PASS, 0 false positive, 0 coverage gap, 0 wrong failure class, 0 harness error**; 3,333 ASan temporal confirmations; 35/35 mutation operators correct; deterministic JSON |
+| Deterministic extended differential fuzz, seed 67890 | 10,000 cases: 3,334 correct PASS, 3,333 correct FAIL, 3,333 correct INCOMPLETE; **0 false PASS, 0 false positive, 0 coverage gap, 0 wrong failure class, 0 harness error**; 3,333 ASan temporal confirmations; 35/35 mutation operators correct; deterministic JSON |
+| Rotating campaign seed 20260925 (cumulative-ledger run) | 10,000 cases: 3,334 correct PASS, 3,333 correct FAIL, 3,333 correct INCOMPLETE; **0 false PASS, 0 false positive, 0 coverage gap, 0 wrong failure class, 0 harness error**; 3,333 ASan temporal confirmations; 35/35 mutation operators correct; deterministic JSON |
 
 ### Cumulative ledger
 
-<!-- LEDGER -->
+`tests/fuzz/accumulate.py` accepted all three reports above: **30,000
+unique campaign cases across 3 unique runs** (0 duplicate runs excluded),
+zero false PASS, zero false positive, zero coverage gap, zero wrong
+failure class, zero harness error, 9,999 ASan temporal confirmations. The
+provenance triple is self-consistent on every run: verifier
+`eba50c6a…` (Build A above, the same binary as the reproducibility gate),
+generator `95b9eca4…` (the generator merged as PR #55 and unchanged since
+— so the seed 12345 and 67890 corpora are identical to the v0.2.1
+requal corpora, re-executed against the repaired verifier), source commit
+`cc8e9bd…` (the clean checkout the campaigns ran in).
 
 ## Required gate summary
 

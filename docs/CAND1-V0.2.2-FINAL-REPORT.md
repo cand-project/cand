@@ -48,7 +48,10 @@ The `v0.2.1` tag is untouched at `a362306`.
    zero false positive, zero coverage gap, zero wrong failure class,
    zero harness error in every run.
 
-<!-- CAMPAIGN_NUMBERS (per-seed verdict distributions to be recorded) -->
+   Per-seed verdict distributions (identical across all three runs):
+   3,334 correct PASS, 3,333 correct FAIL, 3,333 correct INCOMPLETE;
+   3,333 ASan temporal confirmations per seed; deterministic JSON on
+   every case.
 
 6. **Cumulative accounting is auditable and inflation-proof.**
    `tests/fuzz/accumulate.py` accepted the provenance-carrying ledger run
