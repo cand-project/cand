@@ -6,24 +6,31 @@ It is intentionally conservative. Marketing language, examples, prompt output, s
 
 ## Current status
 
-The `v0.2.1` release's C&1/v1 claim is **suspended** following incident
-[#62](https://github.com/cand-project/cand/issues/62): a pointer parameter
-reassigned in the body (`p = r; return p;`) had its returned borrow origin
-attributed to the syntactically referenced parameter instead of the parameter
-whose object was actually returned, so a caller that destroyed the true origin
-and used the returned pointer received an authoritative PASS on a confirmed
-(ASan-verified) use-after-free. The defect is confirmed on the immutable
-`v0.2.1` tag (the tag is not rewritten or retagged); its qualification
-evidence remains available but must not be cited as a current soundness
-claim.
+The `v0.2.1` release's C&1/v1 claim is **suspended** following incidents
+[#62](https://github.com/cand-project/cand/issues/62) and
+[#64](https://github.com/cand-project/cand/issues/64). Incident #62: a
+pointer parameter reassigned in the body (`p = r; return p;`) had its
+returned borrow origin attributed to the syntactically referenced parameter
+instead of the parameter whose object was actually returned. Incident #64:
+compound return expressions resolved their borrow origin from the **first
+parameter contained anywhere in the expression** (`return c ? a : b;`,
+`return (first(a), b);`, value reads `return p->f;`/`return p[i];` out of
+parameter storage, and call-argument containment `return dupit(p);`), so
+callers that destroyed the true origin and used the returned pointer
+received an authoritative PASS on confirmed (ASan-verified) use-after-frees.
+Both defects are confirmed on the immutable `v0.2.1` tag (the tag is not
+rewritten or retagged); its qualification evidence remains available but
+must not be cited as a current soundness claim.
 
 The `v0.2.0` release's C&1/v1 claim remains **suspended** from incident
 [#53](https://github.com/cand-project/cand/issues/53): tracked pointers passed
 at variadic argument positions were skipped by the direct-call summary path
 and could receive an authoritative PASS with zero obligations.
 
-The repair (fail-closed `Unknown` return effect when the resolved borrow-origin
-parameter is assigned anywhere in the body, ADR-0025) is in review for #62;
+The #62 repair (fail-closed `Unknown` return effect when the resolved
+borrow-origin parameter is assigned anywhere in the body, ADR-0025) is
+merged on main; the #64 repair (whitelist single-parameter origin
+resolution, ADR-0026) is in review;
 the current qualified release identity is **none** pending the post-incident
 release and complete exact-head requalification. The
 `v0.1.0` tag remains suspended from incident

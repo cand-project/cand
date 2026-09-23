@@ -3711,18 +3711,113 @@ private:
         expr = expr ? expr->IgnoreParenCasts() : nullptr;
         if (!expr) return std::nullopt;
         if (const auto direct = parameterIndex(expr, f)) return direct;
+        // Incident #64: "first parameter contained anywhere in the
+        // expression" is a syntactic occurrence test, not an origin
+        // resolution; compound expressions referencing several pointer
+        // parameters (conditional/comma operators) or mixing a parameter
+        // with a foreign pointer misattributed the borrow origin and
+        // produced false PASSes at callers. Resolve an origin only from
+        // expressions unambiguously derived from a single pointer
+        // parameter; everything else fails closed to Unknown.
+        std::optional<unsigned> origin;
+        if (!parameterDerivedOrigin(expr, f, origin)) return std::nullopt;
+        return origin;
+    }
+
+    // Null-form check usable without ASTContext: NULL / (void*)0 reduce to
+    // an IntegerLiteral 0 after IgnoreParenCasts; __null is GNUNullExpr.
+    static bool neutralNullForm(const Expr *expr) {
+        if (const auto *lit = dyn_cast<clang::IntegerLiteral>(expr))
+            return lit->getValue() == 0;
+        return isa<clang::GNUNullExpr>(expr);
+    }
+
+    // Incident #64 resolver. Returns true when `expr` is derived (at object
+    // granularity) from a single pointer parameter or is a neutral null
+    // form; `origin` carries the parameter index when there is one.
+    //   accepted: p, p->arr (array-member decay), p->s.arr, &p->f, &p[i],
+    //             p + n, p - n, c ? p : p, c ? p : NULL, (a, b) on b
+    //   rejected: distinct-parameter conditionals/comma, references to
+    //             non-parameter pointers, pointer-returning calls,
+    //             value reads from parameter storage (p->f with pointer
+    //             member, p[i] on T**, *pp), &p (the parameter object
+    //             itself), member accesses on by-value parameters
+    static bool parameterDerivedOrigin(const Expr *raw, const FunctionDecl &f,
+                                       std::optional<unsigned> &origin) {
+        const Expr *expr = raw ? raw->IgnoreParenCasts() : nullptr;
+        if (!expr) return false;
+        if (neutralNullForm(expr)) return true;
+        if (const auto direct = parameterIndex(expr, f)) {
+            if (f.getParamDecl(*direct)->getType()->isPointerType()) {
+                origin = *direct;
+                return true;
+            }
+            return false;  // non-pointer parameter cannot be an origin
+        }
+        if (const auto *cond = dyn_cast<ConditionalOperator>(expr)) {
+            std::optional<unsigned> lhs, rhs;
+            if (!parameterDerivedOrigin(cond->getTrueExpr(), f, lhs)) return false;
+            if (!parameterDerivedOrigin(cond->getFalseExpr(), f, rhs)) return false;
+            if (lhs && rhs && *lhs != *rhs) return false;
+            origin = lhs ? lhs : rhs;
+            return true;
+        }
+        if (const auto *comma = dyn_cast<BinaryOperator>(expr);
+            comma && comma->isCommaOp()) {
+            const Expr *last = comma->getRHS();
+            while (true) {
+                const auto *inner = dyn_cast<BinaryOperator>(last->IgnoreParenCasts());
+                if (!inner || !inner->isCommaOp()) break;
+                last = inner->getRHS();
+            }
+            return parameterDerivedOrigin(last, f, origin);
+        }
+        if (const auto *bin = dyn_cast<BinaryOperator>(expr);
+            bin && (bin->getOpcode() == clang::BO_Add || bin->getOpcode() == clang::BO_Sub) &&
+            bin->getType()->isPointerType()) {
+            // p + n / p - n: the pointer-typed side must resolve to the
+            // single origin; the other side is an integer offset (a
+            // non-pointer-typed expression cannot contribute an origin)
+            std::optional<unsigned> found;
+            unsigned origins = 0;
+            for (const Expr *side : {bin->getLHS(), bin->getRHS()}) {
+                const Expr *s = side->IgnoreParenCasts();
+                if (!s->getType()->isPointerType()) continue;
+                std::optional<unsigned> o;
+                if (!parameterDerivedOrigin(s, f, o)) return false;
+                if (o) {
+                    origins++;
+                    found = o;
+                }
+            }
+            if (origins != 1) return false;
+            origin = found;
+            return true;
+        }
+        if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+            // A pointer-typed member access reads a pointer VALUE out of
+            // the parameter's storage; its target is a different object
+            // (incident #64, value-read family). Array and record members
+            // only appear as interior chains (p->arr decay, p->s.arr).
+            if (member->getType()->isPointerType()) return false;
+            return parameterDerivedOrigin(member->getBase(), f, origin);
+        }
         if (const auto *unary = dyn_cast<UnaryOperator>(expr);
             unary && unary->getOpcode() == clang::UO_AddrOf) {
-            for (unsigned i = 0; i < f.param_size(); ++i) {
-                if (containsParameter(unary->getSubExpr(), f, i)) return i;
-            }
+            const Expr *inner = unary->getSubExpr()->IgnoreParenCasts();
+            // &p is the parameter object itself, not a borrow of its pointee
+            if (parameterIndex(inner, f)) return false;
+            // &p->f / &p[i]: the address of a member or element of the
+            // parameter's pointee is interior to the parameter's object
+            if (const auto *m = dyn_cast<MemberExpr>(inner))
+                return parameterDerivedOrigin(m->getBase(), f, origin);
+            if (const auto *s = dyn_cast<ArraySubscriptExpr>(inner))
+                return parameterDerivedOrigin(s->getBase(), f, origin);
+            return false;
         }
-        if (expr->getType()->isPointerType()) {
-            for (unsigned i = 0; i < f.param_size(); ++i) {
-                if (containsParameter(expr, f, i)) return i;
-            }
-        }
-        return std::nullopt;
+        // ArraySubscriptExpr as a value (p[i] on T**), UnaryOperator deref
+        // (*pp), CallExpr and every other shape: no origin resolution.
+        return false;
     }
 
     static ReturnEffect returnEffect(const CallExpr &call, const SummaryStore &store,

@@ -4,6 +4,51 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Incident #64: compound return expressions misattribute borrow origin (BLOCKER)
+
+- confirmed false PASS inside the published C&1/v1 claim, pre-existing in
+  v0.2.0 and v0.2.1 (introduced with the borrow-summary machinery in
+  `bfc68a1`, the same commit as incident #62):
+  `SummaryBuilder::borrowedParameterIndex` resolved a returned pointer's
+  borrow origin from the **first parameter contained anywhere in the
+  return expression**, and this fallback ran before the callee-mapping
+  branch, so `return c ? a : b;` (distinct branch origins), `return
+  (first(a), b);` (comma), value reads out of parameter storage
+  (`return p->f;` with pointer member, `return p[i];` on `T**`), and
+  calls with parameter arguments (`return dupit(p);` claiming a borrow of
+  `p` while `dupit` returns a fresh allocation) all produced wrong or
+  invented `borrow_from_arg` facts; callers that destroyed the true origin
+  and used the returned pointer received PASS with zero findings on
+  ASan-confirmed use-after-frees (see issue #64 for the four confirmed
+  false-PASS shapes, the fail-closed family members, and the claim
+  suspension);
+- fix (fail-closed, no semantic-scope change): origins resolve only from
+  expressions unambiguously derived from a single pointer parameter
+  (direct references, interior member chains and array-member decay,
+  `&p->f`/`&p[i]`, `p + n`, same-parameter conditionals, comma on the last
+  operand); everything else — distinct-origin conditionals, value reads,
+  non-parameter pointers, and all `CallExpr`s — fails closed to `Unknown`,
+  restoring the callee-mapping branch as the only path for call-shaped
+  returns (ADR-0026);
+- permanent paired regressions in `tests/interprocedural/`:
+  `compound_origin_conditional_incomplete.c`,
+  `compound_origin_condptr_incomplete.c`,
+  `compound_origin_comma_uaf.c`,
+  `compound_origin_subscript_incomplete.c`,
+  `compound_origin_callargs_incomplete.c`, and the controls
+  `compound_origin_controls_safe.c` (accepted origin forms must stay
+  decided) and `compound_origin_controls_detect.c` (origin destruction
+  must stay detected);
+- five-pilot before/after: all summary movement Unknown-ward or
+  conflict-resolving; eight `CAND-B003` findings removed whose premises
+  were the misattributed summaries themselves (defect artifacts); seven
+  functions newly clear in libgit2/sqlite whose pre-fix blockers were
+  cascade artifacts of conflict collapses triggered by the wrong borrow
+  facts, with the fail-closed holding verified at the unknown returns'
+  consumption sites; interior array-member returns that the old fallback
+  failed to resolve (flexible array `ref->name`, `checksum[]`) now resolve
+  soundly.
+
 ### Incident #62: borrow-origin misattribution through parameter reassignment (BLOCKER)
 
 - confirmed false PASS inside the published C&1/v1 claim, pre-existing in
