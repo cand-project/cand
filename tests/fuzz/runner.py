@@ -19,7 +19,7 @@ from generate import PROFILES, write_corpus
 from minimize import minimize
 from mutate import OPERATORS, apply, validate_mutation
 from protocol import run_protocol_corpus
-from strict import StrictWorkspace
+from strict import EXTERN_HELPER_C, StrictWorkspace
 from taxonomy import (
     GENERATOR_VERSION, Case, classify, detect_mechanisms, make_case, render, validate_source,
 )
@@ -139,12 +139,73 @@ def _run_asan_cases(entries: list[dict], corpus: Path, directory: Path) -> tuple
     return results, time.perf_counter() - start
 
 
-def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, float]:
+def _reindex_source(source: str, index: int) -> str:
+    """Rename a rendered case's colliding identifiers to a unique index."""
+    source = re.sub(r"cand1_case_\d+", f"cand1_case_{index}", source)
+    source = re.sub(r"CandItem\d+", f"CandItem{index}", source)
+    source = re.sub(r"cand1_sink\d+", f"cand1_sink{index}", source)
+    return source
+
+
+def _run_mutation_asan(sources: dict[str, str], directory: Path) -> tuple[dict, float]:
+    """ASan-confirm the EXTERN known-violation mutation cases.
+
+    The reviewed external symbols get real definitions (EXTERN_HELPER_C)
+    compiled into this binary only; the verifier analyzes case.c alone,
+    where they are body-less annotated declarations. Every case must trip
+    a temporal sanitizer error.
+    """
+    if not sources:
+        return {}, 0.0
+    ordered = sorted(sources)
+    entries = [(902000 + offset, operator) for offset, operator in enumerate(ordered)]
+    (directory / "mutation-violations.c").write_text(
+        "\n".join(_reindex_source(sources[operator], index) for index, operator in entries),
+        encoding="utf-8",
+    )
+    (directory / "externs.c").write_text(EXTERN_HELPER_C, encoding="utf-8")
+    main = directory / "mutation-asan-main.c"
+    declarations = "\n".join(f"int cand1_case_{index}(void);" for index, _ in entries)
+    dispatch = "\n".join(f"        case {index}: return cand1_case_{index}();" for index, _ in entries)
+    main.write_text(
+        f"#include <stdlib.h>\n{declarations}\nint main(int argc, char **argv) {{\n"
+        f"    if (argc != 2) return 2;\n    switch (atoi(argv[1])) {{\n{dispatch}\n"
+        "        default: return 2;\n    }\n}\n", encoding="utf-8"
+    )
+    binary = directory / "mutation-asan"
+    compile_proc = subprocess.run(
+        ["clang", "-std=c11", "-O0", "-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+         str(directory / "mutation-violations.c"), str(directory / "externs.c"), str(main),
+         "-o", str(binary)],
+        cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
+    )
+    if compile_proc.returncode != 0:
+        return {operator: {"sanitizer": "compiler_rejected"} for operator in ordered}, 0.0
+    results = {}
+    start = time.perf_counter()
+    for index, operator in entries:
+        try:
+            proc = subprocess.run([str(binary), str(index)], capture_output=True, text=True,
+                                  timeout=30, check=False)
+        except subprocess.TimeoutExpired:
+            results[operator] = {"sanitizer": "timeout"}
+            continue
+        sanitizer = "clean" if proc.returncode == 0 else "other"
+        for name, pattern in TEMPORAL_PATTERNS:
+            if pattern.search(proc.stderr):
+                sanitizer = name
+                break
+        results[operator] = {"sanitizer": sanitizer, "returncode": proc.returncode}
+    return results, time.perf_counter() - start
+
+
+def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, dict, float]:
     bases = [
         render(make_case(0, 999998, "SAFE", "safe")),
         render(make_case(0, 999999, "SAFE", "safe-move")),
     ]
     report = {}
+    asan_sources: dict[str, str] = {}
     start = time.perf_counter()
     for mutation, expected_class in OPERATORS.items():
         source = next((apply(base, mutation) for base in bases if apply(base, mutation) != base), bases[0])
@@ -158,7 +219,9 @@ def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, flo
             "cand_result": result.get("semantic_result", result.get("result")),
             "qualification": verdict,
         }
-    return report, time.perf_counter() - start
+        if mutation.startswith("EXTERN_") and expected_class == "KNOWN_VIOLATION":
+            asan_sources[mutation] = source
+    return report, asan_sources, time.perf_counter() - start
 
 
 def run(seed: int, count: int, cand: Path, output: Path) -> dict:
@@ -192,8 +255,10 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
         known = [entry for entry in entries if entry["semantic_class"] == "KNOWN_VIOLATION"]
         asan_results, asan_seconds = _run_asan_cases(known, corpus, directory)
         analysis_seconds += asan_seconds
-        mutation_report, mutation_seconds = _mutation_cases(directory, strict)
+        mutation_report, mutation_asan_sources, mutation_seconds = _mutation_cases(directory, strict)
         analysis_seconds += mutation_seconds
+        mutation_asan, mutation_asan_seconds = _run_mutation_asan(mutation_asan_sources, directory)
+        analysis_seconds += mutation_asan_seconds
 
         representative = corpus / entries[0]["source"]
         first = strict.run(representative.read_text(encoding="utf-8"))[2]
@@ -248,6 +313,7 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
             "operators": len(OPERATORS), "semantically_executed": len(mutation_report),
             "correct": mutation_correct, "operator_names": sorted(OPERATORS),
             "cases": mutation_report,
+            "asan": mutation_asan,
         },
         "protocol": protocol,
         "deterministic_json": deterministic,
@@ -268,6 +334,9 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
     if any(item["qualification"] not in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}
            for item in mutation_report.values()):
         raise RuntimeError("mutation qualification gate failed")
+    if any(item["sanitizer"] not in {key for key, _ in TEMPORAL_PATTERNS}
+           for item in mutation_asan.values()):
+        raise RuntimeError("EXTERN mutation ASan confirmation gate failed")
     return report
 
 
