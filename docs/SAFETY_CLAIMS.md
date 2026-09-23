@@ -27,12 +27,16 @@ The `v0.2.0` release's C&1/v1 claim remains **suspended** from incident
 at variadic argument positions were skipped by the direct-call summary path
 and could receive an authoritative PASS with zero obligations.
 
-The #62 repair (fail-closed `Unknown` return effect when the resolved
-borrow-origin parameter is assigned anywhere in the body, ADR-0025) is
-merged on main; the #64 repair (whitelist single-parameter origin
-resolution, ADR-0026) is in review;
-the current qualified release identity is **none** pending the post-incident
-release and complete exact-head requalification. The
+The `v0.2.2` release repairs both defects — the #62 repair (fail-closed
+`Unknown` return effect when the resolved borrow-origin parameter is
+assigned anywhere in the body, ADR-0025, merged as `4627363`) and the #64
+repair (whitelist single-parameter origin resolution, ADR-0026, merged as
+`928d9bc`) — and carries the milestone #61 conditional borrow/none effect
+join (ADR-0027), a precision improvement inside the existing claim's
+semantics that adds no new claim. The current qualified release identity is
+**`v0.2.2`** (qualified semantic source `cc8e9bd`, exact-head
+requalification evidence in
+[the v0.2.2 release evidence](CAND1-V0.2.2-RELEASE-EVIDENCE.md)). The
 `v0.1.0` tag remains suspended from incident
 [#46](https://github.com/cand-project/cand/issues/46). Issue #25 remains
 separate and open. This document never claims that arbitrary C accepted by
