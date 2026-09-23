@@ -58,6 +58,19 @@ OPERATORS = {
     "PARAM_ALIAS_REASSIGNED": "UNSUPPORTED",
     "PARAM_ALIAS_TWO_PARAM_SAFE": "SAFE",
     "PARAM_ALIAS_TWO_PARAM_USE": "KNOWN_VIOLATION",
+    # --- reviewed external-declaration operators (milestone #39 / ADR-0029) ---
+    # Body-less declarations carrying C& annotations seed summaries only
+    # through the fixed strict-workspace review manifest (strict.py); the
+    # manifest symbols never change per case, so no case can promote an
+    # unreviewed fact into the trusted base. The unreviewed and
+    # fact-mismatch forms must stay fail-closed INCOMPLETE.
+    "EXTERN_OWNED_RETURN_SAFE": "SAFE",
+    "EXTERN_OWNED_RETURN_UAF": "KNOWN_VIOLATION",
+    "EXTERN_OWNED_RETURN_DOUBLE_FREE": "KNOWN_VIOLATION",
+    "EXTERN_BORROW_LIFETIME_SAFE": "SAFE",
+    "EXTERN_BORROW_LIFETIME_UAF": "KNOWN_VIOLATION",
+    "EXTERN_UNREVIEWED_NO_MANIFEST": "UNSUPPORTED",
+    "EXTERN_FACT_MISMATCH": "UNSUPPORTED",
 }
 
 REQUIRED_SHAPES = {
@@ -102,6 +115,14 @@ REQUIRED_SHAPES = {
     "PARAM_ALIAS_REASSIGNED": (r"cand1_alias_reassigned\(p\);", r"r = malloc", r"= p->value;"),
     "PARAM_ALIAS_TWO_PARAM_SAFE": (r"cand1_two_alias\(p, p2\);", r"= p2->value;"),
     "PARAM_ALIAS_TWO_PARAM_USE": (r"cand1_two_alias\(p, p\);", r"= p->value;"),
+    "EXTERN_OWNED_RETURN_SAFE": (r"cand1_extern_create\(void\)", r"cand1_extern_destroy\(p\);"),
+    "EXTERN_OWNED_RETURN_UAF": (r"cand1_extern_destroy\(p\);[\s\S]*cand1_sink\d+ = p->value;",),
+    "EXTERN_OWNED_RETURN_DOUBLE_FREE": (r"cand1_extern_destroy\(p\);[\s\S]*cand1_extern_destroy\(p\);",),
+    "EXTERN_BORROW_LIFETIME_SAFE": (r"cand1_extern_view\(p\);", r"= view->value;[\s\S]*free\(p\);"),
+    "EXTERN_BORROW_LIFETIME_UAF": (r"free\(p\);[\s\S]*view->value;",),
+    "EXTERN_UNREVIEWED_NO_MANIFEST": (r"cand1_extern_unreviewed_create\(void\)",
+                                      r"= cand1_extern_unreviewed_create\(\)"),
+    "EXTERN_FACT_MISMATCH": (r"cand1_extern_destroy\(void \*item CAND_BORROW\)",),
 }
 
 
@@ -277,6 +298,73 @@ def apply(source: str, mutation: str) -> str:
             source.replace(f"{sink} = p->value;\n    free(p);",
                            f"cand1_two_alias(p, p);\n    {sink} = p->value;", 1),
             casefn, f"static void cand1_two_alias({typ} *a, {typ} *b) {{ {typ} *r = a; free(r); (void)b; }}")
+
+    # --- reviewed external-declaration operators (milestone #39 / ADR-0029) ---
+    # Fixed helper symbols; the strict-workspace review manifest records
+    # exactly these facts and never changes per case.
+    extern_decls = (
+        '#define CAND_RETURNS_OWN CAND_ANNOTATE("cand:returns_own")\n'
+        '#define CAND_DESTROYS CAND_ANNOTATE("cand:destroys")\n'
+        "extern CAND_RETURNS_OWN void *cand1_extern_create(void);\n"
+        "extern void cand1_extern_destroy(void *item CAND_DESTROYS);\n"
+        "extern CAND_RETURNS_BORROW_FROM(0) void *cand1_extern_view(void *base CAND_BORROW);"
+    )
+    if mutation == "EXTERN_OWNED_RETURN_SAFE":
+        return _insert_before_case(
+            source.replace(f"{typ} *p CAND_OWN = malloc(sizeof *p);",
+                           f"{typ} *p = cand1_extern_create();", 1)
+                  .replace("free(p);", "cand1_extern_destroy(p);", 1),
+            casefn, extern_decls)
+    if mutation == "EXTERN_OWNED_RETURN_UAF":
+        return _insert_before_case(
+            source.replace(f"{typ} *p CAND_OWN = malloc(sizeof *p);",
+                           f"{typ} *p = cand1_extern_create();", 1)
+                  .replace(f"{sink} = p->value;\n    free(p);",
+                           f"cand1_extern_destroy(p);\n    {sink} = p->value;", 1),
+            casefn, extern_decls)
+    if mutation == "EXTERN_OWNED_RETURN_DOUBLE_FREE":
+        return _insert_before_case(
+            source.replace(f"{typ} *p CAND_OWN = malloc(sizeof *p);",
+                           f"{typ} *p = cand1_extern_create();", 1)
+                  .replace("free(p);", "cand1_extern_destroy(p);\n    cand1_extern_destroy(p);", 1),
+            casefn, extern_decls)
+    if mutation == "EXTERN_BORROW_LIFETIME_SAFE":
+        return _insert_before_case(
+            source.replace("free(p);",
+                           f"{typ} *view = cand1_extern_view(p);\n    "
+                           f"{sink} = view->value;\n    free(p);", 1),
+            casefn, extern_decls)
+    if mutation == "EXTERN_BORROW_LIFETIME_UAF":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"{typ} *view = cand1_extern_view(p);\n    free(p);\n    "
+                           f"{sink} = view->value;", 1),
+            casefn, extern_decls)
+    if mutation == "EXTERN_UNREVIEWED_NO_MANIFEST":
+        # An annotated declaration that the fixed manifest does not list:
+        # candidate-only, must never seed (fail-closed INCOMPLETE).
+        unreviewed_decls = (
+            '#define CAND_RETURNS_OWN CAND_ANNOTATE("cand:returns_own")\n'
+            "extern CAND_RETURNS_OWN void *cand1_extern_unreviewed_create(void);"
+        )
+        return _insert_before_case(
+            source.replace(f"{typ} *p CAND_OWN = malloc(sizeof *p);",
+                           f"{typ} *p = cand1_extern_unreviewed_create();", 1),
+            casefn, unreviewed_decls)
+    if mutation == "EXTERN_FACT_MISMATCH":
+        # The declaration's reviewed annotation (borrow) contradicts the
+        # fixed manifest fact for the same symbol (destroys): mismatched
+        # facts must never seed (fail-closed INCOMPLETE).
+        mismatch_decls = (
+            '#define CAND_RETURNS_OWN CAND_ANNOTATE("cand:returns_own")\n'
+            "extern CAND_RETURNS_OWN void *cand1_extern_create(void);\n"
+            "extern void cand1_extern_destroy(void *item CAND_BORROW);"
+        )
+        return _insert_before_case(
+            source.replace(f"{typ} *p CAND_OWN = malloc(sizeof *p);",
+                           f"{typ} *p = cand1_extern_create();", 1)
+                  .replace("free(p);", "cand1_extern_destroy(p);", 1),
+            casefn, mismatch_decls)
     raise AssertionError(mutation)
 
 

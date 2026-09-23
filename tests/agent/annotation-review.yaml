@@ -1,0 +1,13 @@
+schema: cand.annotation-review/v1
+name: agent-annotation-review
+version: "1"
+symbols:
+  - symbol: reviewed_create
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: reviewed_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys

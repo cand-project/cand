@@ -1,0 +1,12 @@
+schema: cand.annotation-review/v1
+name: annotation-review-scope-guards
+version: "1"
+symbols:
+  - symbol: reviewed_out
+    kind: function
+    returns:
+      ownership: owned
+  - symbol: reviewed_slots
+    kind: function
+    returns:
+      ownership: owned

@@ -1,0 +1,8 @@
+schema: cand.annotation-review/v9
+name: annotation-review-malformed
+version: "1"
+symbols:
+  - symbol: reviewed_owned
+    kind: function
+    returns:
+      ownership: owned

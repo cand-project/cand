@@ -1,0 +1,29 @@
+schema: cand.annotation-review/v1
+name: hiredis-fixture-annotation-review
+version: "1"
+symbols:
+  - symbol: fixture_owned
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: fixture_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: fixture_consume
+    kind: function
+    params:
+      - index: 0
+        effect: consumes
+  - symbol: fixture_external_owned
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: fixture_external_destroy
+    kind: function
+    params:
+      - index: 0
+        effect: destroys

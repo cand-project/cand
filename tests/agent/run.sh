@@ -97,6 +97,40 @@ set -e
 jq -e '.result == "stale"' "$contract_dir/contract-stale.json" >/dev/null
 echo 'trusted contract mutation: DETECTED'
 
+annotation_dir="$tmp/annotation-review"
+mkdir -p "$annotation_dir/manifests"
+cp "$repo/tests/agent/app-annotated.c" "$annotation_dir/app.c"
+cp "$repo/tests/agent/annotation-review.yaml" "$annotation_dir/manifests/annotation-review.yaml"
+annotation_hash="$(sha256sum "$annotation_dir/manifests/annotation-review.yaml" | cut -d' ' -f1)"
+jq --arg hash "$annotation_hash" '.contracts.trusted = [{"path":"manifests/annotation-review.yaml","sha256":$hash,"trust_class":"reviewed"}]' \
+  "$repo/tests/agent/policy-template.json" > "$annotation_dir/cand-policy.json"
+git -C "$annotation_dir" init -q -b main
+git -C "$annotation_dir" config user.name CAND-test
+git -C "$annotation_dir" config user.email cand-test@example.invalid
+git -C "$annotation_dir" add app.c cand-policy.json manifests/annotation-review.yaml
+git -C "$annotation_dir" commit -qm 'reviewed annotation baseline'
+git -C "$annotation_dir" update-ref refs/remotes/origin/main HEAD
+# Without the pin the manifest is an untrusted trusted-input substitution.
+cp "$repo/tests/agent/policy-template.json" "$annotation_dir/cand-policy.json"
+expect_result fail-policy "$annotation_dir" app.c --annotation-review=manifests/annotation-review.yaml
+echo 'unpinned annotation review manifest: BLOCKED'
+# With the pin the reviewed annotations resolve the boundary.
+jq --arg hash "$annotation_hash" '.contracts.trusted = [{"path":"manifests/annotation-review.yaml","sha256":$hash,"trust_class":"reviewed"}]' \
+  "$repo/tests/agent/policy-template.json" > "$annotation_dir/cand-policy.json"
+annotation_output="$(run_check "$annotation_dir" app.c --annotation-review=manifests/annotation-review.yaml --emit-evidence annotation-evidence.json 2>/dev/null)"
+[[ "$(jq -r .result <<<"$annotation_output")" == pass ]]
+jq -e '.annotation_reviews[0].path == "manifests/annotation-review.yaml"' \
+  "$annotation_dir/annotation-evidence.json" >/dev/null
+echo 'pinned reviewed annotation manifest: PASS'
+printf '\n# mutation\n' >> "$annotation_dir/manifests/annotation-review.yaml"
+set +e
+run_verify "$annotation_dir" annotation-evidence.json > "$annotation_dir/annotation-stale.json"
+annotation_stale_rc=$?
+set -e
+[[ "$annotation_stale_rc" == 1 ]]
+jq -e '.result == "stale"' "$annotation_dir/annotation-stale.json" >/dev/null
+echo 'reviewed annotation manifest mutation: DETECTED'
+
 cp "$dir/app.c" "$dir/app.saved"
 printf '\n/* CAND_UNSAFE */\n' >> "$dir/app.c"
 expect_result fail-policy "$dir" app.c

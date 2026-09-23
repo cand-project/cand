@@ -128,6 +128,9 @@ llvm::cl::opt<std::string> OutputFormat(
 llvm::cl::opt<std::string> ContractFile(
     "contracts", llvm::cl::desc("trusted C& API contract YAML"),
     llvm::cl::init(""), llvm::cl::cat(CandCategory));
+llvm::cl::opt<std::string> AnnotationReviewPath(
+    "annotation-review", llvm::cl::desc("reviewed C& declaration annotation YAML"),
+    llvm::cl::init(""), llvm::cl::cat(CandCategory));
 llvm::cl::opt<bool> AgentMode(
     "agent", llvm::cl::desc("strict generated-code verification mode"),
     llvm::cl::init(false), llvm::cl::cat(CandCategory));
@@ -230,7 +233,7 @@ struct Unsupported {
 
 enum class ReturnEffect { None, Owned, BorrowFromArg, Unknown };
 enum class ParamEffect { None, Borrow, TakeOwnership, Destroy, Unknown };
-enum class SummaryOrigin { BodyVerified, BuiltinTrusted, ExternalTrusted, CandidateUntrusted, Unknown };
+enum class SummaryOrigin { BodyVerified, BuiltinTrusted, ExternalTrusted, AnnotationTrusted, CandidateUntrusted, Unknown };
 
 struct ContractConflict {
     std::string reason;
@@ -285,6 +288,48 @@ const char *paramEffectName(ParamEffect effect) {
     case ParamEffect::Unknown: return "unknown";
     }
     return "unknown";
+}
+
+// Compact fact strings for conflict reporting (milestone #39).
+std::string contractFactsString(const ContractSummary &contract) {
+    std::string out = returnEffectName(contract.return_effect.value_or(ReturnEffect::None));
+    if (contract.return_borrow_arg) out += ":" + std::to_string(*contract.return_borrow_arg);
+    out += "(";
+    for (unsigned i = 0; i < contract.params.size(); ++i) {
+        if (i) out += ",";
+        out += contract.params[i] ? paramEffectName(*contract.params[i]) : "unspecified";
+    }
+    out += ")";
+    return out;
+}
+
+std::string annotationSummaryFactsString(const FunctionSummary &summary) {
+    std::string out = returnEffectName(summary.return_effect);
+    if (summary.return_borrow_arg) out += ":" + std::to_string(*summary.return_borrow_arg);
+    out += "(";
+    for (unsigned i = 0; i < summary.params.size(); ++i) {
+        if (i) out += ",";
+        out += paramEffectName(summary.params[i]);
+    }
+    out += ")";
+    return out;
+}
+
+// True when a pointer (or decayed pointer-array) type has a shape that can
+// write or transport pointer storage through one more level of indirection.
+// Such shapes stay outside the reviewed declaration-annotation vocabulary
+// (issue #41 scope guard).
+bool isPointerToPointerShape(clang::QualType type) {
+    const clang::Type *desugared = type.getTypePtrOrNull();
+    if (desugared == nullptr) return false;
+    if (const auto *pointer = dyn_cast<clang::PointerType>(desugared)) {
+        const clang::Type *inner = pointer->getPointeeType().getTypePtrOrNull();
+        if (inner == nullptr) return false;
+        if (isa<clang::PointerType>(inner)) return true;
+        if (const auto *array = dyn_cast<clang::ArrayType>(inner))
+            return isa<clang::PointerType>(array->getElementType().getTypePtrOrNull());
+    }
+    return false;
 }
 
 bool hasCandAnnotation(const clang::Decl *decl, llvm::StringRef name) {
@@ -924,12 +969,35 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
 // Per-function flow analysis
 // ---------------------------------------------------------------------------
 
+// Declaration-site annotations that were found in the TU but did not
+// resolve to a reviewed summary (milestone #39). These sets only ever
+// change the *kind* of the fail-closed obligation emitted for the
+// symbol's calls; they never seed summaries or grant PASS authority.
+struct AnnotationReviewFacts {
+    std::set<std::string> unreviewed;    // no manifest entry / fact mismatch
+    std::set<std::string> conflicting;   // contradictory annotation facts
+};
+
 class FlowAnalyzer {
 public:
     FlowAnalyzer(ASTContext &context, Collector &collector, const SummaryStore &summaries,
-                 bool cand1_profile)
+                 bool cand1_profile, const AnnotationReviewFacts &annotation_review)
         : context_(context), source_manager_(context.getSourceManager()),
-          collector_(collector), summaries_(summaries), cand1_profile_(cand1_profile) {}
+          collector_(collector), summaries_(summaries), cand1_profile_(cand1_profile),
+          annotation_review_(annotation_review) {}
+
+    // The fail-closed obligation kind for a call to a symbol whose
+    // declaration annotations were not accepted by a review manifest.
+    llvm::StringRef annotationOverrideKind(const CallExpr &call) const {
+        const FunctionDecl *callee = call.getDirectCallee();
+        if (callee == nullptr) return {};
+        const std::string name = callee->getNameAsString();
+        if (annotation_review_.conflicting.count(name) != 0)
+            return "conflicting-declaration-annotation";
+        if (annotation_review_.unreviewed.count(name) != 0)
+            return "unreviewed-declaration-annotation";
+        return {};
+    }
 
     void analyze(const FunctionDecl &function) {
         const Stmt *body = function.getBody();
@@ -1540,8 +1608,10 @@ private:
 
     void noteUnknownPointerCall(const CallExpr &call) {
         Unsupported unsupported;
-        unsupported.kind =
-            "unknown-pointer-return-ownership:" + unknownPointerSymbol(call);
+        const llvm::StringRef override_kind = annotationOverrideKind(call);
+        unsupported.kind = override_kind.empty()
+            ? "unknown-pointer-return-ownership:" + unknownPointerSymbol(call)
+            : (override_kind + ":" + unknownPointerSymbol(call)).str();
         unsupported.symbol = unknownPointerSymbol(call);
         unsupported.primary = location(call.getExprLoc());
         emitUnsupported(std::move(unsupported));
@@ -2379,14 +2449,19 @@ private:
             markUnsupported(call, "global-or-static-pointer-storage");
         }
         if (pointer_output_argument) {
-            markUnsupported(call, "unknown-call-with-pointer-output");
+            const llvm::StringRef override_kind = annotationOverrideKind(call);
+            markUnsupported(call, override_kind.empty() ? "unknown-call-with-pointer-output"
+                                                        : override_kind);
         }
         if (!call.getType()->isPointerType() && typeMayContainPointer(call.getType())) {
             markUnsupported(call, "unknown-aggregate-return-ownership");
         }
         if (tracked_argument) {
             std::string kind = "unknown-call-with-tracked-pointer";
-            if (const FunctionDecl *callee = call.getDirectCallee()) {
+            const llvm::StringRef override_kind = annotationOverrideKind(call);
+            if (!override_kind.empty()) {
+                kind = override_kind.str();
+            } else if (const FunctionDecl *callee = call.getDirectCallee()) {
                 kind += ":" + callee->getNameAsString();
             } else {
                 kind += ":indirect";
@@ -2509,7 +2584,9 @@ private:
                            FlowState &state) {
         const FunctionSummary *summary = summaryFor(call);
         if (!summary || summary->conflict || summary->origin == SummaryOrigin::Unknown) {
-            markUnsupported(call, "unknown-pointer-return-ownership");
+            const llvm::StringRef override_kind = annotationOverrideKind(call);
+            markUnsupported(call, override_kind.empty() ? "unknown-pointer-return-ownership"
+                                                        : override_kind);
             return;
         }
         if (summary->return_effect == ReturnEffect::Owned) {
@@ -3473,6 +3550,7 @@ private:
     std::set<const Stmt *> unevaluated_;
     bool emitting_ = true;
     bool cand1_profile_ = false;
+    const AnnotationReviewFacts &annotation_review_;
     const FunctionSummary *current_summary_ = nullptr;
 };
 
@@ -4102,6 +4180,12 @@ public:
             summaries_ = std::move(next);
             if (stable) break;
         }
+        // Reviewed declaration-site annotations seed external summaries with
+        // contract-equivalent trust (ADR-0029). They are applied before the
+        // contract loader so the loader can keep an agreeing contract's
+        // provenance and fail closed on disagreement, and before the second
+        // fixed point so the seeded summaries survive its copy-initialization.
+        seedReviewedAnnotations();
         loadContracts();
         // Contracts can seed bodies that wrap external APIs. Re-run the same
         // bounded summary fixed point with trusted external facts available;
@@ -4121,8 +4205,218 @@ public:
 
     void loadContracts() {
         if (ContractFile.empty()) return;
-        std::ifstream input(ContractFile);
-        if (!input) { collector_.noteContractError(); return; }
+        std::map<std::string, ContractSummary> parsed;
+        if (!parseSymbolFactsFile(ContractFile.getValue(),
+                                  "schema: cand.api-contract/v1", parsed)) {
+            collector_.noteContractError();
+            return;
+        }
+        for (auto &entry : parsed)
+            applyContractSymbol(entry.first, entry.second);
+    }
+
+    // A body-less declaration's gathered annotation facts (milestone #39).
+    struct DeclaredAnnotation {
+        const FunctionDecl *decl = nullptr;      // first body-less declaration
+        bool any_annotation = false;
+        bool conflicting = false;                // contradictory facts across redecls
+        bool eligible = true;                    // shape / K&R / realloc guards
+        std::optional<ReturnEffect> return_effect;
+        std::optional<unsigned> return_borrow_arg;
+        std::vector<ParamEffect> params;         // per-parameter, None default
+    };
+
+    // Collects every body-less function declaration that carries C&
+    // ownership annotations. Declarations whose redeclaration chain has a
+    // body anywhere in the TU are skipped: visible bodies always win and
+    // keep following the ordinary SummaryBuilder path (issue #39
+    // constraint). Clang inherits annotations forward across redecls, so
+    // scanning every declaration and unioning yields the complete fact set;
+    // contradictory unions are marked conflicting and never seed.
+    std::map<std::string, DeclaredAnnotation> gatherAnnotatedDeclarations() {
+        std::map<std::string, DeclaredAnnotation> by_name;
+        if (context_.getLangOpts().CPlusPlus) return by_name; // C-only profile (SPEC-0010)
+        for (const clang::Decl *item : context_.getTranslationUnitDecl()->decls()) {
+            const auto *function = dyn_cast<FunctionDecl>(item);
+            if (function == nullptr || function->hasBody()) continue;
+            const std::string name = function->getNameAsString();
+            DeclaredAnnotation &entry = by_name[name];
+            if (entry.decl == nullptr) {
+                entry.decl = function;
+                entry.params.assign(function->param_size(), ParamEffect::None);
+            }
+            const bool returns_own = hasCandAnnotation(function, "cand:returns_own");
+            const std::optional<unsigned> borrow_from = borrowReturnParameter(function);
+            if (returns_own) entry.any_annotation = true;
+            if (borrow_from) entry.any_annotation = true;
+            if (returns_own && borrow_from) {
+                entry.conflicting = true;
+            } else if (returns_own) {
+                entry.return_effect = ReturnEffect::Owned;
+            } else if (borrow_from) {
+                if (*borrow_from >= function->param_size()) {
+                    entry.conflicting = true; // out-of-range borrow origin
+                } else {
+                    entry.return_effect = ReturnEffect::BorrowFromArg;
+                    entry.return_borrow_arg = *borrow_from;
+                }
+            }
+            for (unsigned i = 0; i < function->param_size(); ++i) {
+                const ParmVarDecl *param = function->getParamDecl(i);
+                std::optional<ParamEffect> effect;
+                if (hasCandAnnotation(param, "cand:takes"))
+                    effect = ParamEffect::TakeOwnership;
+                else if (hasCandAnnotation(param, "cand:destroys"))
+                    effect = ParamEffect::Destroy;
+                else if (hasCandAnnotation(param, "cand:borrow") ||
+                         hasCandAnnotation(param, "cand:borrow_shared") ||
+                         hasCandAnnotation(param, "cand:borrow_mut"))
+                    effect = ParamEffect::Borrow;
+                if (!effect) continue;
+                entry.any_annotation = true;
+                if (i >= entry.params.size()) continue; // incompatible redecl
+                if (entry.params[i] != ParamEffect::None && entry.params[i] != *effect)
+                    entry.conflicting = true;
+                else
+                    entry.params[i] = *effect;
+            }
+        }
+        for (auto &item : by_name) {
+            const std::string &name = item.first;
+            DeclaredAnnotation &entry = item.second;
+            if (!entry.any_annotation) continue;
+            const FunctionDecl *decl = entry.decl;
+            // realloc's conditional semantics stay outside the vocabulary
+            // (mirrors the contract loader's guard).
+            if (name == "realloc") { entry.eligible = false; continue; }
+            // Unspecified-parameter (K&R) declarations carry no reviewable
+            // parameter facts.
+            if (!decl->getType()->isFunctionProtoType()) { entry.eligible = false; continue; }
+            if (isPointerToPointerShape(decl->getReturnType())) { entry.eligible = false; continue; }
+            for (const ParmVarDecl *param : decl->parameters()) {
+                if (isPointerToPointerShape(param->getType())) {
+                    entry.eligible = false; // #41 scope guard
+                    break;
+                }
+            }
+        }
+        return by_name;
+    }
+
+    // True when the gathered declaration facts exactly equal the reviewed
+    // manifest facts (unspecified manifest entries mean "no ownership
+    // effect", matching the annotation side's default).
+    static bool annotationFactsMatch(const DeclaredAnnotation &entry,
+                                     const ContractSummary &reviewed) {
+        const std::optional<ReturnEffect> decl_return = entry.return_effect;
+        const std::optional<ReturnEffect> manifest_return = reviewed.return_effect;
+        if (decl_return.has_value() != manifest_return.has_value()) return false;
+        if (decl_return) {
+            if (*decl_return != *manifest_return) return false;
+            if (*decl_return == ReturnEffect::BorrowFromArg &&
+                entry.return_borrow_arg != reviewed.return_borrow_arg) return false;
+        }
+        const unsigned count = entry.params.size();
+        for (unsigned i = 0; i < count; ++i) {
+            const std::optional<ParamEffect> manifest_effect =
+                i < reviewed.params.size() ? reviewed.params[i] : std::nullopt;
+            if (!manifest_effect || *manifest_effect == ParamEffect::None) {
+                if (entry.params[i] != ParamEffect::None) return false;
+            } else if (*manifest_effect != entry.params[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Seeds external summaries from reviewed declaration-site annotations
+    // (ADR-0029). A body-less annotated declaration seeds a summary only
+    // when a reviewed manifest records exactly the same facts; anything
+    // else keeps today's fail-closed behavior, with a distinct obligation
+    // kind so adopters know the annotation still needs review.
+    void seedReviewedAnnotations() {
+        std::map<std::string, DeclaredAnnotation> annotated = gatherAnnotatedDeclarations();
+        if (annotated.empty()) return;
+        std::map<std::string, ContractSummary> manifest;
+        bool have_manifest = false;
+        if (!AnnotationReviewPath.empty()) {
+            have_manifest = parseSymbolFactsFile(AnnotationReviewPath.getValue(),
+                                                 "schema: cand.annotation-review/v1", manifest);
+            if (!have_manifest) {
+                collector_.noteContractError();
+                return;
+            }
+        }
+        for (auto &item : annotated) {
+            const std::string &name = item.first;
+            DeclaredAnnotation &entry = item.second;
+            if (!entry.any_annotation) continue;
+            if (entry.conflicting) {
+                annotation_review_.conflicting.insert(name);
+                continue;
+            }
+            if (!entry.eligible) continue; // guarded shapes keep today's kinds
+            if (!have_manifest) {
+                annotation_review_.unreviewed.insert(name);
+                continue;
+            }
+            const auto reviewed = manifest.find(name);
+            if (reviewed == manifest.end()) {
+                annotation_review_.unreviewed.insert(name);
+                continue;
+            }
+            if (reviewed->second.params.size() > entry.decl->param_size() ||
+                (reviewed->second.return_borrow_arg &&
+                 *reviewed->second.return_borrow_arg >= entry.decl->param_size())) {
+                collector_.noteContractError(); // malformed review entry
+                return;
+            }
+            if (!annotationFactsMatch(entry, reviewed->second)) {
+                annotation_review_.unreviewed.insert(name);
+                continue;
+            }
+            FunctionSummary summary;
+            summary.function = entry.decl;
+            summary.origin = SummaryOrigin::AnnotationTrusted;
+            summary.return_effect = entry.return_effect.value_or(
+                entry.decl->getReturnType()->isPointerType() ? ReturnEffect::Unknown
+                                                             : ReturnEffect::None);
+            summary.return_borrow_arg = entry.return_borrow_arg;
+            summary.params = entry.params;
+            summaries_.set(name, std::move(summary));
+        }
+    }
+
+    // True when a reviewed contract's explicitly stated facts agree with a
+// reviewed-annotation summary. Contract silence (unspecified return or
+// parameter) is compatible; explicit facts must agree exactly, and an
+// explicit contract fact never contradicts an unannotated parameter
+// (fail closed on disagreement, ADR-0029).
+bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
+                                       const ContractSummary &contract) {
+    if (contract.return_effect && *contract.return_effect != ReturnEffect::Unknown) {
+        if (annotation.return_effect != *contract.return_effect) return false;
+        if (*contract.return_effect == ReturnEffect::BorrowFromArg &&
+            annotation.return_borrow_arg != contract.return_borrow_arg) return false;
+    }
+    for (unsigned i = 0; i < contract.params.size(); ++i) {
+        if (!contract.params[i] || *contract.params[i] == ParamEffect::Unknown) continue;
+        const ParamEffect annotated =
+            i < annotation.params.size() ? annotation.params[i] : ParamEffect::Unknown;
+        if (annotated != *contract.params[i]) return false;
+    }
+    return true;
+}
+
+// Parses a contract-format facts file (the reviewed contract bundle or
+    // the reviewed declaration-annotation manifest, which records the same
+    // fact vocabulary). Pure parse: no store interaction, no declaration
+    // lookup. Returns false on any malformed input; the caller reports the
+    // contract error.
+    bool parseSymbolFactsFile(const std::string &path, const llvm::StringLiteral schema_line,
+                              std::map<std::string, ContractSummary> &out) {
+        std::ifstream input(path);
+        if (!input) return false;
         std::string line, symbol;
         std::set<std::string> seen_symbols;
         std::set<unsigned> seen_param_indices, seen_param_effects;
@@ -4151,200 +4445,105 @@ public:
                 !contract.return_borrow_arg) return false;
             if (contract.return_effect && *contract.return_effect != ReturnEffect::BorrowFromArg &&
                 contract.return_borrow_arg) return false;
-            const FunctionDecl *decl = nullptr;
-            for (const clang::Decl *item : context_.getTranslationUnitDecl()->decls()) {
-                const auto *candidate = dyn_cast<FunctionDecl>(item);
-                if (candidate && candidate->getNameAsString() == symbol) { decl = candidate; break; }
-            }
-            if (decl && (contract.params.size() > decl->param_size() ||
-                         (contract.return_borrow_arg && *contract.return_borrow_arg >= decl->param_size()))) return false;
-
-            FunctionSummary external;
-            external.function = decl;
-            external.origin = SummaryOrigin::ExternalTrusted;
-            external.return_effect = contract.return_effect.value_or(
-                decl && decl->getReturnType()->isPointerType() ? ReturnEffect::Unknown : ReturnEffect::None);
-            external.return_borrow_arg = contract.return_borrow_arg;
-            const unsigned parameter_count = decl ? decl->param_size() :
-                static_cast<unsigned>(contract.params.size());
-            external.params.assign(parameter_count, ParamEffect::Unknown);
-            for (unsigned i = 0; i < contract.params.size(); ++i) {
-                if (contract.params[i]) external.params[i] = *contract.params[i];
-            }
-            // realloc's success/failure and old-object lifetime are conditional
-            // and cannot be represented by P0.4's simple effects.
-            if (symbol == "realloc") {
-                external.return_effect = ReturnEffect::Unknown;
-                external.return_borrow_arg.reset();
-                std::fill(external.params.begin(), external.params.end(), ParamEffect::Unknown);
-            }
-            const FunctionSummary *body = summaries_.find(symbol);
-            if (body && body->origin == SummaryOrigin::BodyVerified) {
-                FunctionSummary conflict = *body;
-                const bool has_annotation = decl &&
-                    (hasCandAnnotation(decl, "cand:returns_own") ||
-                     borrowReturnParameter(decl).has_value() ||
-                     std::any_of(decl->param_begin(), decl->param_end(), [](const ParmVarDecl *param) {
-                         return hasCandAnnotation(param, "cand:takes") ||
-                                hasCandAnnotation(param, "cand:destroys") ||
-                                hasCandAnnotation(param, "cand:borrow") ||
-                                hasCandAnnotation(param, "cand:borrow_shared") ||
-                                hasCandAnnotation(param, "cand:borrow_mut");
-                     }));
-                const auto bodyReason = [&](const std::string &fact) {
-                    if (has_annotation)
-                        return std::string("annotation/body mismatch");
-                    if (body->conflict)
-                        return std::string("conditional/unrepresentable body behavior");
-                    if (fact == "unknown") return std::string("unknown body effect");
-                    return std::string("conditional/unrepresentable body behavior");
-                };
-                const auto addConflict = [&](const std::string &reason,
-                                             std::optional<unsigned> parameter,
-                                             const std::string &contract_fact,
-                                             const std::string &body_fact) {
-                    conflict.conflicts.push_back(
-                        {reason, parameter, contract_fact, body_fact});
-                };
-                if (contract.return_effect && *contract.return_effect != ReturnEffect::Unknown) {
-                    const bool borrow_match = *contract.return_effect != ReturnEffect::BorrowFromArg ||
-                        (body->return_effect == ReturnEffect::BorrowFromArg &&
-                         body->return_borrow_arg == contract.return_borrow_arg);
-                    if (body->return_effect == ReturnEffect::Unknown) {
-                        addConflict(bodyReason("unknown"), std::nullopt,
-                                    returnEffectName(*contract.return_effect), "unknown");
-                    } else if (!borrow_match) {
-                        addConflict("return borrow-origin mismatch", std::nullopt,
-                                    returnEffectName(*contract.return_effect),
-                                    returnEffectName(body->return_effect));
-                    } else if (body->return_effect != *contract.return_effect) {
-                        addConflict(*contract.return_effect == ReturnEffect::None
-                                        ? "explicit no-effect mismatch"
-                                        : "return ownership mismatch",
-                                    std::nullopt, returnEffectName(*contract.return_effect),
-                                    returnEffectName(body->return_effect));
-                    }
-                }
-                for (unsigned i = 0; i < contract.params.size(); ++i) {
-                    if (!contract.params[i] || *contract.params[i] == ParamEffect::Unknown) continue;
-                    const ParamEffect body_effect = i < body->params.size()
-                        ? body->params[i] : ParamEffect::Unknown;
-                    if (body_effect == ParamEffect::Unknown) {
-                        addConflict(bodyReason("unknown"), i,
-                                    paramEffectName(*contract.params[i]), "unknown");
-                    } else if (body_effect != *contract.params[i]) {
-                        addConflict(*contract.params[i] == ParamEffect::None
-                                        ? "explicit no-effect mismatch"
-                                        : "param effect mismatch",
-                                    i, paramEffectName(*contract.params[i]),
-                                    paramEffectName(body_effect));
-                    }
-                }
-                if (!conflict.conflicts.empty()) {
-                    conflict.conflict = true;
-                    summaries_.set(symbol, std::move(conflict));
-                }
-            } else if (!body || body->origin == SummaryOrigin::Unknown) {
-                summaries_.set(symbol, std::move(external));
-            }
+            out[symbol] = contract;
             return true;
         };
         while (std::getline(input, line)) {
             const auto trim = [](std::string s) { const auto a = s.find_first_not_of(" \t"); const auto b = s.find_last_not_of(" \t\r"); return a == std::string::npos ? std::string{} : s.substr(a, b - a + 1); };
             const std::size_t indent = line.find_first_not_of(" \t");
             if (indent == std::string::npos) continue;
-            if (line.substr(0, indent).find('\t') != std::string::npos) { collector_.noteContractError(); return; }
+            if (line.substr(0, indent).find('\t') != std::string::npos) { return false; }
             std::string t = trim(line);
             if (t.empty() || t[0] == '#') continue;
             if (in_notes_block && indent >= 6) continue;
             in_notes_block = false;
             if (!in_symbol) {
                 if (t.rfind("schema:", 0) == 0) {
-                    if (indent != 0 || schema_seen || t != "schema: cand.api-contract/v1") { collector_.noteContractError(); return; }
+                    if (indent != 0 || schema_seen || t != schema_line) { return false; }
                     schema_seen = true;
                     continue;
                 }
                 if (t.rfind("name:", 0) == 0) {
                     const std::string value = trim(t.substr(5));
-                    if (indent != 0 || name_seen || value.empty()) { collector_.noteContractError(); return; }
+                    if (indent != 0 || name_seen || value.empty()) { return false; }
                     name_seen = true;
                     continue;
                 }
                 if (t.rfind("version:", 0) == 0) {
                     const std::string value = trim(t.substr(8));
-                    if (indent != 0 || version_seen || value.empty()) { collector_.noteContractError(); return; }
+                    if (indent != 0 || version_seen || value.empty()) { return false; }
                     version_seen = true;
                     continue;
                 }
                 if (t == "symbols:") {
-                    if (indent != 0 || symbols_seen) { collector_.noteContractError(); return; }
+                    if (indent != 0 || symbols_seen) { return false; }
                     symbols_seen = true;
                     in_platform = false;
                     continue;
                 }
                 if (t.rfind("- symbol:", 0) == 0) {
-                    if (indent != 2 || !symbols_seen || !schema_seen || !name_seen || !version_seen) { collector_.noteContractError(); return; }
+                    if (indent != 2 || !symbols_seen || !schema_seen || !name_seen || !version_seen) { return false; }
                     symbol = trim(t.substr(t.find(':') + 1));
                     in_symbol = !symbol.empty();
                     contract = ContractSummary{};
                     last_index.reset(); return_seen.reset(); kind_seen = false;
                     seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
-                    if (!in_symbol || !seen_symbols.insert(symbol).second) { collector_.noteContractError(); return; }
+                    if (!in_symbol || !seen_symbols.insert(symbol).second) { return false; }
                     continue;
                 }
-                if (t == "platform:") { if (indent != 0) { collector_.noteContractError(); return; } in_platform = true; continue; }
+                if (t == "platform:") { if (indent != 0) { return false; } in_platform = true; continue; }
                 if (in_platform && (t.rfind("os:", 0) == 0 || t.rfind("libc:", 0) == 0)) {
                     const std::string value = trim(t.substr(t.find(':') + 1));
-                    if (indent != 2 || value.size() < 2 || value.front() != '[' || value.back() != ']') { collector_.noteContractError(); return; }
+                    if (indent != 2 || value.size() < 2 || value.front() != '[' || value.back() != ']') { return false; }
                     continue;
                 }
                 if (t.rfind("provenance:", 0) == 0) {
                     const std::string value = trim(t.substr(11));
-                    if (indent != 0 || value != "{}") { collector_.noteContractError(); return; }
+                    if (indent != 0 || value != "{}") { return false; }
                     continue;
                 }
-                collector_.noteContractError(); return;
+                return false;
             }
             if (t.rfind("- symbol:", 0) == 0) {
-                if (indent != 2) { collector_.noteContractError(); return; }
-                if (in_symbol && !finish()) { collector_.noteContractError(); return; }
+                if (indent != 2) { return false; }
+                if (in_symbol && !finish()) { return false; }
                 symbol = trim(t.substr(t.find(':') + 1)); in_symbol = !symbol.empty(); contract = ContractSummary{}; last_index.reset(); return_seen.reset();
                 seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
                 kind_seen = false;
-                if (!in_symbol) { collector_.noteContractError(); return; }
-                if (!seen_symbols.insert(symbol).second) { collector_.noteContractError(); return; }
+                if (!in_symbol) { return false; }
+                if (!seen_symbols.insert(symbol).second) { return false; }
                 continue;
             }
             if (t.rfind("ownership:", 0) == 0) {
-                if (indent != 6) { collector_.noteContractError(); return; }
+                if (indent != 6) { return false; }
                 std::string v = trim(t.substr(10));
                 ReturnEffect effect;
                 if (v == "owned") effect = ReturnEffect::Owned;
                 else if (v == "borrowed") effect = ReturnEffect::BorrowFromArg;
                 else if (v == "none") effect = ReturnEffect::None;
                 else if (v == "unknown") effect = ReturnEffect::Unknown;
-                else { collector_.noteContractError(); return; }
-                if (return_seen) { collector_.noteContractError(); return; }
+                else { return false; }
+                if (return_seen) { return false; }
                 return_seen = effect; contract.return_effect = effect;
             } else if (t.rfind("from_param:", 0) == 0) {
-                if (indent != 8) { collector_.noteContractError(); return; }
+                if (indent != 8) { return false; }
                 unsigned index;
-                if (borrow_index_seen || !parseUnsigned(trim(t.substr(11)), index)) { collector_.noteContractError(); return; }
+                if (borrow_index_seen || !parseUnsigned(trim(t.substr(11)), index)) { return false; }
                 borrow_index_seen = true;
                 contract.return_borrow_arg = index;
             } else if (t.rfind("index:", 0) == 0 || t.rfind("- index:", 0) == 0) {
-                if (indent != 6) { collector_.noteContractError(); return; }
+                if (indent != 6) { return false; }
                 unsigned index;
                 const std::size_t colon = t.find(':');
-                if (!parseUnsigned(trim(t.substr(colon + 1)), index)) { collector_.noteContractError(); return; }
-                if (!seen_param_indices.insert(index).second) { collector_.noteContractError(); return; }
+                if (!parseUnsigned(trim(t.substr(colon + 1)), index)) { return false; }
+                if (!seen_param_indices.insert(index).second) { return false; }
                 if (contract.params.size() <= index) contract.params.resize(index + 1);
                 last_index = index;
                 contract.params[index].reset();
             } else if (t.rfind("effect:", 0) == 0) {
-                if (indent != 8) { collector_.noteContractError(); return; }
+                if (indent != 8) { return false; }
                 if (!last_index || *last_index >= contract.params.size() ||
-                    !seen_param_effects.insert(*last_index).second) { collector_.noteContractError(); return; }
+                    !seen_param_effects.insert(*last_index).second) { return false; }
                 std::string v = trim(t.substr(7));
                 ParamEffect effect;
                 if (v == "borrow" || v == "borrow_shared") effect = ParamEffect::Borrow;
@@ -4352,41 +4551,168 @@ public:
                 else if (v == "destroys") effect = ParamEffect::Destroy;
                 else if (v == "no_ownership_effect") effect = ParamEffect::None;
                 else if (v == "unknown") effect = ParamEffect::Unknown;
-                else { collector_.noteContractError(); return; }
+                else { return false; }
                 contract.params[*last_index] = effect;
             } else if (t == "kind: function") {
-                if (indent != 4) { collector_.noteContractError(); return; }
-                if (kind_seen) { collector_.noteContractError(); return; }
+                if (indent != 4) { return false; }
+                if (kind_seen) { return false; }
                 kind_seen = true;
             } else if (t == "returns:" || t == "params:") {
-                if (indent != 4) { collector_.noteContractError(); return; }
+                if (indent != 4) { return false; }
             } else if (t == "lifetime:") {
-                if (indent != 6) { collector_.noteContractError(); return; }
+                if (indent != 6) { return false; }
             } else if (t.rfind("borrow_kind:", 0) == 0) {
                 if (indent != 6 || trim(t.substr(12)) != "shared") {
-                    collector_.noteContractError();
-                    return;
+                    return false;
                 }
             } else if (t == "conditional_effects:" || t == "callbacks:") {
-                if (indent != 4) { collector_.noteContractError(); return; }
+                if (indent != 4) { return false; }
             } else if (t.rfind("notes:", 0) == 0) {
-                if (indent != 4) { collector_.noteContractError(); return; }
+                if (indent != 4) { return false; }
                 const std::string value = trim(t.substr(6));
                 in_notes_block = value == ">-" || value == ">" || value == "|" || value == "|-" || value == "|+";
             } else if (t.rfind("allocation_family:", 0) == 0) {
-                if (indent != 6 && indent != 8) { collector_.noteContractError(); return; }
+                if (indent != 6 && indent != 8) { return false; }
             } else if (t.rfind("nullable:", 0) == 0) {
-                if (indent != 6) { collector_.noteContractError(); return; }
+                if (indent != 6) { return false; }
                 continue;
             } else if (t.find(':') != std::string::npos) {
-                collector_.noteContractError(); return;
+                return false;
             } else {
-                collector_.noteContractError(); return;
+                return false;
             }
         }
         if (!schema_seen || !name_seen || !version_seen || !symbols_seen || !finish())
-            collector_.noteContractError();
+            return false;
+        return true;
     }
+    // Applies one reviewed contract symbol: validates it against the TU
+    // declaration, builds the trusted external summary, and merges it with
+    // any body-derived or reviewed-annotation summary. Preserved from the
+    // pre-#39 contract loader; order across symbols is irrelevant because
+    // each symbol touches only its own store entry.
+    void applyContractSymbol(const std::string &symbol, ContractSummary &contract) {
+        const FunctionDecl *decl = nullptr;
+        for (const clang::Decl *item : context_.getTranslationUnitDecl()->decls()) {
+            const auto *candidate = dyn_cast<FunctionDecl>(item);
+            if (candidate && candidate->getNameAsString() == symbol) { decl = candidate; break; }
+        }
+        if (decl && (contract.params.size() > decl->param_size() ||
+                     (contract.return_borrow_arg && *contract.return_borrow_arg >= decl->param_size()))) {
+            collector_.noteContractError();
+            return;
+        }
+        FunctionSummary external;
+        external.function = decl;
+        external.origin = SummaryOrigin::ExternalTrusted;
+        external.return_effect = contract.return_effect.value_or(
+            decl && decl->getReturnType()->isPointerType() ? ReturnEffect::Unknown : ReturnEffect::None);
+        external.return_borrow_arg = contract.return_borrow_arg;
+        const unsigned parameter_count = decl ? decl->param_size() :
+            static_cast<unsigned>(contract.params.size());
+        external.params.assign(parameter_count, ParamEffect::Unknown);
+        for (unsigned i = 0; i < contract.params.size(); ++i) {
+            if (contract.params[i]) external.params[i] = *contract.params[i];
+        }
+        // realloc's success/failure and old-object lifetime are conditional
+        // and cannot be represented by P0.4's simple effects.
+        if (symbol == "realloc") {
+            external.return_effect = ReturnEffect::Unknown;
+            external.return_borrow_arg.reset();
+            std::fill(external.params.begin(), external.params.end(), ParamEffect::Unknown);
+        }
+        const FunctionSummary *body = summaries_.find(symbol);
+        if (body && body->origin == SummaryOrigin::BodyVerified) {
+            FunctionSummary conflict = *body;
+            const bool has_annotation = decl &&
+                (hasCandAnnotation(decl, "cand:returns_own") ||
+                 borrowReturnParameter(decl).has_value() ||
+                 std::any_of(decl->param_begin(), decl->param_end(), [](const ParmVarDecl *param) {
+                     return hasCandAnnotation(param, "cand:takes") ||
+                            hasCandAnnotation(param, "cand:destroys") ||
+                            hasCandAnnotation(param, "cand:borrow") ||
+                            hasCandAnnotation(param, "cand:borrow_shared") ||
+                            hasCandAnnotation(param, "cand:borrow_mut");
+                 }));
+            const auto bodyReason = [&](const std::string &fact) {
+                if (has_annotation)
+                    return std::string("annotation/body mismatch");
+                if (body->conflict)
+                    return std::string("conditional/unrepresentable body behavior");
+                if (fact == "unknown") return std::string("unknown body effect");
+                return std::string("conditional/unrepresentable body behavior");
+            };
+            const auto addConflict = [&](const std::string &reason,
+                                         std::optional<unsigned> parameter,
+                                         const std::string &contract_fact,
+                                         const std::string &body_fact) {
+                conflict.conflicts.push_back(
+                    {reason, parameter, contract_fact, body_fact});
+            };
+            if (contract.return_effect && *contract.return_effect != ReturnEffect::Unknown) {
+                const bool borrow_match = *contract.return_effect != ReturnEffect::BorrowFromArg ||
+                    (body->return_effect == ReturnEffect::BorrowFromArg &&
+                     body->return_borrow_arg == contract.return_borrow_arg);
+                if (body->return_effect == ReturnEffect::Unknown) {
+                    addConflict(bodyReason("unknown"), std::nullopt,
+                                returnEffectName(*contract.return_effect), "unknown");
+                } else if (!borrow_match) {
+                    addConflict("return borrow-origin mismatch", std::nullopt,
+                                returnEffectName(*contract.return_effect),
+                                returnEffectName(body->return_effect));
+                } else if (body->return_effect != *contract.return_effect) {
+                    addConflict(*contract.return_effect == ReturnEffect::None
+                                    ? "explicit no-effect mismatch"
+                                    : "return ownership mismatch",
+                                std::nullopt, returnEffectName(*contract.return_effect),
+                                returnEffectName(body->return_effect));
+                }
+            }
+            for (unsigned i = 0; i < contract.params.size(); ++i) {
+                if (!contract.params[i] || *contract.params[i] == ParamEffect::Unknown) continue;
+                const ParamEffect body_effect = i < body->params.size()
+                    ? body->params[i] : ParamEffect::Unknown;
+                if (body_effect == ParamEffect::Unknown) {
+                    addConflict(bodyReason("unknown"), i,
+                                paramEffectName(*contract.params[i]), "unknown");
+                } else if (body_effect != *contract.params[i]) {
+                    addConflict(*contract.params[i] == ParamEffect::None
+                                    ? "explicit no-effect mismatch"
+                                    : "param effect mismatch",
+                                i, paramEffectName(*contract.params[i]),
+                                paramEffectName(body_effect));
+                }
+            }
+            if (!conflict.conflicts.empty()) {
+                conflict.conflict = true;
+                summaries_.set(symbol, std::move(conflict));
+            }
+        } else if (body && body->origin == SummaryOrigin::AnnotationTrusted) {
+            // Reviewed declaration annotations and reviewed contracts are
+            // both trusted sources; they must agree exactly. On agreement
+            // the contract keeps its provenance; on disagreement the symbol
+            // fails closed (ADR-0029).
+            if (annotationSummaryMatchesContract(*body, contract)) {
+                summaries_.set(symbol, std::move(external));
+            } else {
+                FunctionSummary conflict;
+                conflict.function = decl;
+                conflict.origin = SummaryOrigin::ExternalTrusted;
+                conflict.conflict = true;
+                conflict.return_effect = ReturnEffect::Unknown;
+                const unsigned parameter_count = decl ? decl->param_size() :
+                    static_cast<unsigned>(contract.params.size());
+                conflict.params.assign(parameter_count, ParamEffect::Unknown);
+                conflict.conflicts.push_back({"annotation/contract mismatch", std::nullopt,
+                                              contractFactsString(contract),
+                                              annotationSummaryFactsString(*body)});
+                summaries_.set(symbol, std::move(conflict));
+            }
+        } else if (!body || body->origin == SummaryOrigin::Unknown) {
+            summaries_.set(symbol, std::move(external));
+        }
+    }
+
 
     bool VisitFunctionDecl(FunctionDecl *function) {
         if (function == nullptr || !function->hasBody() ||
@@ -4398,7 +4724,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_);
         analyzer.analyze(*function);
         return true;
     }
@@ -4415,7 +4741,7 @@ public:
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_);
         analyzer.analyzeGlobal(*var);
         return true;
     }
@@ -4424,6 +4750,7 @@ private:
     ASTContext &context_;
     Collector &collector_;
     SummaryStore summaries_;
+    AnnotationReviewFacts annotation_review_;
     bool cand1_profile_ = false;
 };
 
@@ -4481,6 +4808,7 @@ struct AgentPolicyState {
     bool review_required = false;
     std::vector<std::string> policy_errors;
     std::vector<std::tuple<std::string, std::string, std::string>> contract_inputs;
+    std::vector<std::tuple<std::string, std::string, std::string>> annotation_review_inputs;
     unsigned unsafe_boundaries = 0;
     unsigned suppressions = 0;
     bool toolchain_supported = true;
@@ -4500,6 +4828,10 @@ bool canEmitCand1Pass(const Collector &collector, const AgentPolicyState &state,
     if (state.policy.scope_files.empty() || state.policy.sha256.empty()) return false;
     for (const auto &contract : state.contract_inputs) {
         const std::string &trust = std::get<2>(contract);
+        if (trust != "builtin" && trust != "verified" && trust != "reviewed") return false;
+    }
+    for (const auto &review : state.annotation_review_inputs) {
+        const std::string &trust = std::get<2>(review);
         if (trust != "builtin" && trust != "verified" && trust != "reviewed") return false;
     }
     return state.unsafe_boundaries == 0 && state.suppressions == 0;
@@ -4871,6 +5203,15 @@ llvm::json::Object buildEvidence(const Collector &collector,
         contracts.push_back(std::move(contract));
     }
     evidence["contracts"] = std::move(contracts);
+    llvm::json::Array annotation_reviews;
+    for (const auto &entry : state.annotation_review_inputs) {
+        llvm::json::Object review;
+        review["path"] = std::get<0>(entry);
+        review["sha256"] = std::get<1>(entry);
+        review["trust_class"] = std::get<2>(entry);
+        annotation_reviews.push_back(std::move(review));
+    }
+    evidence["annotation_reviews"] = std::move(annotation_reviews);
     llvm::json::Object policy_delta;
     policy_delta["weakened"] = state.delta.weakened || state.policy_failed;
     policy_delta["review_required"] = state.delta.review_required || state.review_required;
@@ -5029,6 +5370,17 @@ bool verifyEvidenceFile(const std::string &path, std::string &status,
         if (!contract_path || !relative_manifest_path(*contract_path) || !expected ||
             !cand::sha256File(contract_path->str(), actual, error) || actual != expected->str()) {
             status = "stale"; detail = "trusted contract changed or unavailable"; return false;
+        }
+    }
+    const auto *annotation_reviews = evidence.getArray("annotation_reviews");
+    if (annotation_reviews) for (const auto &item : *annotation_reviews) {
+        const auto *review = item.getAsObject();
+        auto review_path = review ? review->getString("path") : std::nullopt;
+        auto expected = review ? review->getString("sha256") : std::nullopt;
+        std::string actual;
+        if (!review_path || !relative_manifest_path(*review_path) || !expected ||
+            !cand::sha256File(review_path->str(), actual, error) || actual != expected->str()) {
+            status = "stale"; detail = "reviewed annotation manifest changed or unavailable"; return false;
         }
     }
     const auto *frontend = evidence.getObject("frontend");
@@ -5258,6 +5610,30 @@ bool validateAgentContract(AgentPolicyState &state) {
         return false;
     }
     state.contract_inputs.emplace_back(normalized, digest, trust);
+    return true;
+}
+
+// The reviewed annotation manifest is a trusted input exactly like a contract
+// bundle and is pinned through the same policy pin list (path + sha256 +
+// trust class). A candidate or substituted manifest never reaches the
+// analyzer (ADR-0029).
+bool validateAnnotationReview(AgentPolicyState &state) {
+    if (AnnotationReviewPath.empty()) return true;
+    std::string digest, error, trust;
+    const std::string normalized = cand::normalizedRelativePath(AnnotationReviewPath);
+    if (normalized.empty() || !cand::sha256File(AnnotationReviewPath, digest, error) ||
+        !cand::contractIsPinned(state.policy, normalized, digest, trust)) {
+        state.policy_failed = true;
+        state.review_required = true;
+        state.policy_errors.push_back("annotation review path/content is not pinned by the effective policy");
+        state.delta.review_required = true;
+        state.delta.classification = state.delta.weakened ? "PROOF_WEAKENING" : "REVIEW_REQUIRED";
+        state.delta.changes.push_back({"annotation-review-set-substitution", "pinned trusted inputs", normalized,
+                                       "REVIEW_REQUIRED"});
+        AnnotationReviewPath = ""; // candidate or substituted manifests never reach the analyzer
+        return false;
+    }
+    state.annotation_review_inputs.emplace_back(normalized, digest, trust);
     return true;
 }
 
@@ -5516,6 +5892,7 @@ int main(int argc, const char **argv) {
             agent_state.policy_errors.push_back("frontend arguments differ from the policy-pinned argument list");
         }
         (void)validateAgentContract(agent_state);
+        (void)validateAnnotationReview(agent_state);
     }
 
     clang::tooling::ClangTool tool(options_parser.getCompilations(),

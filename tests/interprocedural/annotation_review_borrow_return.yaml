@@ -1,0 +1,13 @@
+schema: cand.annotation-review/v1
+name: annotation-review-borrow-return
+version: "1"
+symbols:
+  - symbol: reviewed_view
+    kind: function
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+    params:
+      - index: 0
+        effect: borrow_shared

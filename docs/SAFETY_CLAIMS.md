@@ -145,6 +145,9 @@ Potential trusted inputs include:
 - the Clang AST/CFG behavior relied on by the supported frontend version;
 - the exact analysis configuration;
 - accepted external ownership contracts;
+- accepted declaration-annotation review manifests (`cand.annotation-review/v1`,
+  ADR-0029): a manifest is a trusted input only after review, and only
+  through the policy pin list; it never trusts the annotations themselves;
 - safety-policy configuration used to define checked scope.
 
 The following are **not trusted merely because they exist**:
@@ -153,6 +156,8 @@ The following are **not trusted merely because they exist**:
 - LLM-generated annotations;
 - LLM-generated fixes;
 - LLM-generated contracts;
+- LLM-generated annotation-review manifests (a manifest is trusted only
+  after review and policy pinning, never by its existence);
 - comments/documentation claiming ownership behavior;
 - inferred contracts that have not passed the required trust path;
 - baseline/suppression files;

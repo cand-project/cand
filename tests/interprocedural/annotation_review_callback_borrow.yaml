@@ -1,0 +1,9 @@
+schema: cand.annotation-review/v1
+name: annotation-review-callback-borrow
+version: "1"
+symbols:
+  - symbol: reviewed_register
+    kind: function
+    params:
+      - index: 1
+        effect: borrow_shared

@@ -1,0 +1,16 @@
+schema: cand.annotation-review/v1
+name: annotation-review-redecl-conflict
+version: "1"
+symbols:
+  - symbol: reviewed_conflicting
+    kind: function
+    returns:
+      ownership: owned
+    params:
+      - index: 0
+        effect: borrow_shared
+  - symbol: reviewed_conflicting_param
+    kind: function
+    params:
+      - index: 0
+        effect: destroys

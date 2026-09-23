@@ -1,0 +1,89 @@
+schema: cand.annotation-review/v1
+name: hiredis-cand1-reviewed-h2
+version: "1"
+symbols:
+  - symbol: sdsnewlen
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: sdsnew
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: sdsempty
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: sdsdup
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: sdsfree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisReaderCreate
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: redisReaderCreateWithFunctions
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: redisReaderFree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: freeReplyObject
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisConnectWithOptions
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: redisFree
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeKeepFd
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeCommand
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisFreeSdsCommand
+    kind: function
+    params:
+      - index: 0
+        effect: destroys
+  - symbol: redisCommand
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: redisCommandArgv
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true
+  - symbol: redisvCommand
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true

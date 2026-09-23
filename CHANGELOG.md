@@ -4,6 +4,54 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Milestone #39: declaration-annotation propagation through a reviewed manifest (ADR-0029)
+
+- Body-less declarations carrying C& ownership annotations now seed external
+  summaries **only** when a separately reviewed annotation-review manifest
+  (`cand.annotation-review/v1`, new `--annotation-review` flag) lists the
+  symbol with exactly the same facts. The manifest shares the contract
+  parser, is policy-pinned through the existing trusted pin list in the
+  agent path (unpinned/candidate/substituted manifests fail the policy and
+  never reach the analyzer), appears as `annotation_reviews` evidence
+  entries, and participates in the evidence freshness check
+  (`annotation-review-set-substitution`, post-attestation mutation reports
+  `stale`).
+- Candidate-only annotations (no manifest, absent symbol, fact mismatch,
+  conflicting redeclaration facts, out-of-range borrow index) never seed:
+  their calls keep today's verdicts with distinct fail-closed kinds
+  (`unreviewed-declaration-annotation:<sym>`,
+  `conflicting-declaration-annotation:<sym>`). The recorded candidate-only
+  attack control remains INCOMPLETE.
+- Seeded summaries carry `SummaryOrigin::AnnotationTrusted`; seeding runs
+  before contract loading, an agreeing contract keeps its provenance, and a
+  disagreeing one fails closed with an `annotation/contract mismatch`
+  `contract-body-conflict`. Visible bodies always win; seeding is refused
+  for C++ TUs, K&R declarations, `realloc`, and pointer-to-pointer shapes
+  (#41 scope).
+- Qualification (evidence: `docs/pilots/DECL-ANNOTATION-PROPAGATION.md`):
+  - Gate A census: 21,536 XTU-eligible rows / 2,045 symbols across the five
+    pilots (sqlite 77% addressable);
+  - fixture H-matrix: the 01/03/05 defect (PASS under contracts, INCOMPLETE
+    under annotations) is repaired; manifest-less control unchanged;
+  - five-pilot zero-annotation invariant: obligations and findings
+    byte-identical;
+  - full-project hiredis replay: H2 (annotations + manifest) tracks H1
+    (contracts) within 8 of ~1,050 obligations, every difference attributed
+    to body precedence and None/Unknown silence semantics;
+  - nine-mutation corpus: 9/9 ASan-confirmed temporal defects now FAIL
+    under H2 (previously INCOMPLETE), 0 false PASS; ABI/layout control
+    unchanged;
+  - fuzz: seven new `EXTERN_*` mutation operators against a fixed
+    manifest-pinned strict workspace (fast campaign 1,000 cases: 0 false
+    pass, 48/48 operators correct).
+- Spec amendments: SPEC-0010 rule 11 (trusted external effects include
+  reviewed annotation manifests), SPEC-0003 §17 (manifest format),
+  `SAFETY_CLAIMS.md` (trusted-input list: accepted annotation-review
+  manifests; LLM-generated manifests are not trusted merely because they
+  exist). The v0.2.2 claim identity is unchanged.
+
+## Unreleased
+
 ### Milestone #54: alias/storage evidence bar + local-alias destruction false FAIL repaired
 
 - Gate A evidence (`docs/pilots/ALIAS-STORAGE-PARETO.md`, census harness
