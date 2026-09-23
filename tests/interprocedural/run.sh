@@ -98,6 +98,31 @@ done
 check fail tests/interprocedural/parameter_owner_conditional_destroy_fail.c
 check fail tests/interprocedural/parameter_owner_loop_destroy_fail.c
 
+# Milestone #54 (ADR-0028): bounded local-alias destruction attribution.
+# The core repair turns the CAND-O006 false FAIL into a correct Destroy
+# summary; every ambiguous alias shape stays fail-closed; the loop and
+# interleaving shapes must never gain a PASS on a use-after. The two
+# *_residual_* fixtures pin documented known false FAILs (see
+# docs/pilots/ALIAS-STORAGE-PARETO.md section 4) so any future change to
+# those boundaries is deliberate.
+check pass tests/interprocedural/parameter_alias_destroy_safe.c
+check fail tests/interprocedural/parameter_alias_destroy_then_use_fail.c
+check fail tests/interprocedural/parameter_alias_destroy_caller_use_fail.c
+check fail tests/interprocedural/parameter_alias_destroy_caller_free_fail.c
+check fail tests/interprocedural/parameter_alias_double_destroy_fail.c
+check incomplete tests/interprocedural/parameter_alias_conditional_destroy_incomplete.c
+check incomplete tests/interprocedural/parameter_alias_reassigned_local_incomplete.c
+check fail tests/interprocedural/parameter_alias_reassigned_param_residual_fail.c
+check fail tests/interprocedural/parameter_alias_transitive_residual_fail.c
+check incomplete tests/interprocedural/parameter_alias_conditional_init_incomplete.c
+check pass tests/interprocedural/parameter_alias_wrong_param_probe_safe.c
+check fail tests/interprocedural/parameter_alias_wrong_param_probe_fail.c
+check pass tests/interprocedural/parameter_alias_annotated_borrow_body_authority_safe.c
+check fail tests/interprocedural/parameter_alias_loop_destroy_fail.c
+check pass tests/interprocedural/parameter_alias_move_interleaving_safe.c
+check fail tests/interprocedural/parameter_alias_move_interleaving_useafter_fail.c
+check incomplete tests/interprocedural/parameter_alias_unknown_callee_incomplete.c
+
 # Unknown-capability red-team matrix (see parameter_unknown_capability_redteam.c):
 # every escape of an unannotated pointer parameter to an opaque callee must be
 # reported (never PASS); destruction/transfer stays fail-closed; return-by-param

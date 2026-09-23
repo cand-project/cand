@@ -2,6 +2,37 @@
 
 All notable project changes are recorded here.
 
+## Unreleased
+
+### Milestone #54: alias/storage evidence bar + local-alias destruction false FAIL repaired
+
+- Gate A evidence (`docs/pilots/ALIAS-STORAGE-PARETO.md`, census harness
+  `scripts/pilots/alias_storage_pareto.py`): issue #54's evidence bar for
+  alias/storage adoption precision is NOT met — alias/storage is the #1
+  sole-blocker family only in zlib (18 functions); the callee-summary
+  cascade (milestone #61 residual + cross-TU) dominates the four large
+  pilots, and neither CVE replay defect path is alias/storage-blocked.
+  Adoption-precision work stays deferred; zlib's alias dominance is
+  recorded as the leading indicator to re-run.
+- the separately tracked local-alias destruction false FAIL (verifier
+  bug, fail-closed direction) is repaired (ADR-0028): a consuming call
+  (`free` or a Destroy/TakeOwnership callee) through a local that
+  unambiguously holds one parameter's entry value — single-assignment
+  declaration-init alias, never reassigned, address never taken,
+  parameter never reassigned — now attributes its effect to that
+  parameter, exactly as the direct `free(p)` form; measured 23 of 46
+  pilot findings (50%) were CAND-O006 false FAILs of this class;
+- measured five-pilot before/after: curl findings 42 → 23 (all 19
+  removed findings adjudicated as the false FAIL; zero new findings;
+  obligations byte-identical in every pilot), curl clear 345 → 347;
+  four residual false FAILs remain by design (2 curl loop-reassigned
+  shapes, 2 zlib assignment-established shapes) and are recorded as
+  residual debt;
+- 17 paired regression fixtures (`tests/interprocedural/parameter_alias_*.c`)
+  pin every whitelist boundary, the fail-closed complement, and the
+  caller-side destroy semantics; 6 new differential fuzz mutation
+  operators (`PARAM_ALIAS_*`) cover the parameter-alias surface.
+
 ## 0.2.2 — 2026-09-23
 
 ### Post-incident release: incidents #62 and #64 repaired, C&1/v1 claim restored
