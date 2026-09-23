@@ -2,13 +2,10 @@
 
 Status: final. Date: 2026-09-23.
 
-**Release state:** `v0.2.2` tagged on the release merge commit (the
-release PR for branch `release/v0.2.2`), published at
+**Release state:** `v0.2.2` tagged on the release merge commit
+`deb692a54e9bf76864930308ff183a4d5d2c6416` (PR #67), published at
 https://github.com/cand-project/cand/releases/tag/v0.2.2.
 The `v0.2.1` tag is untouched at `a362306`.
-
-<!-- RELEASE_STATE_FINAL (tag SHA and release PR number to be recorded at
-     publication; replace this paragraph before the release commit) -->
 
 ## Report
 
