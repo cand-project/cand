@@ -3852,6 +3852,47 @@ private:
         return false;
     }
 
+    static bool addressTaken(const Stmt *stmt, const VarDecl *var) {
+        if (!stmt) return false;
+        if (const auto *unary = dyn_cast<UnaryOperator>(stmt);
+            unary && unary->getOpcode() == clang::UO_AddrOf) {
+            const auto *ref = dyn_cast<DeclRefExpr>(unary->getSubExpr()->IgnoreParenCasts());
+            if (ref && ref->getDecl() == var) return true;
+        }
+        for (const Stmt *child : stmt->children()) if (addressTaken(child, var)) return true;
+        return false;
+    }
+
+    // Milestone #54 (ADR-0028): bounded local-alias resolution. Returns the
+    // parameter index whose object the expression unambiguously holds, or
+    // nullopt (fail closed). The whitelist: the expression is a plain
+    // (paren/cast-stripped) reference to a function-local pointer variable
+    // that is not itself a parameter, not a static local, and neither
+    // volatile nor atomic; it has an initializer that is exactly one
+    // parameter reference (after paren/cast stripping -- no derived,
+    // field, conditional, or call-shaped initializers); it is never the
+    // left-hand side of an assignment and never has its address taken
+    // anywhere in the body; and the aliased parameter is never assigned
+    // in the body (so the local holds the parameter's entry value). This
+    // mirrors the ADR-0026 single-origin whitelist philosophy: any doubt
+    // leaves the pre-rule behavior in place.
+    static std::optional<unsigned> aliasedParameterIndex(const Expr *expr, const FunctionDecl &f) {
+        expr = expr ? expr->IgnoreParenCasts() : nullptr;
+        const auto *ref = expr ? dyn_cast<DeclRefExpr>(expr) : nullptr;
+        const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+        if (!var || isa<ParmVarDecl>(var) || var->isStaticLocal()) return std::nullopt;
+        if (!var->getType()->isPointerType()) return std::nullopt;
+        if (var->getType().isVolatileQualified() || var->getType()->isAtomicType())
+            return std::nullopt;
+        const Stmt *body = f.getBody();
+        if (!body || !var->getInit()) return std::nullopt;
+        const auto index = parameterIndex(var->getInit(), f);
+        if (!index) return std::nullopt;
+        if (assignedLater(body, var) || addressTaken(body, var)) return std::nullopt;
+        if (assignedLater(body, f.getParamDecl(*index))) return std::nullopt;
+        return index;
+    }
+
     bool nullPointerValue(const Expr *expr) const {
         return expr && expr->isNullPointerConstant(
             context_, Expr::NPC_ValueDependentIsNotNull);
@@ -3965,7 +4006,30 @@ private:
                 std::vector<unsigned> currents;
                 for (unsigned i = 0; i < f.param_size(); ++i)
                     if (f.getParamDecl(i)->getType()->isPointerType() && containsParameter(call->getArg(argument), f, i)) currents.push_back(i);
-                if (currents.empty()) continue;
+                if (currents.empty()) {
+                    // Milestone #54 (ADR-0028): bounded local-alias
+                    // resolution, restricted to consuming effects. When the
+                    // argument is a local that unambiguously holds one
+                    // parameter's entry value (single-assignment
+                    // declaration-init alias, never reassigned, address
+                    // never taken, parameter never reassigned), a free (or
+                    // a callee that destroys/consumes that argument)
+                    // attributes its effect to that parameter, exactly as
+                    // the direct `free(p)` form does. Everything else --
+                    // unknown callees, borrowing callees, any ambiguous
+                    // alias shape -- keeps the pre-rule behavior
+                    // (fail-closed).
+                    const bool consuming =
+                        (name == "free" && call->getNumArgs() == 1) ||
+                        (callee && argument < callee->params.size() &&
+                         (callee->params[argument] == ParamEffect::Destroy ||
+                          callee->params[argument] == ParamEffect::TakeOwnership));
+                    if (consuming) {
+                        if (const auto aliased = aliasedParameterIndex(call->getArg(argument), f))
+                            currents.push_back(*aliased);
+                    }
+                    if (currents.empty()) continue;
+                }
                 if (currents.size() > 1) {
                     for (unsigned current : currents) s.params[current] = ParamEffect::Unknown;
                     continue;

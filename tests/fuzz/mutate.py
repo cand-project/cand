@@ -45,6 +45,19 @@ OPERATORS = {
     "VOLATILE_STORAGE_TRANSPORT": "KNOWN_VIOLATION",
     "SETJMP_ACROSS_DESTROY": "UNSUPPORTED",
     "ATOMIC_STORAGE_TRANSPORT": "UNSUPPORTED",
+    # --- parameter-alias operators (milestone #54 / ADR-0028) ---
+    # The callee destroys (or must not destroy) its parameter through a
+    # local alias; the caller-side consequence is the pinned surface.
+    # The conditional and reassigned forms stay fail-closed INCOMPLETE by
+    # design (ADR-0027 join / tracked-owner-overwrite), matching the
+    # regression fixtures parameter_alias_conditional_destroy_incomplete.c
+    # and parameter_alias_reassigned_local_incomplete.c.
+    "PARAM_ALIAS_DESTROY_USE": "KNOWN_VIOLATION",
+    "PARAM_ALIAS_DESTROY_SAFE": "SAFE",
+    "PARAM_ALIAS_CONDITIONAL_DESTROY_USE": "UNSUPPORTED",
+    "PARAM_ALIAS_REASSIGNED": "UNSUPPORTED",
+    "PARAM_ALIAS_TWO_PARAM_SAFE": "SAFE",
+    "PARAM_ALIAS_TWO_PARAM_USE": "KNOWN_VIOLATION",
 }
 
 REQUIRED_SHAPES = {
@@ -83,6 +96,12 @@ REQUIRED_SHAPES = {
     "VOLATILE_STORAGE_TRANSPORT": (r"void \* volatile v = p;",),
     "SETJMP_ACROSS_DESTROY": (r"setjmp\(jb\)", r"longjmp\(jb, 1\)"),
     "ATOMIC_STORAGE_TRANSPORT": (r"_Atomic\(void \*\) slot", r"atomic_store\(&slot, p\)"),
+    "PARAM_ALIAS_DESTROY_USE": (r"cand1_alias_destroy\(p\);", r"cand1_alias_destroy\(\w+ \*q\)", r"= p->value;"),
+    "PARAM_ALIAS_DESTROY_SAFE": (r"cand1_alias_destroy\(p\);", r"cand1_alias_destroy\(\w+ \*q\)"),
+    "PARAM_ALIAS_CONDITIONAL_DESTROY_USE": (r"cand1_cond_alias_destroy\(p, 1\);", r"if \(c\) \{", r"= p->value;"),
+    "PARAM_ALIAS_REASSIGNED": (r"cand1_alias_reassigned\(p\);", r"r = malloc", r"= p->value;"),
+    "PARAM_ALIAS_TWO_PARAM_SAFE": (r"cand1_two_alias\(p, p2\);", r"= p2->value;"),
+    "PARAM_ALIAS_TWO_PARAM_USE": (r"cand1_two_alias\(p, p\);", r"= p->value;"),
 }
 
 
@@ -227,6 +246,37 @@ def apply(source: str, mutation: str) -> str:
         return source.replace(
             f"{sink} = p->value;\n    free(p);",
             f"_Atomic(void *) slot;\n    atomic_store(&slot, p);\n    free(p);\n    {sink} = (({typ} *)atomic_load(&slot))->value;", 1)
+
+    # --- parameter-alias operators (milestone #54 / ADR-0028) ---
+    if mutation == "PARAM_ALIAS_DESTROY_USE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"cand1_alias_destroy(p);\n    {sink} = p->value;", 1),
+            casefn, f"static void cand1_alias_destroy({typ} *q) {{ {typ} *r = q; free(r); }}")
+    if mutation == "PARAM_ALIAS_DESTROY_SAFE":
+        return _insert_before_case(
+            source.replace("free(p);", "cand1_alias_destroy(p);", 1),
+            casefn, f"static void cand1_alias_destroy({typ} *q) {{ {typ} *r = q; free(r); }}")
+    if mutation == "PARAM_ALIAS_CONDITIONAL_DESTROY_USE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"cand1_cond_alias_destroy(p, 1);\n    {sink} = p->value;", 1),
+            casefn, f"static void cand1_cond_alias_destroy({typ} *q, int c) {{ if (c) {{ {typ} *r = q; free(r); }} }}")
+    if mutation == "PARAM_ALIAS_REASSIGNED":
+        return _insert_before_case(
+            source.replace("free(p);",
+                           f"cand1_alias_reassigned(p);\n    {sink} = p->value;", 1),
+            casefn, f"static void cand1_alias_reassigned({typ} *q) {{ {typ} *r = q; r = malloc(sizeof *r); free(r); }}")
+    if mutation == "PARAM_ALIAS_TWO_PARAM_SAFE":
+        return _insert_before_case(
+            source.replace("free(p);",
+                           f"{{ {typ} *p2 = malloc(sizeof *p2); cand1_two_alias(p, p2); {sink} = p2->value; }}", 1),
+            casefn, f"static void cand1_two_alias({typ} *a, {typ} *b) {{ {typ} *r = a; free(r); (void)b; }}")
+    if mutation == "PARAM_ALIAS_TWO_PARAM_USE":
+        return _insert_before_case(
+            source.replace(f"{sink} = p->value;\n    free(p);",
+                           f"cand1_two_alias(p, p);\n    {sink} = p->value;", 1),
+            casefn, f"static void cand1_two_alias({typ} *a, {typ} *b) {{ {typ} *r = a; free(r); (void)b; }}")
     raise AssertionError(mutation)
 
 

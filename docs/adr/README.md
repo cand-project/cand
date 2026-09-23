@@ -33,6 +33,7 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0025](ADR-0025-reassigned-parameter-origin-repair.md) | Reassigned-parameter borrow-origin repair: a parameter assigned anywhere in the body is not a sound return borrow origin (incident #62) | Accepted |
 | [ADR-0026](ADR-0026-compound-origin-resolution-repair.md) | Compound-origin borrow-resolution repair: return origins resolve only from expressions unambiguously derived from a single pointer parameter (incident #64) | Accepted |
 | [ADR-0027](ADR-0027-conditional-borrow-none-join.md) | Conditional borrow/none effect join: a parameter at most borrowed (or untouched) on every path is at most borrowed overall (milestone #61) | Accepted |
+| [ADR-0028](ADR-0028-bounded-local-alias-destruction-attribution.md) | Bounded local-alias destruction attribution: consuming calls through a single-assignment declaration-init alias of one parameter attribute to that parameter (milestone #54) | Accepted |
 
 ## Design chain
 
