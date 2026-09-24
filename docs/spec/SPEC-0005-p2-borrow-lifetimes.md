@@ -100,6 +100,16 @@ does not create a new parent object.
 
 7. Operations that may relocate storage, or whose effects cannot establish
    whether storage moved, are not silently treated as safe.
+8. A pointer derived from an object by pure-integer arithmetic (an
+   interior cursor: `p += e`, `p++`, `q = p ± e` with an integer-only
+   delta) keeps the parent object identity with an `Interior` relation.
+   The claim is scoped to well-defined executions: an out-of-bounds
+   result is UB and remains attributed to the same parent, which can
+   only add detections; a delta mentioning a pointer value can rebind
+   and is UNSUPPORTED. Destruction, free, transfer, or move of a
+   pointer whose relation is not exactly `Base` is UNSUPPORTED
+   (`destroy-of-non-base`) — interior cursors are not destroyable
+   bases (ADR-0031).
 
 For simple CFG joins, states join conservatively:
 
@@ -154,6 +164,17 @@ Verified wrappers compose this relationship through their argument mapping;
 they do not create an artificial parent. A trusted contract may establish the
 relationship only when its trust class and policy permit it.
 
+A return-borrow relationship may also be established without the annotation
+by machine-verified origin resolution (ADR-0031): when every return site's
+value resolves through the summary-side origin dataflow — parameter-derived
+shapes, verified `BorrowFromArg` summary chains, and pure-integer cursor
+advances, joined monotonically — to a single parameter, the summary is
+`BorrowFromArg(j)`. Locals initialized by explicit borrow annotations are
+excluded: an annotated borrow returned without `CAND_RETURNS_BORROW_FROM`
+remains `CAND-B003`. Resolution is not suppression: the caller receives the
+lifetime link, and a use-after-free through the returned borrow is still a
+failure.
+
 An unknown or candidate contract cannot establish a trusted lifetime proof.
 
 ## 7. Escape and unknown retention
@@ -171,6 +192,13 @@ result is `INCOMPLETE`.
 `realloc` is `INCOMPLETE` while a live borrow may be affected. A successful
 reallocation can move storage and invalidate interior pointers, so P2 does not
 assume that `realloc` preserves a borrow.
+
+Passing the address of pointer-free storage (`&scalar`, `&pointer-free
+struct`) to a reviewed borrow-effect parameter is ownership-neutral: a read
+or read-or-write of pointer-free scalar storage cannot fabricate, duplicate,
+or clobber a tracked pointer, so it emits no obligation (ADR-0031). The
+address of storage that may contain a tracked pointer is not covered by
+this rule.
 
 ## 8. Stable diagnostics
 

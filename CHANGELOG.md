@@ -4,6 +4,80 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Milestone #73: borrow-idiom modeling — address-of-parameter borrows, integer-delta cursor advances, verified-origin borrow returns (ADR-0031)
+
+- Closes the three fail-closed borrow-idiom families measured in #36
+  (E2) that fired on correct C. A TU-level re-verification first
+  corrected the issue's framing: all five `CAND-B003` findings
+  (hiredis `read.c:168`, libevent `buffer.c:1541/1542/1544`, redis
+  `zmalloc.c:541/568`) are one mechanism — a local holding a shared
+  borrow from a `BorrowFromArg` summary returned while the enclosing
+  function's own summary return effect is `Unknown`; none is
+  `borrow-unknown-parent`.
+- Area A (ADR-0031 §1): `&pointer-free-param` at a reviewed
+  borrow-effect argument is ownership-neutral (a scalar read or
+  read-or-write cannot fabricate, duplicate, or clobber a tracked
+  pointer) and no longer emits `unmodelled-pointer-parameter`. Fixes
+  libevent `evutil.c:3211`, hiredis `net.c:248`, sqlite amalgam
+  `sqlite3.c:85990` plus 23 same-kind collateral rows in the amalgam.
+- Area C (ADR-0031 §2): `PointerRelation::Interior` — pure-integer-delta
+  cursor advances (`p += e`, `p++`, `q = p ± e`) keep the parent object
+  instead of poisoning the storage; pointer-mentioning deltas still
+  poison. Mandatory companion: the exact-base-required destruction
+  predicate emits the new `destroy-of-non-base` obligation in all four
+  destruction paths (free/destroy/transfer/move), so
+  `p += 1; free(p)` stays INCOMPLETE
+  (`tests/storage/{compound,unary}_pointer_advance_incomplete.c`).
+- Area R (ADR-0031 §3): summary-side, monotone-join origin dataflow
+  resolves a function's return to `BorrowFromArg(j)` when every return
+  site's value resolves through machine-verified provenance (verified
+  summary chains, parameter-derived shapes, integer-delta advances) to
+  a single parameter. Resolution-with-detection, not suppression: the
+  caller keeps the lifetime link and use-after-free through the
+  returned borrow still FAILs. Explicitly annotated borrows still
+  require `CAND_RETURNS_BORROW_FROM`
+  (`tests/p2/undeclared_borrow_return.c` unchanged FAIL).
+- Removes the four correct-C findings: hiredis `read.c:168`
+  (`seekNewline`), libevent `buffer.c:1541/1542/1544`
+  (`find_eol_char`), plus the cursor-advance collateral rows in the
+  same functions. redis `zmalloc.c:541/568` REMAIN fail-closed
+  (residual debt: the wrapper's `ptr` is reassigned from an
+  uncontracted realloc-family call; deciding it requires
+  realloc-replacement modeling, not claimed). The declaration-form
+  advance `T *q = p + 1;` also stays fail-closed.
+- Permanent paired regressions in `tests/interprocedural/` (18
+  fixtures, ADR-0027 convention): unlocks
+  `addr_param_scalar_borrow_safe.c`, `cursor_integer_advance_use_safe.c`,
+  `borrowed_local_return_safe.c`, `seeknewline_shape_safe.c`,
+  `find_eol_char_shape_safe.c`, `borrowed_local_chain_b0_safe.c`;
+  fail-closed controls `addr_param_pointer_pass.c`,
+  `addr_param_tracked_member_pass.c`,
+  `cursor_variable_delta_rebind_incomplete.c`,
+  `cursor_two_step_delta_rebind_incomplete.c`,
+  `cursor_advance_roundtrip_incomplete.c`,
+  `destroy_of_interior_incomplete.c`, `move_of_interior_incomplete.c`,
+  `borrowed_local_two_params_incomplete.c`,
+  `borrowed_local_loop_carried_incomplete.c`,
+  `borrowed_local_two_param_null_incomplete.c`; detection controls
+  `cursor_integer_advance_uaf_detect.c` (FAIL, `CAND-B002`),
+  `borrowed_local_return_uaf_detect.c` (FAIL, `CAND-B001`+`B002`).
+  All 18 verified fail-first against pre-change main.
+- The #62/#64/#61 incident corpora re-ran byte-identical after every
+  stage (subscript, comma, callargs, conditional/condptr, controls,
+  reassigned_*, conditional_join_*, undeclared_borrow_return,
+  direct_global_escape, contracts trio); two in-development
+  regressions — including an exact #62 false-PASS shape — were caught
+  by these gates and fixed before commit.
+- Qualification: `scripts/check.sh`, CTest 20/20 (incl. fast fuzz and
+  policy attacks), CVE replay 2/2 within recorded classifications,
+  and the full eight-pilot × {b0, e2, e2plus} old-vs-new re-measurement
+  (see `docs/CAND1-73-FINAL-REPORT.md`): zero false PASS, zero lost
+  detection, every diff adjudicated.
+- Docs: ADR-0031 (+ index entries for ADR-0030 and ADR-0031, closing
+  the ADR-0030 index drift), SPEC-0005 §4/§6/§7 and SPEC-0010 §4
+  rule 10 amendments, PASS-path-audit amendment (§1), KIND_TO_SLOT
+  entry for `destroy-of-non-base`.
+
 ### Contracts: string/memory bundle gap closure (#74, measured in #36)
 
 - `strcmp` was missing from `contracts/bundles/libc-string.yaml`

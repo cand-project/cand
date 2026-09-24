@@ -51,7 +51,12 @@ roots are outside the profile and must fail closed.
 9. Loop allocation sites use generations. A reference from an earlier
    generation cannot be associated with a later generation without proof.
 10. Same-translation-unit bodies may contribute deterministic summaries for
-    supported calls, wrappers, returns, and parameter transport.
+    supported calls, wrappers, returns, and parameter transport. Return
+    origins resolve only from machine-verified provenance: direct
+    parameter derivation, verified summary chains, and the ADR-0031
+    origin dataflow (monotone-join, fail-closed on any unresolvable
+    shape). Explicitly annotated borrows still require
+    `CAND_RETURNS_BORROW_FROM` to return.
 11. External effects require a builtin, verified, or separately reviewed
     trusted contract, or a declaration whose ownership annotations are
     confirmed by a separately reviewed annotation-review manifest
