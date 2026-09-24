@@ -12,6 +12,7 @@
  * Every external call here is one the reviewed bundles classify:
  *   memcpy/memmove/memset/memcmp/memchr  borrow + borrowed-return-from-param
  *   strlen/strnlen/strchr/strncmp/strncpy/strcasecmp/strncasecmp
+ *   strcmp/strspn/strcspn                  borrow + scalar return
  *   tolower/toupper                       no_ownership_effect (scalar)
  *   snprintf                              borrow + scalar size
  *
@@ -37,6 +38,9 @@ int run(void) {
                                    * unknown-pointer-return-ownership
                                    * obligation by design (fail-closed) */
     int cmp = strncmp(b, a, 4);
+    int eq = strcmp("AbC", "abd"); /* scalar return, borrow params */
+    size_t spn = strspn("xyz", "xy"); /* scalar return */
+    size_t cspn = strcspn("xyz", "z"); /* scalar return */
     int ci = strcasecmp("AbC", "abc");
     int ci2 = strncasecmp("AbC", "abd", 2);
     (void)ci2;
@@ -46,8 +50,9 @@ int run(void) {
     int upper = toupper('a');
     snprintf(b, 32, "%d", 42);
 
-    int ok = (hit != NULL) && (slash != NULL) && cmp != 0 && ci == 0
-             && lower == 'a' && upper == 'A';
+    int ok = (hit != NULL) && (slash != NULL) && cmp != 0 && eq < 0
+             && ci == 0 && lower == 'a' && upper == 'A'
+             && spn == 2 && cspn == 2;
     free(a);
     free(b);
     return ok ? 0 : 2;

@@ -1,6 +1,6 @@
 schema: cand.api-contract/v1
 name: cand-libc-memory
-version: "1.0.0"
+version: "1.1.0"
 
 # Reviewed memory-data-movement bundle (ISO C11 7.24).
 #
@@ -72,6 +72,19 @@ symbols:
       - index: 2
         effect: no_ownership_effect
   - symbol: memchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+      - index: 2
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: memrchr
     kind: function
     params:
       - index: 0

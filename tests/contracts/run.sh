@@ -118,21 +118,29 @@ check() {
 echo "==> contracts: conformance fixtures (positive)"
 check pass tests/contracts/fixtures/libc_conformance_safe.c "-std=c11 -D_POSIX_C_SOURCE=200809L"
 check pass tests/contracts/fixtures/memchr_borrowed_return_safe.c -std=c11
+check pass tests/contracts/fixtures/strsearch_borrowed_return_safe.c "-std=gnu11 -D_GNU_SOURCE"
 check pass tests/contracts/fixtures/socket_borrow_safe.c "-std=c11 -D_POSIX_C_SOURCE=200809L"
 
 echo "==> contracts: conformance fixtures (adversarial / fail-closed)"
 check fail tests/contracts/fixtures/ctype_scalar_uaf.c -std=c11
 check fail tests/contracts/fixtures/close_member_uaf.c "-std=c11 -D_POSIX_C_SOURCE=200809L"
 check fail tests/contracts/fixtures/memchr_borrowed_return_uaf.c -std=c11
+check fail tests/contracts/fixtures/strsearch_borrowed_return_uaf.c "-std=gnu11 -D_GNU_SOURCE"
 check incomplete tests/contracts/fixtures/realloc_use_after.c -std=c11
 check fail tests/contracts/fixtures/free_then_use_malloc.c -std=c11
 check incomplete tests/contracts/fixtures/snprintf_variadic_escape.c -std=c11
 check incomplete tests/contracts/fixtures/excluded_symbols_uncontracted.c "-std=c11 -D_POSIX_C_SOURCE=200809L"
 
 echo "==> contracts: positive fixtures are INCOMPLETE without contracts"
-for f in libc_conformance_safe.c memchr_borrowed_return_safe.c socket_borrow_safe.c; do
+# strsearch_borrowed_return_safe.c needs -std=gnu11 -D_GNU_SOURCE (memrchr is a GNU
+# extension and strlcpy is POSIX.1-2024; neither is declared under
+# strict -std=c11 on glibc) — the fail-closed-without-contracts property
+# is flag-independent.
+for f in libc_conformance_safe.c memchr_borrowed_return_safe.c strsearch_borrowed_return_safe.c socket_borrow_safe.c; do
+  std="-std=c11 -D_POSIX_C_SOURCE=200809L"
+  [ "$f" = strsearch_borrowed_return_safe.c ] && std="-std=gnu11 -D_GNU_SOURCE"
   set +e
-  output="$($cand check --format=json "tests/contracts/fixtures/$f" -- -std=c11 -D_POSIX_C_SOURCE=200809L 2>/dev/null)"; status=$?
+  output="$($cand check --format=json "tests/contracts/fixtures/$f" -- $std 2>/dev/null)"; status=$?
   set -e
   grep -Fq '"result": "incomplete"' <<<"$output" || {
     echo "$f was not fail-closed without contracts"; exit 1;

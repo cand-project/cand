@@ -47,6 +47,15 @@ within-call read/write contract) and musl `src/string/mem*.c`.
   boundary fact that keeps the Hiredis `read.c` line scanner's B003
   detections intact; see the CVE replay interaction results).
 
+## memrchr
+
+- GNU extension, also in musl and the BSDs (memrchr(3)): as memchr but
+  scanning backward from the end; returns a pointer into s or a null
+  pointer. Same claim class as memchr (measured demand: 4 obligation
+  rows in the milestone #36 E2 re-measurement).
+- Param 0 borrow; params 1,2 no_ownership_effect. Return borrows from
+  param 0.
+
 Note on this milestone's audit finding: the previous libc-borrow bundle
 omitted the scalar parameter positions of these symbols, so escape
 obligations fired whenever an argument expression merely contained a
