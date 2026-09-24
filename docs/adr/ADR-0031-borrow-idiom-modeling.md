@@ -146,6 +146,20 @@ and not claimed. The declaration-form advance `T *q = p + 1;` still
 emits `ambiguous-alias-target` (fail-closed); only the assignment and
 compound forms are modeled.
 
+The S6 re-measurement surfaced one **new** residual of the same
+finding class, recorded with the others in issue #76: redis
+`listpack.c:916` (`lpFindCbInternal`) returns a cursor whose origin
+joins {param 0, param 1} — genuinely not a singleton — so the summary
+stays `Unknown` and the B003 backstop fires where the old
+poisoned-cursor path emitted an obligation (TU incomplete → fail;
+fail-closed direction on correct code). Deciding it needs a summary
+vocabulary for disjunctive return origins, which the single-parent
+borrow model cannot represent. The same measurement showed
+`combineReturn`'s pre-existing cross-site agreement check marking
+newly-mixed resolved/unresolved return sites (`lpSeek`) as
+`contract-body-conflict` instead of `Unknown` — fail-closed either
+way, recorded for policy review.
+
 ## Consequences
 
 - The paired regression corpus in `tests/interprocedural/` (18
@@ -171,12 +185,17 @@ compound forms are modeled.
   policy-attacks), CVE replay 2/2 within recorded classifications
   (both entries remain BOUNDED-INCOMPLETE).
 - Real-world re-measurement (all 8 pilots × {b0, e2, e2plus}, old vs
-  new binary, identical bundles): see
-  `docs/CAND1-73-FINAL-REPORT.md` for the complete accounting. Headline
-  expectations confirmed there: the four correct-C `CAND-B003`s are
-  removed with caller-side lifetime links preserved; the
-  `&scalar-param` obligations (including 23 same-kind collateral rows
-  in the sqlite amalgam) are gone; zmalloc's two findings and the
+  new binary, identical bundles — `docs/CAND1-73-FINAL-REPORT.md`):
+  4,538 obligations removed vs 462 added (all fail-closed, all inside
+  already-blocked functions; net down in every pilot×config cell);
+  the four correct-C `CAND-B003`s removed (TU fail→incomplete,
+  `seekNewline`/`find_eol_char` CLEAR); both baseline guard violations
+  restored (`evutil.c:3211`, `sqlite3.c:85990` — 24 amalgam rows);
+  201 CLEARs gained, 0 lost; 0 false PASS (the one TU→pass, zlib
+  `adler32.c`, is a pure-read cursor loop with no destruction); one
+  new fail-closed finding (redis `listpack.c:916`, §4/issue #76) and
+  one correct `destroy-of-non-base` detection on a real interior free
+  (sqlite `sqlite3MemFree`); zmalloc's two findings and the
   declaration-form residual remain fail-closed.
 - SPEC-0005 §4/§6/§7 and SPEC-0010 §4 rule 10 are amended to record
   the three decidable forms and their boundaries.

@@ -37,14 +37,23 @@ All notable project changes are recorded here.
   returned borrow still FAILs. Explicitly annotated borrows still
   require `CAND_RETURNS_BORROW_FROM`
   (`tests/p2/undeclared_borrow_return.c` unchanged FAIL).
-- Removes the four correct-C findings: hiredis `read.c:168`
-  (`seekNewline`), libevent `buffer.c:1541/1542/1544`
-  (`find_eol_char`), plus the cursor-advance collateral rows in the
-  same functions. redis `zmalloc.c:541/568` REMAIN fail-closed
-  (residual debt: the wrapper's `ptr` is reassigned from an
-  uncontracted realloc-family call; deciding it requires
-  realloc-replacement modeling, not claimed). The declaration-form
-  advance `T *q = p + 1;` also stays fail-closed.
+- Measured effect (S6 re-measurement, all 8 pilots × {b0, e2, e2plus},
+  old vs new binary under identical bundles; full accounting in
+  `docs/CAND1-73-FINAL-REPORT.md`): the four correct-C findings removed
+  (TU fail→incomplete; `seekNewline`/`find_eol_char` CLEAR), both
+  baseline CLEAR-loss guard violations restored (libevent
+  `evutil.c:3211`, sqlite amalgam `sqlite3.c:85990`), 4,538 obligations
+  removed vs 462 added (all fail-closed, all inside already-blocked
+  functions; net down in every pilot×config cell), 201 CLEARs gained /
+  0 lost, 0 false PASS (the one TU→pass, zlib `adler32.c`, is a
+  pure-read cursor loop with no destruction). One new fail-closed
+  finding on correct code — redis `listpack.c:916`, a genuine
+  two-parameter origin join that no summary vocabulary can decide — is
+  recorded as residual debt with issue #76, alongside the unchanged
+  zmalloc 541/568 (realloc-family chain) and the declaration-form
+  advance. The new `destroy-of-non-base` kind's first real-world
+  firing is sqlite `sqlite3MemFree`'s real interior free
+  (`p--; SQLITE_FREE(p)`) — correct fail-closed detection.
 - Permanent paired regressions in `tests/interprocedural/` (18
   fixtures, ADR-0027 convention): unlocks
   `addr_param_scalar_borrow_safe.c`, `cursor_integer_advance_use_safe.c`,
@@ -72,7 +81,8 @@ All notable project changes are recorded here.
   policy attacks), CVE replay 2/2 within recorded classifications,
   and the full eight-pilot × {b0, e2, e2plus} old-vs-new re-measurement
   (see `docs/CAND1-73-FINAL-REPORT.md`): zero false PASS, zero lost
-  detection, every diff adjudicated.
+  CLEAR, every diff adjudicated. Residual fail-closed debt is filed as
+  issue #76 (multi-param origin joins, realloc-family chains).
 - Docs: ADR-0031 (+ index entries for ADR-0030 and ADR-0031, closing
   the ADR-0030 index drift), SPEC-0005 §4/§6/§7 and SPEC-0010 §4
   rule 10 amendments, PASS-path-audit amendment (§1), KIND_TO_SLOT
