@@ -1105,6 +1105,19 @@ public:
             return;
         }
         cfg_ = cfg.get();
+        // #41: record every CallExpr materialized as (or within) a CFG
+        // block element. The defensive terminator pass uses this to avoid
+        // processing a later block's element call with this block's state.
+        if (pointer_output_contracts_) {
+            cfg_element_calls_.clear();
+            for (CFG::const_iterator it = cfg->begin(); it != cfg->end(); ++it) {
+                for (CFGBlock::const_iterator ei = (*it)->begin(); ei != (*it)->end(); ++ei) {
+                    if (ei->getKind() != CFGElement::Statement) continue;
+                    const std::optional<CFGStmt> element_stmt = ei->getAs<CFGStmt>();
+                    if (element_stmt) collectElementCalls(element_stmt->getStmt());
+                }
+            }
+        }
         run();
         collector_.noteTrackedHeapObjects(bound_objects_.size());
     }
@@ -2474,6 +2487,32 @@ private:
         loop_scoped_calls_.clear();
         if (!pointer_output_contracts_) return;
         collectPointerOutputFactsWalk(body, 0);
+    }
+
+    // #41: collects every CallExpr in an element statement's subtree into
+    // cfg_element_calls_ (see analyze()).
+    void collectElementCalls(const Stmt *stmt) {
+        if (stmt == nullptr) return;
+        if (const auto *call = dyn_cast<CallExpr>(stmt)) cfg_element_calls_.insert(call);
+        for (const Stmt *child : stmt->children()) collectElementCalls(child);
+    }
+
+    // #41: pre-marks condition-subtree calls that are CFG block elements
+    // as processed, so the defensive terminator pass cannot evaluate a
+    // later block's element call with this block's state. The element's
+    // own block processes the whole subtree with the correct in-state.
+    void skipElementCallsOfOtherBlocks(const Stmt *stmt,
+                                       std::set<const Stmt *> &processed) const {
+        if (stmt == nullptr) return;
+        if (const auto *call = dyn_cast<CallExpr>(stmt)) {
+            if (cfg_element_calls_.count(call) != 0) {
+                processed.insert(call);
+                return;
+            }
+        }
+        for (const Stmt *child : stmt->children()) {
+            skipElementCallsOfOtherBlocks(child, processed);
+        }
     }
 
     void collectPointerOutputFactsWalk(const Stmt *stmt, unsigned loop_depth) {
@@ -4085,20 +4124,32 @@ private:
         // Defensive: conditions normally appear as elements of the block, but
         // make sure a terminator condition is never silently skipped.
         if (const Stmt *terminator = block.getTerminatorStmt()) {
+            const Expr *defensive_cond = nullptr;
             if (const auto *if_stmt = dyn_cast<IfStmt>(terminator)) {
-                processStmt(if_stmt->getCond(), state, processed);
+                defensive_cond = if_stmt->getCond();
             } else if (const auto *switch_stmt = dyn_cast<SwitchStmt>(terminator)) {
-                processStmt(switch_stmt->getCond(), state, processed);
+                defensive_cond = switch_stmt->getCond();
             } else if (const auto *while_stmt = dyn_cast<WhileStmt>(terminator)) {
-                processStmt(while_stmt->getCond(), state, processed);
+                defensive_cond = while_stmt->getCond();
             } else if (const auto *for_stmt = dyn_cast<ForStmt>(terminator)) {
-                if (for_stmt->getCond() != nullptr) {
-                    processStmt(for_stmt->getCond(), state, processed);
-                }
+                defensive_cond = for_stmt->getCond();
             } else if (const auto *do_stmt = dyn_cast<DoStmt>(terminator)) {
-                processStmt(do_stmt->getCond(), state, processed);
+                defensive_cond = do_stmt->getCond();
             } else if (isa<IndirectGotoStmt>(terminator)) {
                 markUnsupported(*terminator, "indirect-goto");
+            }
+            if (defensive_cond != nullptr) {
+                // #41: short-circuit chains (A || B, A && B) materialize
+                // each operand's side effects as elements of the operand's
+                // own block, but every chain block carries the FULL
+                // condition as its terminator. A call that is an element
+                // of another block must be processed by that block with
+                // its own in-state; processing it here would pre-apply its
+                // produce and make the element pass see a live destination
+                // (a spurious refusal). With the feature off the set is
+                // empty and the defensive pass is unchanged.
+                skipElementCallsOfOtherBlocks(defensive_cond, processed);
+                processStmt(defensive_cond, state, processed);
             }
         }
         return state;
@@ -4146,6 +4197,9 @@ private:
     // the syntactic refusal also keeps the worklist fixed point free of
     // accept-then-refuse oscillation (v1 row identity for loop shapes).
     std::set<const CallExpr *> loop_scoped_calls_;
+    // #41: every CallExpr materialized as (or within) a CFG block element
+    // of the current function. Populated only when the feature is on.
+    std::set<const CallExpr *> cfg_element_calls_;
 };
 
 // Process one statement/expression node exactly once per block transfer.

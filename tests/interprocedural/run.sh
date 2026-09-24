@@ -421,6 +421,7 @@ PO_REF="--contracts=$PO/pointer_output_refusals.yaml"
 # F1 subject-discipline pair, and the leak-silence pin
 # (ordinary-lattice consistency with owned returns).
 check_po_converted $PO/pointer_output_write_always.c $PO_MAIN
+check_po_converted $PO/pointer_output_short_circuit.c $PO_MAIN
 check_po_converted $PO/pointer_output_write_always_maybe_c4.c $PO_MAIN
 check_po_converted $PO/pointer_output_c1_eq.c $PO_MAIN
 check_po_converted $PO/pointer_output_c1_truth.c $PO_MAIN
