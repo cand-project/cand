@@ -191,6 +191,7 @@ KIND_TO_SLOT = {
     "aggregate-return-with-tracked-pointer": "aggregate transport",
     "ambiguous-alias-target": "unsupported alias/storage",
     "unresolved-pointee-storage": "unsupported alias/storage",
+    "destroy-of-non-base": "unsupported alias/storage",
     "unmodelled-pointer-parameter": "unsupported alias/storage",
     "global-or-static-pointer-storage": "unsupported alias/storage",
     "stack-pointer-return": "unsupported alias/storage",

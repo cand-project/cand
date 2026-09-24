@@ -35,6 +35,8 @@ C& uses ADRs for repository-wide design decisions that constrain implementation 
 | [ADR-0027](ADR-0027-conditional-borrow-none-join.md) | Conditional borrow/none effect join: a parameter at most borrowed (or untouched) on every path is at most borrowed overall (milestone #61) | Accepted |
 | [ADR-0028](ADR-0028-bounded-local-alias-destruction-attribution.md) | Bounded local-alias destruction attribution: consuming calls through a single-assignment declaration-init alias of one parameter attribute to that parameter (milestone #54) | Accepted |
 | [ADR-0029](ADR-0029-declaration-annotation-review-manifest.md) | Declaration-annotation review manifest: body-less annotated declarations seed summaries only through a separately reviewed, policy-pinned manifest with exactly equal facts (milestone #39) | Accepted |
+| [ADR-0030](ADR-0030-bounded-pointer-output-contracts.md) | Bounded `produces_out_owner` pointer-output contracts as a non-PASS measurement profile (milestone #41) | Accepted |
+| [ADR-0031](ADR-0031-borrow-idiom-modeling.md) | Borrow-idiom modeling: address-of-parameter borrows, integer-delta cursor advances, and verified-origin borrow returns (issue #73) | Accepted |
 
 ## Design chain
 

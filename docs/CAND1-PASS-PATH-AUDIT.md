@@ -34,6 +34,20 @@ Adding finding/obligation emitters can only make PASS harder to obtain
 (soundness-monotone). The audit therefore pins the PASS-emitting sites, not
 the diagnostic emitters.
 
+*Amendment (ADR-0031, milestone #73):* three precision changes remove
+obligation/finding emissions rather than add them — the
+`&pointer-free-param` borrow argument (Area A), the pure-integer-delta
+cursor advance with its `Interior` relation (Area C), and the
+verified-origin `BorrowFromArg` return resolution (Area R). Emitter
+monotonicity does not cover removals, so each carries a written
+soundness argument (ADR-0031 §1–§3), a mandatory replacement obligation
+where a removal could accept an unsafe destruction
+(`destroy-of-non-base`, Area C), and paired regression fixtures
+including true-detection controls (`cursor_integer_advance_uaf_detect`
+FAIL `CAND-B002`; `borrowed_local_return_uaf_detect` FAIL
+`CAND-B001`+`B002`). The #62/#64/#61 incident corpora are byte-identical
+after the change.
+
 ## 2. PASS-emitting sites (exhaustive inventory)
 
 There are exactly **7 occurrences of the `"pass"` string literal** in

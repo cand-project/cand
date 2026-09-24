@@ -283,6 +283,61 @@ check pass tests/interprocedural/conditional_join_uncond_destroy_safe.c
 check fail tests/interprocedural/conditional_join_uaf_detect.c
 check incomplete tests/interprocedural/conditional_join_branch_conflict_incomplete.c
 
+# Milestone #73 (ADR-0031) borrow-idiom corpus, fixtures-first: every
+# expectation below is the PRE-fix (current main) verdict; the
+# implementation stage flips the *_safe unlock fixtures to pass and the
+# cursor_integer_advance_uaf_detect fixture to fail (B002) afterwards.
+# Contract-using fixtures (setsockopt/memcmp/memchr) run against the same
+# merged reviewed bundles as libc_borrow_bundle_safe.c above.
+# Area A: address-of-parameter at a Borrow-effect argument.
+# Post-S4a: the scalar/pointer-free-struct `&param` shapes are silent
+# (ownership-neutral scalar storage, ADR-0031). Without contracts no
+# borrow claim is made and the fixture passes (unchanged from pre-fix).
+check pass tests/interprocedural/addr_param_scalar_borrow_safe.c --contracts="$merged"
+# Area A pin-pass twins (silent today via findTrackedBinding; must not regress).
+check pass tests/interprocedural/addr_param_pointer_pass.c --contracts="$merged"
+check pass tests/interprocedural/addr_param_tracked_member_pass.c --contracts="$merged"
+# Area C: cursor-advance poisoning (collateral obligation rows).
+# Post-S4b: a pure integer-delta advance keeps the parent object id with
+# relation Interior (no pointer-arithmetic-reassignment obligation); the
+# exact-base-required destruction predicate (destroy-of-non-base) keeps
+# every destroy/free/move/consume of an advanced cursor fail-closed.
+# cursor_integer_advance_use_safe flips incomplete -> pass (the walk is
+# decidable); cursor_integer_advance_uaf_detect flips incomplete -> fail
+# (the Interior cursor keeps the parent link, so the use after free is
+# DETECTED; the fixture's plain-alias cursor yields the CAND-T002
+# use-after-destruction finding, the storage twin of the borrow-class
+# B002 detection). The remaining four stay incomplete: the
+# pointer-mentioning/two-step rebind shapes keep today's poisoning or
+# end at a destroy-of-non-base obligation (roundtrip, two-step,
+# destroy-of-interior, move-of-interior).
+check pass tests/interprocedural/cursor_integer_advance_use_safe.c
+check fail tests/interprocedural/cursor_integer_advance_uaf_detect.c
+check incomplete tests/interprocedural/cursor_variable_delta_rebind_incomplete.c
+check incomplete tests/interprocedural/cursor_two_step_delta_rebind_incomplete.c
+check incomplete tests/interprocedural/cursor_advance_roundtrip_incomplete.c
+check incomplete tests/interprocedural/destroy_of_interior_incomplete.c
+check incomplete tests/interprocedural/move_of_interior_incomplete.c
+# Area R: borrowed-local escapes through an undeclared return (B003).
+# Post-S4c: the summary-side origin dataflow resolves the helper's
+# return to BorrowFromArg(0), so the safe shapes flip fail -> pass; the
+# uaf_detect twin stays fail but now carries the real caller-side
+# detection (B001/B002 borrow-lifetime findings) instead of B003; the
+# three incomplete twins pin that only a machine-verified singleton
+# resolves (two-param join, loop-carried fixpoint, NULL over two
+# params).
+check pass tests/interprocedural/borrowed_local_return_safe.c --contracts="$merged"
+check fail tests/interprocedural/borrowed_local_return_uaf_detect.c --contracts="$merged"
+check incomplete tests/interprocedural/borrowed_local_two_params_incomplete.c
+check incomplete tests/interprocedural/borrowed_local_loop_carried_incomplete.c
+check incomplete tests/interprocedural/borrowed_local_two_param_null_incomplete.c
+check pass tests/interprocedural/seeknewline_shape_safe.c --contracts="$merged"
+check pass tests/interprocedural/find_eol_char_shape_safe.c --contracts="$merged"
+# Same-TU local-copy chain without contracts: the b0 local-copy chain
+# delta (`t = helper(p); ...; return t;`) now resolves through the call
+# transfer plus the DeclRef fallback, so this flips fail -> pass.
+check pass tests/interprocedural/borrowed_local_chain_b0_safe.c
+
 # Milestone #39: reviewed declaration-site annotation propagation.
 # Candidate-only annotations (no review manifest) never gain PASS
 # authority: the annotated external boundary stays INCOMPLETE.
