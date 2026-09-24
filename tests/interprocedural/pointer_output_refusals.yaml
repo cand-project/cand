@@ -1,0 +1,36 @@
+schema: cand.api-contract/v1
+name: pointer-output-refusals
+version: "1"
+symbols:
+  - symbol: po_variadic
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false
+  - symbol: widget_realloc
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false
+  - symbol: po_visible
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false
+  - symbol: po_knr
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false

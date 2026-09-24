@@ -1,0 +1,80 @@
+schema: cand.api-contract/v1
+name: pointer-output
+version: "1"
+symbols:
+  - symbol: po_always
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false
+  - symbol: po_always_maybe
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: true
+  - symbol: po_zero
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: zero
+          nullable: false
+  - symbol: po_maybe
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: zero
+          nullable: true
+  - symbol: po_nonzero
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: nonzero
+          nullable: false
+  - symbol: po_status_ptr
+    kind: function
+    returns:
+      ownership: none
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: nonzero
+          nullable: true
+  - symbol: po_status_zero_ptr
+    kind: function
+    returns:
+      ownership: none
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: zero
+          nullable: true
+  - symbol: po_pair
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          success: zero
+          nullable: false
+      - index: 1
+        effect: consumes

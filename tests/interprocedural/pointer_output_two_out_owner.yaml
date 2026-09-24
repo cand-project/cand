@@ -1,0 +1,15 @@
+schema: cand.api-contract/v1
+name: pointer-output-two-out-owner
+version: "1"
+symbols:
+  - symbol: po_pair
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+      - index: 1
+        effect: produces_out_owner
+        output:
+          write: always

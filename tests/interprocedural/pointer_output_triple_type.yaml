@@ -1,0 +1,12 @@
+schema: cand.api-contract/v1
+name: pointer-output-triple-type
+version: "1"
+symbols:
+  - symbol: po_triple
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          nullable: false

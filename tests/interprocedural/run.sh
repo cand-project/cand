@@ -332,3 +332,183 @@ set +e
 status=$?
 set -e
 [[ "$status" == "2" ]] || { echo "invalid annotation review manifest was accepted"; exit 1; }
+
+# --- Milestone #41: bounded produces_out_owner contracts (Gate B,
+# fixtures-first). Every check runs at --level=cand1 with the
+# --pointer-output-contracts modifier -- the non-authoritative
+# enablement path for fixtures and measurement. Agent-mode authority
+# (the policy features.pointer_output_contracts flag, mismatch
+# handling, and canEmitCand1Pass suppression) is exercised in
+# tests/cand1/e/policy_attacks.py. At non-agent cand1 the report-level
+# result word is only fail|incomplete, so conversion is asserted via
+# the obligation list, never by relaxing the result word.
+po_run() {
+  local file="$1"; shift
+  set +e
+  po_output="$("$cand" check --level=cand1 --pointer-output-contracts --format=json \
+    "$file" "$@" -- -std=c11 2>/dev/null)"
+  po_status=$?
+  set -e
+}
+check_po_converted() { # converted-clean: no findings, row gone, feature on
+  po_run "$@"
+  grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
+  grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
+  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+  grep -Fq '"findings": []' <<<"$po_output" || { echo "unexpected findings for $1"; exit 1; }
+}
+check_po_unrefined() { # converted but unrefined use of a maybe-produced binding
+  po_run "$@"
+  grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
+  grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
+  grep -Fq '"unrefined-out-owner-use"' <<<"$po_output" || { echo "missing unrefined-out-owner-use row for $1"; exit 1; }
+  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+  grep -Fq '"findings": []' <<<"$po_output" || { echo "unrefined use must stay INCOMPLETE for $1"; exit 1; }
+}
+check_po_refused() { # refused call keeps today's obligation
+  po_run "$@"
+  grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
+  grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
+  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" || { echo "refused call lost its obligation for $1"; exit 1; }
+}
+check_po_fail() { # temporal defect on the produced object
+  po_run "$@"
+  grep -Fq '"result": "fail"' <<<"$po_output" || { echo "expected FAIL for $1"; exit 1; }
+  grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
+  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+}
+check_po_row() { # converted; one specific unsupported row kind remains
+  po_run "$@"
+  grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
+  grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
+  grep -Fq "\"kind\": \"$2\"" <<<"$po_output" || { echo "missing row kind $2 for $1"; exit 1; }
+  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+}
+check_po_v1_matrix() { # v2 (feature+bundle) == v1 (no feature, no bundle)
+  local file="$1" bundle="$2"
+  python3 - "$cand" "$file" "$bundle" <<'PY' || { echo "v1/v2 matrix mismatch for $file"; exit 1; }
+import json, subprocess, sys
+cand, path, bundle = sys.argv[1:4]
+def semantics(args):
+    run = subprocess.run([cand, "check", "--format=json"] + args + [path, "--", "-std=c11"],
+                         capture_output=True, text=True)
+    doc = json.loads(run.stdout)
+    return json.dumps([doc.get("result"), doc.get("findings"), doc.get("unsupported")],
+                      sort_keys=True, indent=1)
+base = semantics(["--level=cand1"])
+feature = semantics(["--level=cand1", "--pointer-output-contracts", "--contracts=" + bundle])
+sys.exit(0 if base == feature else 1)
+PY
+}
+po_expect_reject() { # invalid trusted contract -> exit 2
+  local bundle="$1" file="$2"
+  set +e
+  "$cand" check --level=cand1 --pointer-output-contracts --format=json \
+    "$file" --contracts="$bundle" -- -std=c11 >/dev/null 2>&1
+  local status=$?
+  set -e
+  [[ "$status" == "2" ]] || { echo "bundle was accepted: $bundle"; exit 1; }
+}
+PO=tests/interprocedural
+PO_MAIN="--contracts=$PO/pointer_output.yaml"
+PO_REF="--contracts=$PO/pointer_output_refusals.yaml"
+# Conversion: write:always (absent and null pre-states), C1-C4 in
+# if/while/for/do forms, ==/!= and truthiness polarity, !! and
+# parenthesis normalization, compound-then-recognized ordering, the
+# F1 subject-discipline pair, complete-per-iteration loops, and the
+# leak-silence pin (ordinary-lattice consistency with owned returns).
+check_po_converted $PO/pointer_output_write_always.c $PO_MAIN
+check_po_converted $PO/pointer_output_write_always_maybe_c4.c $PO_MAIN
+check_po_converted $PO/pointer_output_c1_eq.c $PO_MAIN
+check_po_converted $PO/pointer_output_c1_truth.c $PO_MAIN
+check_po_converted $PO/pointer_output_c1_neg.c $PO_MAIN
+check_po_converted $PO/pointer_output_c2_eq.c $PO_MAIN
+check_po_converted $PO/pointer_output_c2_truth.c $PO_MAIN
+check_po_converted $PO/pointer_output_c3_eq.c $PO_MAIN
+check_po_converted $PO/pointer_output_c3_truth.c $PO_MAIN
+check_po_converted $PO/pointer_output_c4_truth.c $PO_MAIN
+check_po_converted $PO/pointer_output_c4_ne.c $PO_MAIN
+check_po_converted $PO/pointer_output_while_c1.c $PO_MAIN
+check_po_converted $PO/pointer_output_for_c3.c $PO_MAIN
+check_po_converted $PO/pointer_output_do_c4.c $PO_MAIN
+check_po_converted $PO/pointer_output_double_bang.c $PO_MAIN
+check_po_converted $PO/pointer_output_parens.c $PO_MAIN
+check_po_converted $PO/pointer_output_compound_then_recognized.c $PO_MAIN
+check_po_converted $PO/pointer_output_f1_call_cond.c $PO_MAIN
+check_po_converted $PO/pointer_output_f1_dest_guard.c $PO_MAIN
+check_po_converted $PO/pointer_output_loop_complete.c $PO_MAIN
+check_po_converted $PO/pointer_output_leak_silent.c $PO_MAIN
+# Unrefined use of a maybe-produced binding (including the failure
+# edge and the F1 polarity-confusion shape) is the new fail-closed
+# INCOMPLETE obligation.
+check_po_unrefined $PO/pointer_output_unrefined_deref.c $PO_MAIN
+check_po_unrefined $PO/pointer_output_unrefined_free.c $PO_MAIN
+check_po_unrefined $PO/pointer_output_failure_edge_deref.c $PO_MAIN
+check_po_unrefined $PO/pointer_output_f1_polarity_confusion.c $PO_MAIN
+# Temporal defects on produced objects FAIL; sibling parameter effects
+# keep the existing trust model; overwrite keeps today's
+# tracked-owner-overwrite row.
+check_po_fail $PO/pointer_output_consume_then_use.c $PO_MAIN
+check_po_fail $PO/pointer_output_double_destroy.c $PO_MAIN
+check_po_fail $PO/pointer_output_sibling_consumes.c $PO_MAIN
+check_po_row $PO/pointer_output_overwrite_live.c tracked-owner-overwrite $PO_MAIN
+# Refusal predicates: every destination shape that is not ADDR-LOCAL,
+# pre-state violations, address escape, variadic and realloc-like
+# callees, and loop-carried (live-binding) produces. Each keeps
+# today's unknown-call-with-pointer-output obligation byte-for-byte
+# (v1/v2 matrix).
+check_po_refused $PO/pointer_output_dest_param.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_global.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_static.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_field.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_element.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_nested.c $PO_MAIN
+check_po_refused $PO/pointer_output_dest_cast.c $PO_MAIN
+check_po_refused $PO/pointer_output_pre_state_owner.c $PO_MAIN
+check_po_refused $PO/pointer_output_non_null_init.c $PO_MAIN
+check_po_refused $PO/pointer_output_address_escape.c $PO_MAIN
+check_po_refused $PO/pointer_output_loop_carried_live.c $PO_MAIN
+check_po_refused $PO/pointer_output_variadic_callee.c $PO_REF
+check_po_refused $PO/pointer_output_realloc_name.c $PO_REF
+for po_fixture in pointer_output_dest_param pointer_output_dest_global \
+  pointer_output_dest_static pointer_output_dest_field \
+  pointer_output_dest_element pointer_output_dest_nested \
+  pointer_output_dest_cast pointer_output_pre_state_owner \
+  pointer_output_non_null_init pointer_output_address_escape \
+  pointer_output_loop_carried_live; do
+  check_po_v1_matrix "$PO/$po_fixture.c" "$PO/pointer_output.yaml"
+done
+check_po_v1_matrix "$PO/pointer_output_variadic_callee.c" "$PO/pointer_output_refusals.yaml"
+check_po_v1_matrix "$PO/pointer_output_realloc_name.c" "$PO/pointer_output_refusals.yaml"
+# Contract-body-conflict (visible same-TU body, K&R definition): the
+# produces effect is never applied; the report is identical to a run
+# without the contract entirely.
+check_po_v1_matrix "$PO/pointer_output_visible_body.c" "$PO/pointer_output_refusals.yaml"
+check_po_v1_matrix "$PO/pointer_output_knr_definition.c" "$PO/pointer_output_refusals.yaml"
+# The legacy returns-level nullable key keeps its ignore-semantics for
+# non-produces symbols: the bundle loads under the feature.
+check_po_converted $PO/pointer_output_returns_nullable_ok.c \
+  "--contracts=$PO/pointer_output_returns_nullable_ok.yaml"
+# Schema discipline: a T*** parameter type is rejected at application
+# time, and every malformed output block is a hard input error.
+po_expect_reject "$PO/pointer_output_triple_type.yaml" "$PO/pointer_output_triple_type.c"
+po_expect_reject "$PO/pointer_output_missing_output.yaml" "$PO/pointer_output_c1_eq.c"
+po_expect_reject "$PO/pointer_output_no_success.yaml" "$PO/pointer_output_c1_eq.c"
+po_expect_reject "$PO/pointer_output_output_unknown_key.yaml" "$PO/pointer_output_c1_eq.c"
+po_expect_reject "$PO/pointer_output_legacy_nullable.yaml" "$PO/pointer_output_c1_eq.c"
+po_expect_reject "$PO/pointer_output_two_out_owner.yaml" "$PO/pointer_output_c1_eq.c"
+po_expect_reject "$PO/pointer_output_success_with_always.yaml" "$PO/pointer_output_c1_eq.c"
+# v1 fail-closed: produces_out_owner is not in the v1 effect
+# vocabulary -- the bundle is refused outright, never degraded.
+set +e
+"$cand" check --level=cand1 --format=json "$PO/pointer_output_c1_eq.c" \
+  --contracts="$PO/pointer_output.yaml" -- -std=c11 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == "2" ]] || { echo "v1 accepted a produces_out_owner bundle"; exit 1; }
+# The modifier requires --level=cand1.
+set +e
+"$cand" check --pointer-output-contracts --format=json "$PO/pointer_output_c1_eq.c" -- -std=c11 >/dev/null 2>&1
+status=$?
+set -e
+[[ "$status" == "2" ]] || { echo "modifier without --level=cand1 was accepted"; exit 1; }

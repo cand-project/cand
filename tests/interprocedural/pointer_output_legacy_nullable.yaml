@@ -1,0 +1,14 @@
+schema: cand.api-contract/v1
+name: pointer-output-legacy-nullable
+version: "1"
+symbols:
+  - symbol: po_always
+    kind: function
+    returns:
+      ownership: none
+      nullable: false
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
