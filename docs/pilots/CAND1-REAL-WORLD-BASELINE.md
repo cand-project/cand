@@ -79,6 +79,13 @@ annotations and zero trusted contracts, and no upstream build was changed.
 | libevent | `d82464a2` | 80,949 | 100 | 37,035 | 279 | 0 | 36,542 | unknown external call | 0 | 0 | 4.46 s | not run; ordinary CTest suite completed | 0 | No | semantic stress |
 | jemalloc | `84286c27` | 76,725 | 232 | 5,421 | 0 | 0 | 0 | generated-header/tool error | 0 | 0 | 0.85 s | blocked with upstream autoconf prerequisite | 0 | No | explicit non-claim |
 
+This table is the original zero-annotation record on the baseline tool
+(`7a6f4b6`). Its post-adoption refresh — the same nine pilots
+re-measured as B0/E2/E2+ on `c4429f5` with the reviewed #58 contract
+library — is the "Post-adoption re-measurement (E2/E2+)" section below
+(function-level obligations/CLEAR/findings matrix with the
+regression-guard column and attributed deltas against this table).
+
 ## Zero-annotation measurements
 
 | Project / scope | Analyzed files | Analyzed LOC | PASS | FAIL | INCOMPLETE | Tool errors | Runtime | Peak RSS | Coverage | Decidable |
