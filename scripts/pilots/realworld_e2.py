@@ -23,7 +23,12 @@ must stay comparable with):
 - the function universe comes from Clang AST main-file definition ranges
   (imported from external_boundary_experiment.py: ast_for/functions_of/
   states_for); it must equal cand's own coverage.functions_analyzed for
-  the corpus run, and any mismatch is recorded prominently, not hidden;
+  the corpus run, and any mismatch is recorded prominently, not hidden.
+  Macro-expansion-location definitions (start line 0: curl's
+  curl_easy_setopt_err_* typecheck helpers, libgit2's git_hashmap/
+  git_hashset template instantiations) are excluded from the universe —
+  cand does not count them as analyzed functions and their 0-0 ranges
+  cannot contain rows, so keeping them would only inflate CLEAR;
 - a function is CLEAR when no obligation and no finding maps inside its
   body (range containment); gained/lost CLEAR sets and added/removed
   obligation sets are exact key-set diffs, never ad-hoc attribution;
@@ -399,6 +404,15 @@ def main() -> int:
             skipped_ast.append(f)
             continue
         for src, s, e, n in ext_exp.functions_of(root, f, tree, root):
+            # Skip macro-expansion-location definitions (start line 0).
+            # These are macro-generated helpers instantiated into the TU
+            # (curl's curl_easy_setopt_err_* typecheck functions, libgit2's
+            # git_hashmap/git_hashset template instantiations): cand does
+            # not count them as analyzed functions, and their 0-0 ranges
+            # cannot contain rows — keeping them only pollutes the
+            # universe count and the CLEAR list.
+            if s == 0:
+                continue
             byfile[src].append((s, e, n))
             allfns.add(n)
     for f in byfile:
