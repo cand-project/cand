@@ -29,6 +29,16 @@ must stay comparable with):
   git_hashset template instantiations) are excluded from the universe —
   cand does not count them as analyzed functions and their 0-0 ranges
   cannot contain rows, so keeping them would only inflate CLEAR.
+  File-local macro instantiations (libgit2 instantiates git_hashmap
+  per file: git_attr_cache_filemap_* etc.) are counted by cand but
+  have no real source ranges either, so the AST method cannot
+  attribute them; obligations cand reports inside them land at the
+  macro invocation line, outside every real function range, and are
+  counted per config as unmapped_obligations. Excluding all of these
+  from the CLEAR universe is the conservative direction: an excluded
+  function can never be counted CLEAR. The universe check therefore
+  compares real-range functions against cand's functions_analyzed and
+  records any residual mismatch prominently.
   Functions are keyed by (file, name): distinct static functions that
   share a name across files are separate functions (cand counts them
   per TU), so a name-level metric would merge rows from unrelated
