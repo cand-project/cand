@@ -298,8 +298,21 @@ check pass tests/interprocedural/addr_param_scalar_borrow_safe.c --contracts="$m
 check pass tests/interprocedural/addr_param_pointer_pass.c --contracts="$merged"
 check pass tests/interprocedural/addr_param_tracked_member_pass.c --contracts="$merged"
 # Area C: cursor-advance poisoning (collateral obligation rows).
-check incomplete tests/interprocedural/cursor_integer_advance_use_safe.c
-check incomplete tests/interprocedural/cursor_integer_advance_uaf_detect.c
+# Post-S4b: a pure integer-delta advance keeps the parent object id with
+# relation Interior (no pointer-arithmetic-reassignment obligation); the
+# exact-base-required destruction predicate (destroy-of-non-base) keeps
+# every destroy/free/move/consume of an advanced cursor fail-closed.
+# cursor_integer_advance_use_safe flips incomplete -> pass (the walk is
+# decidable); cursor_integer_advance_uaf_detect flips incomplete -> fail
+# (the Interior cursor keeps the parent link, so the use after free is
+# DETECTED; the fixture's plain-alias cursor yields the CAND-T002
+# use-after-destruction finding, the storage twin of the borrow-class
+# B002 detection). The remaining four stay incomplete: the
+# pointer-mentioning/two-step rebind shapes keep today's poisoning or
+# end at a destroy-of-non-base obligation (roundtrip, two-step,
+# destroy-of-interior, move-of-interior).
+check pass tests/interprocedural/cursor_integer_advance_use_safe.c
+check fail tests/interprocedural/cursor_integer_advance_uaf_detect.c
 check incomplete tests/interprocedural/cursor_variable_delta_rebind_incomplete.c
 check incomplete tests/interprocedural/cursor_two_step_delta_rebind_incomplete.c
 check incomplete tests/interprocedural/cursor_advance_roundtrip_incomplete.c

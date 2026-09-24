@@ -777,7 +777,25 @@ const char *borrowStateName(BorrowState state) {
 // heap object's lifetime remains in ObjectInfo; Moved means this storage is
 // no longer the authoritative owner while another storage may still own the
 // same live object.
-enum class PointerRelation { Owner, Alias, Moved, MaybeMoved, Null, MaybeNull, Unknown };
+//
+// Interior (ADR-0031, issue #73 Area C) means the storage still points into
+// its object_id's allocation but no longer at the exact base address: it
+// holds the result of advancing a base pointer by a pure integer delta
+// (`p += e`, `p++`, `q = p ± e`). The object id (lifetime link to the
+// parent) is preserved, so uses after the parent's death stay detected,
+// while every destruction/consumption path requires the exact base and
+// stays fail-closed (see relationIsNonBase). The soundness boundary is
+// scoped to well-defined executions: an integer delta applied to a pointer
+// into object B yields either a pointer still derived from B or an
+// out-of-bounds pointer, and the latter is UB in C; for lifetime purposes
+// cand treats it as still borrowing B. The only well-defined way
+// arithmetic can rebind to a DIFFERENT object is pointer-difference
+// arithmetic (`p + (q - p)` == q), which requires q to point into the same
+// array as p -- the same object -- or is itself UB; deltas mentioning a
+// pointer value therefore stay poisoned. There is no Interior -> Base
+// path: joins only degrade Interior to Unknown (keeping the object id),
+// never upgrade it back.
+enum class PointerRelation { Owner, Alias, Interior, Moved, MaybeMoved, Null, MaybeNull, Unknown };
 
 constexpr unsigned kNullObjectId = 0;
 constexpr unsigned kUnknownObjectId = std::numeric_limits<unsigned>::max();
@@ -910,6 +928,17 @@ StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
         if (a.relation == b.relation) {
             return {a.object_id, a.relation, relation_location, produced_maybe};
         }
+        // ADR-0031 Area C: Interior joined with any different relation
+        // degrades to Unknown while KEEPING the object id. The joined
+        // pointer may be interior on one path, so the exact-base
+        // destruction predicate must stay fail-closed (Unknown with a
+        // live object id is non-base too), and the lifetime link to the
+        // parent object must survive so uses after its death stay
+        // detected.
+        if (a.relation == PointerRelation::Interior ||
+            b.relation == PointerRelation::Interior) {
+            return {a.object_id, PointerRelation::Unknown, relation_location, produced_maybe};
+        }
         if (a.relation == PointerRelation::MaybeNull ||
             b.relation == PointerRelation::MaybeNull) {
             return {a.object_id, PointerRelation::MaybeNull, relation_location, produced_maybe};
@@ -936,6 +965,62 @@ StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
     }
     // Two different non-null objects are an unresolved alias target, never NULL.
     return {kUnknownObjectId, PointerRelation::Unknown, relation_location, produced_maybe};
+}
+
+// ADR-0031 (issue #73, Area C): the delta expression of a pointer advance
+// is a PURE INTEGER delta when no subexpression in its tree has pointer
+// type. Integer literals and integer-typed variables qualify; any
+// pointer-typed subexpression poisons the advance as today. This is the
+// rebind boundary of the Interior relation: pointer-difference arithmetic
+// (`p + (q - p)` == q) is the only well-defined way an arithmetic delta can
+// move a pointer to a different object, and a well-defined pointer
+// difference requires both operands to point into the same array -- the
+// same object -- so deltas that mention a pointer value stay fail-closed.
+// Note the operands of a pointer difference themselves have pointer type,
+// so `p += (q - p)` is rejected by this walk even though the difference's
+// own type is an integer.
+bool isPureIntegerDelta(const Expr *expr) {
+    if (expr == nullptr) return false;
+    if (expr->getType()->isPointerType()) return false;
+    for (const Stmt *child : expr->children()) {
+        const auto *child_expr = dyn_cast<Expr>(child);
+        if (child_expr != nullptr && !isPureIntegerDelta(child_expr)) return false;
+    }
+    return true;
+}
+
+// Relations from which an integer-delta advance may preserve the parent
+// object: any live-object binding except moved-from storages (using a
+// moved-from pointer must keep today's poisoning) and #41 unrefined
+// maybe-produced bindings (their uses must keep the
+// unrefined-out-owner-use obligation). Unknown with a live object id is
+// what an Interior join degrades to, so a loop-carried cursor (entry
+// Alias, back-edge Interior) keeps advancing instead of poisoning; the
+// exact-base-required destruction predicate keeps such cursors
+// fail-closed at every destroy.
+bool relationSupportsIntegerAdvance(const StorageBinding &binding) {
+    return !binding.produced_maybe &&
+           binding.object_id != kUnknownObjectId &&
+           binding.object_id != kNullObjectId &&
+           binding.relation != PointerRelation::Moved &&
+           binding.relation != PointerRelation::MaybeMoved;
+}
+
+// ADR-0031 (issue #73, Area C): exact-base-required destruction
+// predicate. ISO C requires free and every ownership
+// destruction/consumption to receive the exact base pointer of the
+// allocation. A storage whose relation is Interior -- or Unknown while it
+// still holds a live object id, which is what an Interior join degrades
+// to -- may point inside the object, so every destruction path stays
+// fail-closed until a base relation is re-established (the lattice has no
+// Interior -> Base path). Bindings without an object id (today's poisoned
+// storages) keep their existing unresolved/untracked obligations and are
+// deliberately not covered here.
+bool relationIsNonBase(const StorageBinding &binding) {
+    return binding.object_id != kUnknownObjectId &&
+           binding.object_id != kNullObjectId &&
+           (binding.relation == PointerRelation::Interior ||
+            binding.relation == PointerRelation::Unknown);
 }
 
 // #41: a pending out-owner guard records that a local variable currently
@@ -2189,6 +2274,16 @@ private:
             return;
         }
         ObjectInfo *object = &object_it->second;
+        // ADR-0031 (issue #73, Area C): exact-base-required predicate.
+        // free() must receive the allocation's base pointer; an Interior
+        // (or Unknown-with-live-object-id) cursor may point inside it.
+        // Checked before the parameter-capability finding: an interior
+        // cursor is not destroyable regardless of whose parameter it
+        // derived from, and the obligation is the fail-closed verdict.
+        if (relationIsNonBase(binding)) {
+            emitUnsupported({"destroy-of-non-base", "", location(call.getExprLoc())});
+            return;
+        }
         if (object->origin == ObjectOrigin::Parameter &&
             object->capability == ParameterCapability::Borrow) {
             reportOwnershipViolation(
@@ -2279,6 +2374,14 @@ private:
             return;
         }
         ObjectInfo &object = object_it->second;
+        // ADR-0031 (issue #73, Area C): exact-base-required predicate
+        // (see relationIsNonBase); a destroy effect on an interior cursor
+        // must stay fail-closed. Checked before the parameter-capability
+        // finding, mirroring handleFree.
+        if (relationIsNonBase(binding)) {
+            markUnsupported(call, "destroy-of-non-base");
+            return;
+        }
         if (object.origin == ObjectOrigin::Parameter &&
             object.capability == ParameterCapability::Borrow) {
             reportOwnershipViolation(
@@ -2387,6 +2490,13 @@ private:
                 object.state == ObjectState::MaybeDead, move_loc);
             return false;
         }
+        // ADR-0031 (issue #73, Area C): exact-base-required predicate
+        // (see relationIsNonBase); moving an interior cursor hands the
+        // callee a non-base pointer it may destroy.
+        if (relationIsNonBase(binding)) {
+            markUnsupportedAt(move_loc, "destroy-of-non-base");
+            return false;
+        }
         if (binding.relation != PointerRelation::Owner) {
             reportOwnershipViolation(
                 "CAND-O004", "ownership.conflicting-owner",
@@ -2446,6 +2556,14 @@ private:
         }
         if (binding->second.object_id == kNullObjectId &&
             binding->second.relation == PointerRelation::Null) return;
+        // ADR-0031 (issue #73, Area C): exact-base-required predicate
+        // (see relationIsNonBase). A TakeOwnership callee may destroy or
+        // re-base the received pointer, so consuming an interior cursor
+        // stays fail-closed.
+        if (relationIsNonBase(binding->second)) {
+            markUnsupported(call, "destroy-of-non-base");
+            return;
+        }
         const auto object_it = state.objects.find(binding->second.object_id);
         if (object_it != state.objects.end() &&
             object_it->second.origin == ObjectOrigin::Parameter &&
@@ -3236,7 +3354,16 @@ private:
             if (source) {
                 auto it = state.storages.find(*source);
                 if (it != state.storages.end() && it->second.object_id != kUnknownObjectId) {
-                    state.storages[storage] = {it->second.object_id, PointerRelation::Alias,
+                    // ADR-0031 (issue #73, Area C): an interior argument
+                    // yields an interior borrow; the relation must not
+                    // silently degrade to a base Alias, which would let a
+                    // later destroy of this storage bypass the
+                    // exact-base-required predicate.
+                    const PointerRelation relation =
+                        it->second.relation == PointerRelation::Interior
+                            ? PointerRelation::Interior
+                            : PointerRelation::Alias;
+                    state.storages[storage] = {it->second.object_id, relation,
                                                location(call.getExprLoc())};
                     const std::string origin = "verified-summary:" +
                         (call.getDirectCallee() ? call.getDirectCallee()->getNameAsString() : "unknown");
@@ -3313,7 +3440,15 @@ private:
                     const auto it = state.storages.find(*source);
                     if (it != state.storages.end() && it->second.object_id != kUnknownObjectId &&
                         it->second.object_id != kNullObjectId) {
-                        state.storages[storage] = {it->second.object_id, PointerRelation::Alias,
+                        // ADR-0031 (issue #73, Area C): keep Interior
+                        // through an explicit borrow annotation (an
+                        // interior cursor can be borrowed; its destroys
+                        // stay fail-closed via the exact-base predicate).
+                        const PointerRelation relation =
+                            it->second.relation == PointerRelation::Interior
+                                ? PointerRelation::Interior
+                                : PointerRelation::Alias;
+                        state.storages[storage] = {it->second.object_id, relation,
                                                    location(init->getExprLoc())};
                         createBorrow(storage, it->second.object_id,
                                      explicit_mutable_borrow ? BorrowKind::Mutable : BorrowKind::Shared,
@@ -3355,7 +3490,9 @@ private:
                             ? PointerRelation::Moved
                             : it->second.relation == PointerRelation::MaybeMoved
                                   ? PointerRelation::MaybeMoved
-                                  : PointerRelation::Alias;
+                                  : it->second.relation == PointerRelation::Interior
+                                        ? PointerRelation::Interior
+                                        : PointerRelation::Alias;
                     if (hasCandAnnotation(var, "cand:own") &&
                         relation != PointerRelation::Owner) {
                         const auto object = state.objects.find(it->second.object_id);
@@ -3378,6 +3515,32 @@ private:
                 checkPointerValueSource(init);
             }
         }
+    }
+
+    // ADR-0031 (issue #73, Area C): `w ± e` cross-lvalue advance
+    // (`q = p + 1`). Returns the base storage's binding when rhs is
+    // pointer arithmetic on a single tracked base storage by a pure
+    // integer delta from a relation that supports the advance; the
+    // caller binds the destination to the same object with relation
+    // Interior and emits no obligation. Anything else (pointer-mentioning
+    // delta, untracked/unknown/null base, moved, maybe-null, or unrefined
+    // maybe-produced base) returns null and falls through to today's
+    // fail-closed paths.
+    const StorageBinding *integerAdvanceBinding(const Expr *rhs,
+                                                const FlowState &state) const {
+        const auto *advance = dyn_cast<BinaryOperator>(rhs->IgnoreParenCasts());
+        if (advance == nullptr) return nullptr;
+        if (advance->getOpcode() != clang::BO_Add &&
+            advance->getOpcode() != clang::BO_Sub)
+            return nullptr;
+        if (!isPureIntegerDelta(advance->getRHS())) return nullptr;
+        const auto source = storageFor(advance->getLHS());
+        if (!source) return nullptr;
+        const auto it = state.storages.find(*source);
+        if (it == state.storages.end() ||
+            !relationSupportsIntegerAdvance(it->second))
+            return nullptr;
+        return &it->second;
     }
 
     void handleAssignment(const BinaryOperator &binary, FlowState &state) {
@@ -3431,6 +3594,27 @@ private:
         }
 
         if (binary.isCompoundAssignmentOp() && lhs_is_pointer) {
+            // ADR-0031 (issue #73, Area C): a compound advance `p += e` /
+            // `p -= e` whose delta e is a pure integer expression cannot
+            // rebind the pointer to a different object in a well-defined
+            // execution (see isPureIntegerDelta): keep the parent object
+            // id and record the interior position instead of poisoning
+            // the storage, with no obligation here. The exact-base-
+            // required destruction predicate keeps every later destroy/
+            // free/move/consume of the advanced cursor fail-closed.
+            // Pointer-mentioning deltas (e.g. `p += (q - p)`) and any
+            // other compound opcode keep today's poisoning.
+            const clang::BinaryOperatorKind opcode = binary.getOpcode();
+            if ((opcode == clang::BO_AddAssign || opcode == clang::BO_SubAssign) &&
+                lhs_storage && isPureIntegerDelta(rhs)) {
+                const auto it = state.storages.find(*lhs_storage);
+                if (it != state.storages.end() &&
+                    relationSupportsIntegerAdvance(it->second)) {
+                    it->second.relation = PointerRelation::Interior;
+                    it->second.relation_location = location(binary.getExprLoc());
+                    return;
+                }
+            }
             markUnsupported(binary, "pointer-arithmetic-reassignment");
             if (lhs_storage) {
                 state.storages[*lhs_storage] =
@@ -3472,6 +3656,12 @@ private:
                     markUnsupported(binary, "tracked-owner-overwrite");
                 if (lhs_storage) bindSummaryReturn(*lhs_storage, *call, state);
             } else {
+                // ADR-0031 (issue #73, Area C): the cross-lvalue integer
+                // advance `q = w ± e` preserves w's parent object with
+                // relation Interior (no obligation); every other
+                // non-storage rhs keeps today's fail-closed handling.
+                const StorageBinding *integer_advance =
+                    lhs_storage ? integerAdvanceBinding(rhs, state) : nullptr;
                 if (const auto source = storageFor(rhs)) {
                     const auto source_it = state.storages.find(*source);
                     if (source_it == state.storages.end() ||
@@ -3490,11 +3680,17 @@ private:
                                 ? PointerRelation::Moved
                                 : source_it->second.relation == PointerRelation::MaybeMoved
                                       ? PointerRelation::MaybeMoved
-                                      : PointerRelation::Alias;
+                                      : source_it->second.relation == PointerRelation::Interior
+                                            ? PointerRelation::Interior
+                                            : PointerRelation::Alias;
                         state.storages[*lhs_storage] =
                             {source_it->second.object_id, relation,
                              location(binary.getExprLoc())};
                     }
+                } else if (integer_advance != nullptr) {
+                    state.storages[*lhs_storage] =
+                        {integer_advance->object_id, PointerRelation::Interior,
+                         location(binary.getExprLoc())};
                 } else if (containsTrackedStorage(rhs, state)) {
                     markUnsupported(binary, "ambiguous-alias-target");
                 } else {
@@ -3538,7 +3734,9 @@ private:
                             ? PointerRelation::Moved
                             : source_it->second.relation == PointerRelation::MaybeMoved
                                   ? PointerRelation::MaybeMoved
-                                  : PointerRelation::Alias;
+                                  : source_it->second.relation == PointerRelation::Interior
+                                        ? PointerRelation::Interior
+                                        : PointerRelation::Alias;
                     state.storages[*lhs_storage] =
                         {source_it->second.object_id, relation,
                          location(binary.getExprLoc())};
@@ -4309,11 +4507,32 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
                     unary->getOpcode() == clang::UO_PreDec ||
                     unary->getOpcode() == clang::UO_PostDec) &&
                    unary->getSubExpr()->getType()->isPointerType()) {
-            markUnsupported(*unary, "pointer-arithmetic-reassignment");
-            if (const auto storage = storageFor(unary->getSubExpr())) {
-                state.storages[*storage] =
-                    {kUnknownObjectId, PointerRelation::Unknown,
-                     location(unary->getOperatorLoc())};
+            // ADR-0031 (issue #73, Area C): `p++` / `p--` (both pre and
+            // post forms) advance the cursor by the pure integer delta 1,
+            // so the parent object is preserved with relation Interior
+            // and no obligation is emitted (see isPureIntegerDelta for
+            // the rebind boundary; the exact-base-required destruction
+            // predicate keeps destroys of the advanced cursor
+            // fail-closed). Bases that do not support the advance keep
+            // today's poisoning.
+            const auto storage = storageFor(unary->getSubExpr());
+            bool advanced = false;
+            if (storage) {
+                const auto it = state.storages.find(*storage);
+                if (it != state.storages.end() &&
+                    relationSupportsIntegerAdvance(it->second)) {
+                    it->second.relation = PointerRelation::Interior;
+                    it->second.relation_location = location(unary->getOperatorLoc());
+                    advanced = true;
+                }
+            }
+            if (!advanced) {
+                markUnsupported(*unary, "pointer-arithmetic-reassignment");
+                if (storage) {
+                    state.storages[*storage] =
+                        {kUnknownObjectId, PointerRelation::Unknown,
+                         location(unary->getOperatorLoc())};
+                }
             }
         }
         recurseChildren(*unary, state, processed);
