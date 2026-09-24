@@ -71,6 +71,17 @@ OPERATORS = {
     "EXTERN_BORROW_LIFETIME_UAF": "KNOWN_VIOLATION",
     "EXTERN_UNREVIEWED_NO_MANIFEST": "UNSUPPORTED",
     "EXTERN_FACT_MISMATCH": "UNSUPPORTED",
+    # --- milestone #41: bounded produces_out_owner contracts ---
+    # These operators run in the feature-enabled strict workspace
+    # (PointerOutputWorkspace), never in the plain v1 workspace.
+    "POINTER_OUTPUT_C1_SAFE": "SAFE",
+    "POINTER_OUTPUT_C2_EMBEDDED_SAFE": "SAFE",
+    "POINTER_OUTPUT_C4_DEST_GUARD_SAFE": "SAFE",
+    "POINTER_OUTPUT_C1_UAF": "KNOWN_VIOLATION",
+    "POINTER_OUTPUT_C1_DOUBLE_FREE": "KNOWN_VIOLATION",
+    "POINTER_OUTPUT_UNREFINED_DEREF": "UNSUPPORTED",
+    "POINTER_OUTPUT_GUARD_INVERSION": "UNSUPPORTED",
+    "POINTER_OUTPUT_VARIADIC_REFUSED": "UNSUPPORTED",
 }
 
 REQUIRED_SHAPES = {
@@ -123,6 +134,17 @@ REQUIRED_SHAPES = {
     "EXTERN_UNREVIEWED_NO_MANIFEST": (r"cand1_extern_unreviewed_create\(void\)",
                                       r"= cand1_extern_unreviewed_create\(\)"),
     "EXTERN_FACT_MISMATCH": (r"cand1_extern_destroy\(void \*item CAND_BORROW\)",),
+    # --- milestone #41: produces_out_owner call-site and guard shapes ---
+    "POINTER_OUTPUT_C1_SAFE": (r"if \(cand1_po_status\(&cand1_out\) == 0\)",
+                               r"= \*cand1_out;\n\s+free\(cand1_out\);"),
+    "POINTER_OUTPUT_C2_EMBEDDED_SAFE": (r"if \(\(cand1_status = cand1_po_status\(&cand1_out\)\) == 0\)",),
+    "POINTER_OUTPUT_C4_DEST_GUARD_SAFE": (r"cand1_po_maybe\(&cand1_out\);",
+                                          r"if \(cand1_out != NULL\)"),
+    "POINTER_OUTPUT_C1_UAF": (r"free\(cand1_out\);\n\s+\w+ = \*cand1_out;",),
+    "POINTER_OUTPUT_C1_DOUBLE_FREE": (r"free\(cand1_out\);\n\s+free\(cand1_out\);",),
+    "POINTER_OUTPUT_UNREFINED_DEREF": (r"cand1_po_status\(&cand1_out\);\n\s+\w+ = \*cand1_out;",),
+    "POINTER_OUTPUT_GUARD_INVERSION": (r"== 0\) return 0;\n\s+\w+ = \*cand1_out;",),
+    "POINTER_OUTPUT_VARIADIC_REFUSED": (r"cand1_po_variadic\(&cand1_out, 1\);",),
 }
 
 
@@ -365,6 +387,85 @@ def apply(source: str, mutation: str) -> str:
                            f"{typ} *p = cand1_extern_create();", 1)
                   .replace("free(p);", "cand1_extern_destroy(p);", 1),
             casefn, mismatch_decls)
+    # --- milestone #41: produces_out_owner call-site and guard shapes.
+    # The owned-allocation prologue and use/free tail of the safe base
+    # are replaced by a pointer-output body; the reviewed contract
+    # bundle (strict.PointerOutputWorkspace) supplies the symbol facts.
+    if mutation.startswith("POINTER_OUTPUT_"):
+        po_decls = (
+            "extern int cand1_po_status(int **out);\n"
+            "extern int cand1_po_maybe(int **out);\n"
+            "extern int cand1_po_variadic(int **out, ...);"
+        )
+        po_bodies = {
+            "POINTER_OUTPUT_C1_SAFE":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    if (cand1_po_status(&cand1_out) == 0) {{\n"
+                "        {sink} = *cand1_out;\n"
+                "        free(cand1_out);\n"
+                "    }}",
+            "POINTER_OUTPUT_C2_EMBEDDED_SAFE":
+                "    int *cand1_out = NULL;\n"
+                "    int cand1_status = 1;\n"
+                "    volatile int {sink} = 0;\n"
+                "    if ((cand1_status = cand1_po_status(&cand1_out)) == 0) {{\n"
+                "        {sink} = *cand1_out;\n"
+                "        free(cand1_out);\n"
+                "    }}",
+            "POINTER_OUTPUT_C4_DEST_GUARD_SAFE":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    cand1_po_maybe(&cand1_out);\n"
+                "    if (cand1_out != NULL) {{\n"
+                "        {sink} = *cand1_out;\n"
+                "        free(cand1_out);\n"
+                "    }}",
+            "POINTER_OUTPUT_C1_UAF":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    if (cand1_po_status(&cand1_out) == 0) {{\n"
+                "        free(cand1_out);\n"
+                "        {sink} = *cand1_out;\n"
+                "    }}",
+            "POINTER_OUTPUT_C1_DOUBLE_FREE":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    if (cand1_po_status(&cand1_out) == 0) {{\n"
+                "        {sink} = *cand1_out;\n"
+                "        free(cand1_out);\n"
+                "        free(cand1_out);\n"
+                "    }}",
+            "POINTER_OUTPUT_UNREFINED_DEREF":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    cand1_po_status(&cand1_out);\n"
+                "    {sink} = *cand1_out;\n"
+                "    free(cand1_out);",
+            "POINTER_OUTPUT_GUARD_INVERSION":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    if (cand1_po_status(&cand1_out) == 0) return 0;\n"
+                "    {sink} = *cand1_out;\n"
+                "    free(cand1_out);",
+            "POINTER_OUTPUT_VARIADIC_REFUSED":
+                "    int *cand1_out = NULL;\n"
+                "    volatile int {sink} = 0;\n"
+                "    cand1_po_variadic(&cand1_out, 1);\n"
+                "    {sink} = 1;\n"
+                "    free(cand1_out);",
+        }
+        body = po_bodies[mutation].format(sink=sink)
+        pattern = (
+            rf"{typ} \*p CAND_OWN = malloc\(sizeof \*p\);\n"
+            rf"    if \(p == NULL\) return 0;\n"
+            rf"    p->value = \d+;\n"
+            rf"    volatile int {sink} = 0;\n"
+            rf"    {sink} = p->value;\n"
+            rf"    free\(p\);"
+        )
+        mutated = re.sub(pattern, body, source, count=1)
+        return _insert_before_case(mutated, casefn, po_decls)
     raise AssertionError(mutation)
 
 

@@ -1,0 +1,12 @@
+schema: cand.api-contract/v1
+name: pointer-output-success-with-always
+version: "1"
+symbols:
+  - symbol: po_always
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: always
+          success: zero

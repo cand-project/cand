@@ -19,7 +19,7 @@ from generate import PROFILES, write_corpus
 from minimize import minimize
 from mutate import OPERATORS, apply, validate_mutation
 from protocol import run_protocol_corpus
-from strict import EXTERN_HELPER_C, StrictWorkspace
+from strict import EXTERN_HELPER_C, PO_HELPER_C, PointerOutputWorkspace, StrictWorkspace
 from taxonomy import (
     GENERATOR_VERSION, Case, classify, detect_mechanisms, make_case, render, validate_source,
 )
@@ -147,7 +147,8 @@ def _reindex_source(source: str, index: int) -> str:
     return source
 
 
-def _run_mutation_asan(sources: dict[str, str], directory: Path) -> tuple[dict, float]:
+def _run_mutation_asan(sources: dict[str, str], directory: Path,
+                       helpers: str = EXTERN_HELPER_C) -> tuple[dict, float]:
     """ASan-confirm the EXTERN known-violation mutation cases.
 
     The reviewed external symbols get real definitions (EXTERN_HELPER_C)
@@ -163,7 +164,7 @@ def _run_mutation_asan(sources: dict[str, str], directory: Path) -> tuple[dict, 
         "\n".join(_reindex_source(sources[operator], index) for index, operator in entries),
         encoding="utf-8",
     )
-    (directory / "externs.c").write_text(EXTERN_HELPER_C, encoding="utf-8")
+    (directory / "externs.c").write_text(helpers, encoding="utf-8")
     main = directory / "mutation-asan-main.c"
     declarations = "\n".join(f"int cand1_case_{index}(void);" for index, _ in entries)
     dispatch = "\n".join(f"        case {index}: return cand1_case_{index}();" for index, _ in entries)
@@ -208,6 +209,8 @@ def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, dic
     asan_sources: dict[str, str] = {}
     start = time.perf_counter()
     for mutation, expected_class in OPERATORS.items():
+        if mutation.startswith("POINTER_OUTPUT_"):
+            continue  # feature-gated suite: _pointer_output_mutation_cases
         source = next((apply(base, mutation) for base in bases if apply(base, mutation) != base), bases[0])
         validate_mutation(source, mutation)
         case = make_case(0, 900000 + len(report), expected_class, "safe")
@@ -221,6 +224,69 @@ def _mutation_cases(directory: Path, strict: StrictWorkspace) -> tuple[dict, dic
         }
         if mutation.startswith("EXTERN_") and expected_class == "KNOWN_VIOLATION":
             asan_sources[mutation] = source
+    return report, asan_sources, time.perf_counter() - start
+
+
+def _pointer_output_mutation_cases(directory: Path,
+                                   po_workspace: PointerOutputWorkspace) -> tuple[dict, dict, float]:
+    """Milestone #41: produces_out_owner mutation suite in the
+    feature-enabled strict workspace.
+
+    The policy feature is the sole rule-set authority and a feature run
+    is never a C&1 pass authority, so the expected verdicts are:
+    SAFE -> incomplete with no findings and no obligation rows,
+    KNOWN_VIOLATION -> fail, UNSUPPORTED -> incomplete with the
+    specific obligation row (unrefined-out-owner-use for the maybe
+    shapes, unknown-call-with-pointer-output for the call-time
+    refusal). A PASS verdict on any case is a false pass.
+    """
+    base = render(make_case(0, 999997, "SAFE", "safe"))
+    required_rows = {
+        "POINTER_OUTPUT_UNREFINED_DEREF": "unrefined-out-owner-use",
+        "POINTER_OUTPUT_GUARD_INVERSION": "unrefined-out-owner-use",
+        "POINTER_OUTPUT_VARIADIC_REFUSED": "unknown-call-with-pointer-output",
+    }
+    report = {}
+    asan_sources: dict[str, str] = {}
+    start = time.perf_counter()
+    for mutation, expected_class in OPERATORS.items():
+        if not mutation.startswith("POINTER_OUTPUT_"):
+            continue
+        source = apply(base, mutation)
+        validate_mutation(source, mutation)
+        result, returncode, _stdout, _stderr = po_workspace.run(source)
+        actual = result.get("result")
+        analysis = result.get("analysis") or {}
+        rows = [row.get("kind") for row in (analysis.get("unsupported") or [])]
+        entry = {
+            "expected_class": expected_class,
+            "compiler_valid": actual in {"pass", "fail", "incomplete"},
+            "cand_result": actual,
+            "rows": rows,
+            "feature_flag": analysis.get("pointer_output_contracts"),
+            "qualification": "HARNESS_ERROR",
+        }
+        if expected_class == "SAFE":
+            if actual == "incomplete" and analysis.get("findings") == [] and rows == []:
+                entry["qualification"] = "CORRECT_INCOMPLETE"
+            elif actual == "pass":
+                entry["qualification"] = "FALSE_PASS"
+            else:
+                entry["qualification"] = "COVERAGE_GAP"
+        elif expected_class == "KNOWN_VIOLATION":
+            verdict = {"fail": "CORRECT_FAIL", "incomplete": "COVERAGE_GAP",
+                       "pass": "FALSE_PASS"}.get(actual, "HARNESS_ERROR")
+            entry["qualification"] = verdict
+            if verdict == "CORRECT_FAIL":
+                asan_sources[mutation] = source
+        else:
+            if actual == "incomplete" and required_rows[mutation] in rows:
+                entry["qualification"] = "CORRECT_INCOMPLETE"
+            elif actual == "pass":
+                entry["qualification"] = "FALSE_PASS"
+            else:
+                entry["qualification"] = "COVERAGE_GAP"
+        report[mutation] = entry
     return report, asan_sources, time.perf_counter() - start
 
 
@@ -259,6 +325,12 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
         analysis_seconds += mutation_seconds
         mutation_asan, mutation_asan_seconds = _run_mutation_asan(mutation_asan_sources, directory)
         analysis_seconds += mutation_asan_seconds
+        with PointerOutputWorkspace(cand) as po_strict:
+            po_mutation_report, po_asan_sources, po_seconds = _pointer_output_mutation_cases(
+                directory, po_strict)
+            po_mutation_asan, po_asan_seconds = _run_mutation_asan(
+                po_asan_sources, directory, EXTERN_HELPER_C + PO_HELPER_C)
+        analysis_seconds += po_seconds + po_asan_seconds
 
         representative = corpus / entries[0]["source"]
         first = strict.run(representative.read_text(encoding="utf-8"))[2]
@@ -315,6 +387,15 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
             "cases": mutation_report,
             "asan": mutation_asan,
         },
+        "pointer_output_mutations": {
+            "operators": sum(1 for name in OPERATORS if name.startswith("POINTER_OUTPUT_")),
+            "semantically_executed": len(po_mutation_report),
+            "correct": sum(item["qualification"] in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}
+                           for item in po_mutation_report.values()),
+            "operator_names": sorted(name for name in OPERATORS if name.startswith("POINTER_OUTPUT_")),
+            "cases": po_mutation_report,
+            "asan": po_mutation_asan,
+        },
         "protocol": protocol,
         "deterministic_json": deterministic,
         "case_results": case_results,
@@ -337,6 +418,12 @@ def run(seed: int, count: int, cand: Path, output: Path) -> dict:
     if any(item["sanitizer"] not in {key for key, _ in TEMPORAL_PATTERNS}
            for item in mutation_asan.values()):
         raise RuntimeError("EXTERN mutation ASan confirmation gate failed")
+    if any(item["qualification"] not in {"CORRECT_PASS", "CORRECT_FAIL", "CORRECT_INCOMPLETE"}
+           for item in po_mutation_report.values()):
+        raise RuntimeError("pointer-output mutation qualification gate failed")
+    if any(item["sanitizer"] not in {key for key, _ in TEMPORAL_PATTERNS}
+           for item in po_mutation_asan.values()):
+        raise RuntimeError("pointer-output mutation ASan confirmation gate failed")
     return report
 
 

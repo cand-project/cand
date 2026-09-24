@@ -25,7 +25,7 @@ the public C&1 claim.
 | pointer/integer round trip | provenance transport | UNSUPPORTED | `INCOMPLETE` |
 | pointer arithmetic/interior pointer | derived region identity | UNSUPPORTED in v1 | `INCOMPLETE` |
 | global or static storage | non-local lifetime transport | UNSUPPORTED unless an explicit supported escape rule proves it | `INCOMPLETE` or B003 |
-| out parameter (`T **`) | ownership creation/transport | UNSUPPORTED in v1 | `INCOMPLETE` |
+| out parameter (`T **`) | ownership creation/transport | UNSUPPORTED in v1; bounded produce rule under review in `cand1/v1.1-draft` (§6) | `INCOMPLETE` unless a reviewed `produces_out_owner` contract with `output` block is accepted (ADR-0030) |
 | function pointer, callback, plugin, foreign or unknown call | retention/effect transport | UNSUPPORTED without a trusted effect | `INCOMPLETE` |
 | varargs | unknown transport and retention | UNSUPPORTED | `INCOMPLETE` |
 | atomics | concurrent pointer transport | UNSUPPORTED | `INCOMPLETE` |
@@ -60,7 +60,26 @@ the checked lifetime, or adding an independently trusted effect. It may not
 repair it by changing policy, suppressing the finding, or deleting required
 ownership intent.
 
-## 5. Explicit exclusions
+## 5. `cand1-pointer-transport-v2` (draft measurement rule set)
+
+ADR-0030 defines a bounded produce rule for out parameters. It is enabled
+only through the `--pointer-output-contracts` modifier (cand1 only,
+non-authoritative) or the `features.pointer_output_contracts` policy
+feature (the sole agent-mode rule-set authority; any change against the
+reviewed base is `REVIEW_REQUIRED`, and a modifier/policy mismatch is a
+`fail-policy` condition, never a silent upgrade or downgrade).
+
+A feature run reports `profile: cand1/v1.1-draft` and
+`coverage.transport_rule_set: cand1-pointer-transport-v2`, and
+`can_emit_cand1_pass` is false: **no feature-enabled run can emit an
+authoritative C&1 PASS.** An accepted produce is subject to the call-site
+acceptance predicate, produces-state semantics, and guard-refinement rules
+of ADR-0030; a refused call falls through to the ordinary unknown-call path
+so its rows are byte-identical to v1. Uses of a maybe-produced binding
+before a recognized refinement emit the fail-closed
+`unrefined-out-owner-use` obligation and stay `INCOMPLETE`.
+
+## 6. Explicit exclusions
 
 This boundary does not claim spatial safety, general pointer provenance,
 thread safety, arbitrary compiler-extension behavior, or foreign-language

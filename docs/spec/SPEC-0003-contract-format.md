@@ -68,6 +68,17 @@ means that the contract supplies no fact for that parameter. An explicit
 same-translation-unit body. A trusted contract must not use an omitted field to
 override or contradict a body-derived fact.
 
+A `produces_out_owner` parameter (ADR-0030) requires a mandatory `output`
+block with three keys: `write` (`always` or `on_success`), `success`
+(`zero` or `nonzero`, mandatory exactly when `write: on_success`), and
+`nullable` (`true` or `false`). At most one `produces_out_owner` parameter
+per symbol. The out slot must be a plain pointer-to-pointer shape; `T ***`,
+function-pointer, and array shapes fail closed at load. A `nullable` key at
+the legacy returns-block indent on a produces symbol is a load-time error
+rather than a silent default. A produces symbol with no visible
+translation-unit declaration is dropped (fail-closed); a symbol whose body
+is visible in the checked translation unit is dropped for that unit.
+
 ## 7. Conditional effects
 
 Contracts may define bounded path-sensitive behavior based on return/parameter conditions. The condition language must remain schema-defined; arbitrary executable scripts are forbidden.

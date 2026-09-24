@@ -4,6 +4,65 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Milestone #41: bounded pointer-output `produces_out_owner` contracts (ADR-0030)
+
+- `produces_out_owner` contracts gain a mandatory `output:` block
+  (`write: always|on_success`, `success: zero|nonzero` required iff
+  `write: on_success`, `nullable`), validated by
+  `contracts/schema/cand-api-contract.schema.json`. At most one produces
+  parameter per symbol; `T ***`, function-pointer, and array out-slot
+  shapes, legacy-indent `nullable` keys, and `success` with
+  `write: always` fail closed at load; symbols without a visible
+  translation-unit declaration or with a visible same-unit body are
+  dropped fail-closed.
+- The rule set ships as the draft measurement profile
+  `cand1/v1.1-draft` (transport
+  `cand1-pointer-transport-v2`): enabled by the non-authoritative
+  `--pointer-output-contracts` modifier (cand1 only; exit 2 usage error
+  elsewhere, emitted before any policy load) or by the
+  `features.pointer_output_contracts` policy feature (the sole agent-mode
+  authority; changes against the reviewed base are `REVIEW_REQUIRED`;
+  modifier/policy disagreement is `fail-policy`, never a silent rule-set
+  change). No feature-enabled run can emit a C&1 PASS.
+- Accepted produces are bounded by the call-site acceptance predicate
+  (direct non-variadic callee; `&local` destination whose address is not
+  otherwise taken; syntactic loop refusal; `dest = f(&dest)` refusal;
+  destination pre-state `Null`/`Moved`/`MaybeMoved` for `write: always`
+  and exactly `Null` for `write: on_success`). Refused calls fall through
+  to the ordinary unknown-call path, so their rows are byte-identical to
+  v1. Accepted produces bind through the allocation-site machinery:
+  `write: always` + non-nullable is immediately usable; every other form
+  marks the binding, and uses before a recognized single-form guard
+  (C1 call guard, C2 embedded assignment, C3 stored-then-tested, C4
+  destination guard) emit the fail-closed `unrefined-out-owner-use`
+  obligation instead of a verdict.
+- Short-circuit chains (`if (A || B)`): the defensive terminator pass no
+  longer pre-applies a later block's element call (spurious live-
+  destination refusal observed in the libgit2 pilot); element calls are
+  pre-marked processed for the defensive pass
+  (`tests/interprocedural/pointer_output_short_circuit.c`). With the
+  feature off the analyzer is unchanged.
+- Fuzzing: eight `POINTER_OUTPUT_*` mutation operators run in a
+  `PointerOutputWorkspace(StrictWorkspace)` with the feature on, a pinned
+  reviewed contract bundle, and the CLI modifier never passed; PO verdicts
+  are SAFE → incomplete (never PASS), KNOWN_VIOLATION → fail
+  (ASan-confirmed), UNSUPPORTED → incomplete with the required row.
+- Evidence: `cand-evidence.schema.json` and `cand-check.schema.json`
+  accept `cand1-pointer-transport-v2` in `transport_rule_set`; feature-run
+  evidence validates and replays.
+- Qualification (evidence: `docs/pilots/POINTER-OUTPUT-PARETO.md`):
+  - v2 pilot measurement with a reviewed 8-symbol bundle: 75 of 101
+    addressable bundle rows converted; every refused row attributed
+    (loop scope, uninitialized/live destination, unrecognized guard
+    forms, and review refusals: cursor advancers, second inexpressible
+    out-params, backend-dispatch writes); findings byte-identical in all
+    five pilots;
+  - five-pilot v1 zero-diff invariant re-verified (all pilots
+    byte-identical to the pre-#41 baselines);
+  - full fixture battery, agent-path policy matrix, CVE replay, mutation
+    corpus (ASan-confirmed), fast fuzz, and extended fuzz (10k, seed
+    12345) green.
+
 ### Milestone #39: declaration-annotation propagation through a reviewed manifest (ADR-0029)
 
 - Body-less declarations carrying C& ownership annotations now seed external

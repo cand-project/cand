@@ -1,0 +1,12 @@
+schema: cand.api-contract/v1
+name: pointer-output-no-success
+version: "1"
+symbols:
+  - symbol: po_zero
+    kind: function
+    params:
+      - index: 0
+        effect: produces_out_owner
+        output:
+          write: on_success
+          nullable: false

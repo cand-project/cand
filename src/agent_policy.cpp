@@ -25,6 +25,19 @@ bool exactKeys(const llvm::json::Object &object,
     return true;
 }
 
+// Exact key set with one optional additional key (#41 features block):
+// every expected key must be present and at most the optional key may be
+// added. Keeps existing policies (no features block) valid.
+bool keysExactlyOrWith(const llvm::json::Object &object,
+                       std::initializer_list<llvm::StringRef> expected,
+                       llvm::StringRef extra) {
+    if (object.size() < expected.size() || object.size() > expected.size() + 1)
+        return false;
+    for (llvm::StringRef key : expected) if (!object.get(key)) return false;
+    if (object.size() == expected.size() + 1 && !object.get(extra)) return false;
+    return true;
+}
+
 bool readUnsigned(const llvm::json::Object *object, llvm::StringRef key,
                   unsigned &value) {
     if (!object) return false;
@@ -112,8 +125,8 @@ bool loadPolicyText(const std::string &text, Policy &policy, std::string &error)
     auto parsed = llvm::json::parse(text);
     if (!parsed) { error = "policy JSON parse error: " + llvm::toString(parsed.takeError()); return false; }
     const auto *root = parsed->getAsObject();
-    if (!root || !exactKeys(*root, {"schema", "profile", "safety_level", "base_ref", "budgets",
-            "unsupported", "contracts", "scope", "frontend"})) {
+    if (!root || !keysExactlyOrWith(*root, {"schema", "profile", "safety_level", "base_ref", "budgets",
+            "unsupported", "contracts", "scope", "frontend"}, "features")) {
         error = "policy must use the exact cand.policy/v1 fields"; return false;
     }
     auto schema = root->getString("schema");
@@ -139,6 +152,18 @@ bool loadPolicyText(const std::string &text, Policy &policy, std::string &error)
     value.profile = profile->str();
     value.safety_level = level->str();
     value.base_ref = base_ref->str();
+    // #41: the features block is optional and, when present, carries only
+    // the pointer-output contracts flag.
+    if (const auto *features = root->getObject("features")) {
+        if (!exactKeys(*features, {"pointer_output_contracts"})) {
+            error = "policy features block has missing or unsupported fields"; return false;
+        }
+        auto flag = features->getBoolean("pointer_output_contracts");
+        if (!flag) {
+            error = "features.pointer_output_contracts must be a boolean"; return false;
+        }
+        value.pointer_output_contracts = *flag;
+    }
     if (!readUnsigned(budgets, "new_unsafe_boundaries", value.unsafe_budget) ||
         !readUnsigned(budgets, "new_suppressions", value.suppression_budget) ||
         !readUnsigned(budgets, "safety_level_reductions", value.level_reduction_budget) ||
@@ -268,6 +293,13 @@ PolicyDiff comparePolicies(const Policy &before, const Policy &after) {
     if (before.contracts_review_required != after.contracts_review_required)
         addChange(diff, "contract-review-policy-change", before.contracts_review_required ? "true" : "false",
                   after.contracts_review_required ? "true" : "false", "REVIEW_REQUIRED");
+    // #41: any change to the pointer-output contracts feature is a rule
+    // set change and always requires review.
+    if (before.pointer_output_contracts != after.pointer_output_contracts)
+        addChange(diff, "pointer-output-contracts-change",
+                  before.pointer_output_contracts.value_or(false) ? "true" : "false",
+                  after.pointer_output_contracts.value_or(false) ? "true" : "false",
+                  "REVIEW_REQUIRED");
     if (before.trusted_contracts.size() != after.trusted_contracts.size() ||
         !std::equal(before.trusted_contracts.begin(), before.trusted_contracts.end(),
                     after.trusted_contracts.begin(), after.trusted_contracts.end(),
@@ -337,6 +369,8 @@ llvm::json::Object policyJson(const Policy &policy) {
         contracts.push_back(std::move(item));
     }
     root["trusted_contracts"] = std::move(contracts);
+    if (policy.pointer_output_contracts)
+        root["pointer_output_contracts"] = *policy.pointer_output_contracts;
     root["sha256"] = policy.sha256;
     return root;
 }

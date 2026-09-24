@@ -127,7 +127,7 @@
         "heap_generation_widenings": { "type": "integer", "minimum": 0 },
         "unsupported_transport_operations": { "type": "integer", "minimum": 0 },
         "ownership_rule_set": { "const": "p1-unique-ownership-v1" },
-        "transport_rule_set": { "const": "cand1-pointer-transport-v1" }
+        "transport_rule_set": { "enum": ["cand1-pointer-transport-v1", "cand1-pointer-transport-v2"] }
       },
       "additionalProperties": false
     },

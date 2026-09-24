@@ -62,8 +62,39 @@
       "properties": {
         "index": {"type": "integer", "minimum": 0},
         "effect": {"$ref": "#/$defs/paramEffect"},
-        "allocation_family": {"type": "string"}
-      }
+        "allocation_family": {"type": "string"},
+        "output": {"$ref": "#/$defs/outOwnerOutput"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"effect": {"const": "produces_out_owner"}}},
+          "then": {"required": ["output"]}
+        },
+        {
+          "if": {"properties": {"effect": {"not": {"const": "produces_out_owner"}}}},
+          "then": {"not": {"required": ["output"]}}
+        }
+      ]
+    },
+    "outOwnerOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["write"],
+      "properties": {
+        "write": {"enum": ["always", "on_success"]},
+        "success": {"enum": ["zero", "nonzero"]},
+        "nullable": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"write": {"const": "on_success"}}},
+          "then": {"required": ["success"]}
+        },
+        {
+          "if": {"properties": {"write": {"const": "always"}}},
+          "then": {"not": {"required": ["success"]}}
+        }
+      ]
     },
     "symbol": {
       "type": "object",

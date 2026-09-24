@@ -1,0 +1,9 @@
+schema: cand.api-contract/v1
+name: pointer-output-returns-nullable-ok
+version: "1"
+symbols:
+  - symbol: po_owned_maybe
+    kind: function
+    returns:
+      ownership: owned
+      nullable: true

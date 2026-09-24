@@ -98,7 +98,10 @@ The effective policy is strict `cand.policy/v1` JSON. Contract trust is
 separate from contract contents and binds path, digest, and trust class.
 Candidate contracts cannot support PASS. Semantic PASS and policy PASS are
 distinct; a policy failure or `REVIEW_REQUIRED` cannot be reported as verified
-agent success.
+agent success. A `features` entry in the policy is a rule-set selection with
+`REVIEW_REQUIRED` on any change against the reviewed base; a CLI rule-set
+modifier that disagrees with the policy (enabled on either side alone) is a
+`fail-policy` condition, never a silent rule-set change.
 
 `cand.evidence/v1` binds checked source and project-local include contents,
 verifier binary digest, frontend identity/arguments, base commit, effective
