@@ -104,3 +104,15 @@ C&1-A qualifies the profile contract and repeated-allocation heap model. It
 does not complete the transport-boundary audit, reproducible toolchain gate,
 or differential/protocol fuzzing gate. Those remain C&1-B/C/D work and keep
 the public C&1 claim disabled.
+
+## 7. `cand1/v1.1-draft` measurement profiles
+
+A profile version identified as `v1.1-draft` is a rule-set expansion under
+measurement (ADR-0030 for pointer-output produces). Draft profiles are
+reported with their draft identity, bind the expanded rule set in
+`coverage.transport_rule_set`, and set `can_emit_cand1_pass` to false for
+every run that enables them: a draft profile can produce `fail` or
+`incomplete`, never an authoritative `PASS`. With a draft feature disabled,
+the analyzer must remain bit-identical to the base profile. A draft rule set
+is promoted into the PASS authority only by a new ADR and a full
+requalification of the C&1 claim.

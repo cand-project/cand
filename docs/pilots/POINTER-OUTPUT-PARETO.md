@@ -118,3 +118,83 @@ destinations 499/948 rows over 437 distinct (function, callee) sites.
 
 The workdir holds the E1 report.json and the cached AST dumps; the
 harness is measurement-only and draws no verdicts.
+
+## v2 measurement (milestone #41, reviewed bundle)
+
+The implemented rule (`cand1/v1.1-draft`, ADR-0030) was measured against
+the five pilots with a reviewed measurement-only bundle of 8 symbols
+(never committed; derived from source review):
+
+| pilot | symbol | contract (write / success / nullable) |
+|---|---|---|
+| hiredis | `getaddrinfo` | on_success / zero / false |
+| hiredis | `redisGetReply` | on_success / zero / true |
+| hiredis | `redisvFormatCommand` | on_success / nonzero / false |
+| curl | `curl_url_get` | always / — / true |
+| curl | `Curl_urldecode` | on_success / zero / false |
+| libgit2 | `git_commit_tree` | on_success / zero / false |
+| libgit2 | `git_commit_lookup` | on_success / zero / false |
+| sqlite | `sqlite3ValueFromExpr` | always / — / true |
+
+zlib has no addressable out-owner callee (callback writes only).
+
+Review refusals (symbols deliberately excluded from the bundle, with the
+review outcome recorded):
+
+- `curlx_str_*` (curl, top row family): cursor advancers — the callee
+  writes a borrowed interior pointer; destruction responsibility is not
+  transferred, so an out-owner contract would be unsound.
+- `sqlite3_prepare_v2`/`v3`: second `T **` out-param (`pzTail`) writes a
+  borrowed interior pointer the v1.1-draft vocabulary cannot express; an
+  accepted produce would silently drop that obligation.
+- `sqlite3PagerGet`: the write is delegated through a backend function
+  pointer; failure-edge write behavior is not identifiable.
+- `git_reference_lookup`: failure paths are mixed (some write NULL, some
+  leave the slot untouched via backend dispatch).
+- `getpwuid_r` family: writes a borrowed pointer into caller storage.
+
+Measurement protocol: per pilot, v1 = `--level=cand1` with the merged
+bundle, v2 = v1 plus `--pointer-output-contracts` and the merged+PO
+bundle; rows keyed by (file, line, kind).
+
+| pilot | v1 rows | v2 rows | gone | new | ADDR-LOCAL bundle rows | converted | refused |
+|---|---|---|---|---|---|---|---|
+| hiredis | 861 | 864 | 2 | 5 | 5 | 1 | 4 |
+| zlib | 833 | 833 | 0 | 0 | 0 | 0 | 0 |
+| curl | 15424 | 15447 | 44 | 67 | 32 | 25 | 7 |
+| libgit2 | 16780 | 16898 | 75 | 193 | 59 | 45 | 14 |
+| sqlite | 20229 | 20233 | 8 | 12 | 5 | 4 | 1 |
+| total | | | 129 | 277 | 101 | 75 | 26 |
+
+Findings were byte-identical between v1 and v2 in every pilot: the
+feature never fabricates or hides a defect verdict in the measured real
+code. Converted rows are replaced by specific conservative obligations
+(downstream `unrefined-out-owner-use`, tracked-pointer escapes into
+unknown calls, alias-ambiguity rows), so the v2 row count grows while the
+unknown-call-with-pointer-output population shrinks — the intended
+trading of a coarse obligation for reviewable specific ones.
+
+Refused-row attribution (source-verified):
+
+- hiredis (4): loop-scoped `redisGetReply` (async.c:575);
+  `redisvFormatCommand` into an uninitialized destination (async.c:974);
+  `getaddrinfo` into an uninitialized destination (net.c:544);
+  `getaddrinfo` into a live previously produced destination (net.c:517).
+- curl (7): `Curl_urldecode` into uninitialized destinations.
+- libgit2 (14): uninitialized destinations, live destinations, loop
+  scope, and guard forms the refinement does not recognize.
+- sqlite (1): `sqlite3ValueFromExpr` into an uninitialized destination.
+
+An implementation defect found and fixed during the measurement, with a
+fixtures-first red case:
+
+- short-circuit chains (`if (A || B)`): the defensive terminator pass
+   pre-applied the later block's element call, making the element pass
+   see its own destination as live (spurious refusal; observed at
+   blame_git.c:442 and attr_file.c:172-173). Fixed by pre-marking
+   element calls as processed for the defensive pass
+   (`pointer_output_short_circuit.c`); libgit2 conversions rose from 33
+   to 45 of 59.
+
+The five-pilot v1 zero-diff invariant was re-verified after the fix
+(all pilots byte-identical to the pre-#41 baselines).
