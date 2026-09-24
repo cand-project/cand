@@ -290,7 +290,10 @@ check incomplete tests/interprocedural/conditional_join_branch_conflict_incomple
 # Contract-using fixtures (setsockopt/memcmp/memchr) run against the same
 # merged reviewed bundles as libc_borrow_bundle_safe.c above.
 # Area A: address-of-parameter at a Borrow-effect argument.
-check incomplete tests/interprocedural/addr_param_scalar_borrow_safe.c --contracts="$merged"
+# Post-S4a: the scalar/pointer-free-struct `&param` shapes are silent
+# (ownership-neutral scalar storage, ADR-0031). Without contracts no
+# borrow claim is made and the fixture passes (unchanged from pre-fix).
+check pass tests/interprocedural/addr_param_scalar_borrow_safe.c --contracts="$merged"
 # Area A pin-pass twins (silent today via findTrackedBinding; must not regress).
 check pass tests/interprocedural/addr_param_pointer_pass.c --contracts="$merged"
 check pass tests/interprocedural/addr_param_tracked_member_pass.c --contracts="$merged"

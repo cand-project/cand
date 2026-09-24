@@ -2057,6 +2057,24 @@ private:
         }
         if (!access_storage) access_storage = findTrackedStorage(pointer_expr, state);
         if (binding == nullptr) {
+            // ADR-0031 (issue #73, Area A): an address-of whose pointee is
+            // pointer-free storage reached this block only because nothing
+            // inside it is tracked (tracked `&p[0]`/`&s->f` forms are held
+            // by the findTrackedBinding above). The callee receives the
+            // callee-local copy of a pointer-free stack slot; a read (or a
+            // read-or-write borrow claim) of pointer-free scalar storage is
+            // ownership-neutral: a scalar write cannot fabricate,
+            // duplicate, or clobber a tracked pointer. The type filter is
+            // conservative scoping, not the soundness load-bearer.
+            if (pointer_expr != nullptr) {
+                const auto *addr_of = dyn_cast<UnaryOperator>(
+                    pointer_expr->IgnoreParenCasts());
+                if (addr_of != nullptr &&
+                    addr_of->getOpcode() == clang::UO_AddrOf &&
+                    !typeMayContainPointer(addr_of->getSubExpr()->getType())) {
+                    return; // &pointer-free storage: ownership-neutral
+                }
+            }
             if (containsParameterStorage(pointer_expr)) {
                 emitUnsupported({"unmodelled-pointer-parameter", "",
                                  location(access_loc)});
