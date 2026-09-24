@@ -274,6 +274,22 @@ pass after the first run (missing dependency include paths, artifacts
 kept). The two Redis findings (below) are identical across
 B0/E2/E2+.
 
+Redis staged components (40-file reconstruction; the SDS stage matches
+the original exactly at 2,907 LOC, later stages are the documented
+reconstruction):
+
+| Stage | Files | LOC | B0 obl / CLEAR | E2 obl / CLEAR | Findings |
+|---|---:|---:|---|---|---:|
+| SDS | 2 | 2,907 | 375 / 16 | 320 / 23 | 2 |
+| dict/hash | 6 | 12,337 | 1,805 / 40 | 1,734 / 51 | 0 |
+| object/value | 10 | 23,732 | 6,918 / 49 | 6,802 / 52 | 0 |
+| client/network | 7 | 8,829 | 2,094 / 16 | 1,952 / 24 | 0 |
+| broader core | 15 | 42,059 | 9,738 / 149 | 9,250 / 170 | 0 |
+
+Every stage gains CLEAR under E2 (16→23, 40→51, 49→52, 16→24,
+149→170) with zero lost; the two findings are the zmalloc
+output-parameter B003s, confined to the SDS stage.
+
 **SQLite canonical-vs-amalgamation gap (plan hypothesis, measured):**
 per-function obligation density drops ~44% in the amalgamation (B0:
 9.70 obligations/function canonical vs 5.42 amalgam; CLEAR rate 12.9% →
