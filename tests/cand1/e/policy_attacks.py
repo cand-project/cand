@@ -25,6 +25,36 @@ int main(void) {
 }
 '''
 
+# Milestone #41: a pinned produces_out_owner bundle (ending directly
+# inside the output: block, which is a complete block at EOF) and the
+# converted agent-mode case.
+PO_BUNDLE = (
+    "schema: cand.api-contract/v1\n"
+    "name: pointer-output-agent\n"
+    "version: \"1\"\n"
+    "symbols:\n"
+    "  - symbol: po_always\n"
+    "    kind: function\n"
+    "    params:\n"
+    "      - index: 0\n"
+    "        effect: produces_out_owner\n"
+    "        output:\n"
+    "          write: always\n"
+    "          nullable: false\n"
+)
+
+PO_CASE = r'''
+#include <stdlib.h>
+extern int po_always(int **out);
+int main(void) {
+    int *out = NULL;
+    po_always(&out);
+    *out = 1;
+    free(out);
+    return 0;
+}
+'''
+
 
 def base_policy() -> dict:
     return {
@@ -136,11 +166,118 @@ def main() -> int:
         (work / "tampered.json").write_text(json.dumps(tampered, indent=2) + "\n")
         rc, report = call(args.cand, work, env, "evidence", "verify", "tampered.json")
         outcomes.append({"id": "recomputed-tampered-evidence", "result": report.get("result"), "detail": report.get("detail"), "exit": rc})
+
+        # --- Milestone #41: pointer-output contracts feature authority in
+        # agent mode. First in this repository, where the reviewed base
+        # policy has no features block: a pinned produces_out_owner bundle
+        # without the feature keeps the v1 vocabulary rejection, and the
+        # CLI modifier without the policy feature is a fail-policy
+        # condition -- never a silent downgrade [F11].
+        problems: list[str] = []
+
+        def expect(condition: bool, message: str) -> None:
+            if not condition:
+                problems.append(message)
+
+        (work / "po.yaml").write_text(PO_BUNDLE)
+        pinned = copy.deepcopy(policy)
+        pinned["contracts"]["trusted"] = [{
+            "path": "po.yaml",
+            "sha256": hashlib.sha256(PO_BUNDLE.encode()).hexdigest(),
+            "trust_class": "reviewed",
+        }]
+        (work / "cand-policy.json").write_text(json.dumps(pinned, indent=2) + "\n")
+        rc, report = call(args.cand, work, env, "check", "--agent", "--level=cand1", "--format=json",
+                          "--base", "origin/main", "--policy", "cand-policy.json",
+                          "--contracts", "po.yaml", "case.c", "--", "-std=c11")
+        outcomes.append({"id": "po-bundle-without-feature", "result": report.get("result"),
+                         "detail": report.get("detail"), "exit": rc})
+        expect(rc == 2 and "invalid trusted contract" in str(report.get("stderr", "")),
+               "a pinned produces bundle without the policy feature must keep the v1 vocabulary rejection")
+
+        (work / "cand-policy.json").write_text(json.dumps(policy, indent=2) + "\n")
+        rc, report = call(args.cand, work, env, "check", "--agent", "--level=cand1", "--format=json",
+                          "--pointer-output-contracts", "--base", "origin/main",
+                          "--policy", "cand-policy.json", "case.c", "--", "-std=c11")
+        outcomes.append({"id": "po-modifier-without-feature", "result": report.get("result"),
+                         "detail": report.get("detail"), "exit": rc})
+        expect(rc == 4 and report.get("result") == "fail-policy",
+               "the modifier without the policy feature must be fail-policy")
+        expect(any("pointer_output_contracts" in str(change.get("detail", ""))
+                   for change in report.get("policy_delta", {}).get("changes", [])),
+               "the fail-policy report must name the pointer-output feature")
+
+        # A second, independent baseline pins the feature-on semantics with
+        # the feature already inside the reviewed base policy: the policy
+        # feature is the sole rule-set authority [F11], and a feature run
+        # is never a C&1 pass authority [R4/F9/F13] -- the identical run
+        # without the feature is baseline-pass.
+        with tempfile.TemporaryDirectory(prefix="cand1-e-po-") as po_name:
+            po_work = Path(po_name)
+            (po_work / "case.c").write_text(SAFE)
+            (po_work / "po.yaml").write_text(PO_BUNDLE)
+            po_policy = base_policy()
+            po_policy["features"] = {"pointer_output_contracts": True}
+            po_policy["contracts"]["trusted"] = [{
+                "path": "po.yaml",
+                "sha256": hashlib.sha256(PO_BUNDLE.encode()).hexdigest(),
+                "trust_class": "reviewed",
+            }]
+            (po_work / "cand-policy.json").write_text(json.dumps(po_policy, indent=2) + "\n")
+            for command in (
+                ["git", "init", "-q", "-b", "main"],
+                ["git", "config", "user.name", "CAND-E"],
+                ["git", "config", "user.email", "cand-e@example.invalid"],
+            ):
+                subprocess.run(command, cwd=po_work, check=True)
+            subprocess.run(["git", "add", "."], cwd=po_work, check=True)
+            subprocess.run(["git", "commit", "-qm", "pointer-output baseline"], cwd=po_work, check=True)
+            po_base = subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                              cwd=po_work, text=True).strip()
+            subprocess.run(["git", "update-ref", "refs/remotes/origin/main", po_base],
+                           cwd=po_work, check=True)
+            po_env = os.environ.copy()
+            po_env["CAND_TRUSTED_BASE_SHA"] = po_base
+
+            rc, report = call(args.cand, po_work, po_env, "check", "--agent", "--level=cand1",
+                              "--format=json", "--base", "origin/main", "--policy", "cand-policy.json",
+                              "case.c", "--", "-std=c11")
+            outcomes.append({"id": "po-feature-baseline", "result": report.get("result"),
+                             "detail": report.get("detail"), "exit": rc})
+            expect(report.get("result") == "incomplete",
+                   "a feature run over provably-safe code must stay incomplete, never pass")
+            analysis = report.get("analysis", {})
+            expect(analysis.get("pointer_output_contracts") is True and
+                   analysis.get("profile") == "cand1/v1.1-draft",
+                   "the feature run must carry the draft profile and the feature flag")
+
+            rc, report = call(args.cand, po_work, po_env, "check", "--agent", "--level=cand1",
+                              "--format=json", "--pointer-output-contracts", "--base", "origin/main",
+                              "--policy", "cand-policy.json", "case.c", "--", "-std=c11")
+            outcomes.append({"id": "po-modifier-with-feature", "result": report.get("result"),
+                             "detail": report.get("detail"), "exit": rc})
+            expect(report.get("result") == "incomplete",
+                   "the modifier alongside the policy feature must not weaken the run")
+
+            (po_work / "case.c").write_text(PO_CASE)
+            rc, report = call(args.cand, po_work, po_env, "check", "--agent", "--level=cand1",
+                              "--format=json", "--base", "origin/main", "--policy", "cand-policy.json",
+                              "--contracts", "po.yaml", "case.c", "--", "-std=c11")
+            outcomes.append({"id": "po-agent-converted", "result": report.get("result"),
+                             "detail": report.get("detail"), "exit": rc})
+            expect(report.get("result") == "incomplete",
+                   "the converted agent run must be incomplete, never pass")
+            analysis = report.get("analysis", {})
+            expect(analysis.get("findings") == [] and analysis.get("unsupported") == [] and
+                   analysis.get("pointer_output_contracts") is True,
+                   "the converted agent run must apply the produce with no rows or findings")
     print(json.dumps({"schema": "cand1-e.policy-attacks/v1", "outcomes": outcomes}, sort_keys=True))
     expected_pass = {"baseline-pass", "evidence-emit"}
     bad = [x for x in outcomes if x["id"] in expected_pass and x["result"] != "pass"]
     bad += [x for x in outcomes if x["id"] not in expected_pass and x["result"] == "pass"]
-    return int(bool(bad))
+    if problems:
+        print(json.dumps({"schema": "cand1-e.policy-attacks/v1", "problems": problems}, sort_keys=True))
+    return int(bool(bad or problems))
 
 
 if __name__ == "__main__":

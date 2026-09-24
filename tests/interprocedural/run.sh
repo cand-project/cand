@@ -374,14 +374,18 @@ check_po_fail() { # temporal defect on the produced object
   po_run "$@"
   grep -Fq '"result": "fail"' <<<"$po_output" || { echo "expected FAIL for $1"; exit 1; }
   grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
-  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+  if grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output"; then
+    echo "pointer-output row not converted for $1"; exit 1
+  fi
 }
 check_po_row() { # converted; one specific unsupported row kind remains
-  po_run "$@"
+  po_run "$1" "${@:3}"
   grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
   grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
   grep -Fq "\"kind\": \"$2\"" <<<"$po_output" || { echo "missing row kind $2 for $1"; exit 1; }
-  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
+  if grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output"; then
+    echo "pointer-output row not converted for $1"; exit 1
+  fi
 }
 check_po_v1_matrix() { # v2 (feature+bundle) == v1 (no feature, no bundle)
   local file="$1" bundle="$2"

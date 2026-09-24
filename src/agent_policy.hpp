@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,10 @@ struct Policy {
     std::vector<std::string> scope_files;
     std::vector<ContractPin> trusted_contracts;
     std::string sha256;
+    // #41: optional feature flags. features.pointer_output_contracts is
+    // the authoritative agent-mode enablement of the bounded
+    // produces_out_owner rule set (cand1 runs only); absent means off.
+    std::optional<bool> pointer_output_contracts;
 };
 
 struct PolicyChange {

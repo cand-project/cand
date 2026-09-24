@@ -140,6 +140,11 @@ llvm::cl::opt<std::string> ProfileName(
 llvm::cl::opt<std::string> SafetyLevel(
     "level", llvm::cl::desc("implemented safety level: p0-temporal-lifecycle|cand1"),
     llvm::cl::init("p0-temporal-lifecycle"), llvm::cl::cat(CandCategory));
+llvm::cl::opt<bool> PointerOutputContracts(
+    "pointer-output-contracts",
+    llvm::cl::desc("enable bounded produces_out_owner output contracts "
+                   "(requires --level=cand1)"),
+    llvm::cl::init(false), llvm::cl::cat(CandCategory));
 llvm::cl::opt<std::string> PolicyPath(
     "policy", llvm::cl::desc("effective proof policy JSON"),
     llvm::cl::init("cand-policy.json"), llvm::cl::cat(CandCategory));
@@ -247,6 +252,23 @@ struct ContractConflict {
     }
 };
 
+// #41: the reviewed out-owner output block of a produces_out_owner
+// parameter. write_on_success selects the conditional form (the write
+// happens only on the success path, guarded by the call result);
+// success_nonzero is the success polarity of the return value; nullable
+// records whether the produced object may still be NULL on the success
+// path (fail-closed default: true).
+struct OutOwnerContract {
+    unsigned param = 0;
+    bool write_on_success = false;
+    bool success_nonzero = false;
+    bool nullable = true;
+    bool operator==(const OutOwnerContract &other) const {
+        return param == other.param && write_on_success == other.write_on_success &&
+               success_nonzero == other.success_nonzero && nullable == other.nullable;
+    }
+};
+
 struct FunctionSummary {
     const FunctionDecl *function = nullptr;
     ReturnEffect return_effect = ReturnEffect::None;
@@ -255,11 +277,16 @@ struct FunctionSummary {
     SummaryOrigin origin = SummaryOrigin::Unknown;
     bool conflict = false;
     std::vector<ContractConflict> conflicts;
+    // #41: reviewed produces_out_owner output contract (trusted external
+    // summaries only; body-derived and annotation-derived summaries never
+    // carry one).
+    std::optional<OutOwnerContract> out_owner;
 
     bool operator==(const FunctionSummary &other) const {
         return return_effect == other.return_effect &&
                return_borrow_arg == other.return_borrow_arg && params == other.params &&
-               origin == other.origin && conflict == other.conflict && conflicts == other.conflicts;
+               origin == other.origin && conflict == other.conflict &&
+               conflicts == other.conflicts && out_owner == other.out_owner;
     }
 };
 
@@ -267,6 +294,7 @@ struct ContractSummary {
     std::optional<ReturnEffect> return_effect;
     std::optional<unsigned> return_borrow_arg;
     std::vector<std::optional<ParamEffect>> params;
+    std::optional<OutOwnerContract> out_owner;
 };
 
 const char *returnEffectName(ReturnEffect effect) {
@@ -381,10 +409,17 @@ private:
 
 class Collector {
 public:
-    void setProfile(llvm::StringRef level) {
+    void setProfile(llvm::StringRef level, bool pointer_output_contracts = false) {
         safety_level_ = level.str();
-        profile_ = level == "cand1" ? "cand1/v1" : "p0-semantic-core";
+        // #41: the pointer-output rule set is a cand1 profile modifier; its
+        // rule-set identity (profile and transport matrix version) changes
+        // only when the feature is enabled.
+        pointer_output_contracts_ = level == "cand1" && pointer_output_contracts;
+        profile_ = level == "cand1"
+                       ? (pointer_output_contracts_ ? "cand1/v1.1-draft" : "cand1/v1")
+                       : "p0-semantic-core";
     }
+    bool pointerOutputContracts() const { return pointer_output_contracts_; }
     // Findings are collected only during the post-convergence emission pass.
     // The map de-duplicates any repeated observation of the same program point.
     void addFinding(Finding finding) {
@@ -492,6 +527,10 @@ public:
             hasFindings() ? "fail" : (hasUnsupported() ? "incomplete" : "pass");
         root["safety_level"] = safety_level_;
         root["profile"] = profile_;
+        // #41 [F13]: the feature marker appears only when the
+        // pointer-output contracts profile is enabled; v1 runs are
+        // byte-identical to before.
+        if (pointer_output_contracts_) root["pointer_output_contracts"] = true;
 
         llvm::json::Array findings;
         for (const auto &finding : findings_list_) {
@@ -592,7 +631,9 @@ public:
         coverage["heap_generation_widenings"] = static_cast<std::int64_t>(heap_widenings_);
         coverage["unsupported_transport_operations"] =
             static_cast<std::int64_t>(unsupported_transport_operations_);
-        coverage["transport_rule_set"] = "cand1-pointer-transport-v1";
+        coverage["transport_rule_set"] =
+            pointer_output_contracts_ ? "cand1-pointer-transport-v2"
+                                      : "cand1-pointer-transport-v1";
         coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
         llvm::json::Object borrow_analysis;
         borrow_analysis["borrows_created"] = static_cast<std::int64_t>(borrows_created_);
@@ -644,6 +685,7 @@ private:
     unsigned next_object_id_ = 1;
     std::string safety_level_ = "p0-temporal-lifecycle";
     std::string profile_ = "p0-semantic-core";
+    bool pointer_output_contracts_ = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -776,9 +818,16 @@ struct StorageBinding {
     unsigned object_id = kUnknownObjectId;
     PointerRelation relation = PointerRelation::Unknown;
     Location relation_location;
+    // #41: this storage holds a maybe-produced out-owner object whose
+    // producing guard has not been refined yet. Orthogonal to PointerRelation:
+    // it survives joins conservatively and any use of a marked binding is the
+    // fail-closed unrefined-out-owner-use obligation. Nothing sets it unless
+    // the pointer-output contract profile is enabled.
+    bool produced_maybe = false;
     bool operator==(const StorageBinding &other) const {
         return object_id == other.object_id && relation == other.relation &&
-               sameLocation(relation_location, other.relation_location);
+               sameLocation(relation_location, other.relation_location) &&
+               produced_maybe == other.produced_maybe;
     }
 };
 
@@ -853,38 +902,59 @@ StorageBinding joinBinding(const StorageBinding &a, const StorageBinding &b) {
     };
     const Location relation_location =
         minLocation(a.relation_location, b.relation_location);
+    // #41: a maybe-produced binding stays maybe-produced when either incoming
+    // path still carries the unrefined mark (conservative OR).
+    const bool produced_maybe = a.produced_maybe || b.produced_maybe;
 
     if (a.object_id == b.object_id) {
         if (a.relation == b.relation) {
-            return {a.object_id, a.relation, relation_location};
+            return {a.object_id, a.relation, relation_location, produced_maybe};
         }
         if (a.relation == PointerRelation::MaybeNull ||
             b.relation == PointerRelation::MaybeNull) {
-            return {a.object_id, PointerRelation::MaybeNull, relation_location};
+            return {a.object_id, PointerRelation::MaybeNull, relation_location, produced_maybe};
         }
         const auto moved = [](PointerRelation relation) {
             return relation == PointerRelation::Moved ||
                    relation == PointerRelation::MaybeMoved;
         };
         if (moved(a.relation) || moved(b.relation)) {
-            return {a.object_id, PointerRelation::MaybeMoved, relation_location};
+            return {a.object_id, PointerRelation::MaybeMoved, relation_location, produced_maybe};
         }
-        return {a.object_id, PointerRelation::Unknown, relation_location};
+        return {a.object_id, PointerRelation::Unknown, relation_location, produced_maybe};
     }
     if (unknown(a) || unknown(b)) {
-        return {kUnknownObjectId, PointerRelation::Unknown, relation_location};
+        return {kUnknownObjectId, PointerRelation::Unknown, relation_location, produced_maybe};
     }
     // Null on one path and one known object on the other still has one heap
     // target for temporal purposes. Null-dereference safety is outside P0.
     if (known_null(a) && b.object_id != kNullObjectId) {
-        return {b.object_id, PointerRelation::MaybeNull, relation_location};
+        return {b.object_id, PointerRelation::MaybeNull, relation_location, produced_maybe};
     }
     if (known_null(b) && a.object_id != kNullObjectId) {
-        return {a.object_id, PointerRelation::MaybeNull, relation_location};
+        return {a.object_id, PointerRelation::MaybeNull, relation_location, produced_maybe};
     }
     // Two different non-null objects are an unresolved alias target, never NULL.
-    return {kUnknownObjectId, PointerRelation::Unknown, relation_location};
+    return {kUnknownObjectId, PointerRelation::Unknown, relation_location, produced_maybe};
 }
+
+// #41: a pending out-owner guard records that a local variable currently
+// holds the result of an accepted produces_out_owner call, so a later
+// recognized single-form condition on that variable can refine the
+// destination binding by the contract's success polarity.
+struct PendingOutGuard {
+    StorageId dest;
+    bool success_nonzero = false;
+    // The producing call this entry testifies about. An embedded-assignment
+    // guard (C2) is materialized by the CFG as a call element followed by
+    // the assignment element; the assignment must not kill the entry its
+    // own RHS call just recorded (#41 kill rule (a) exemption).
+    const CallExpr *call = nullptr;
+    bool operator==(const PendingOutGuard &other) const {
+        return dest == other.dest && success_nonzero == other.success_nonzero &&
+               call == other.call;
+    }
+};
 
 struct FlowState {
     std::map<StorageId, StorageBinding> storages;
@@ -892,11 +962,17 @@ struct FlowState {
     std::map<StorageId, BorrowInfo> borrows;
     std::map<unsigned, unsigned> allocation_generations;
     std::set<unsigned> widened_allocation_sites;
+    // #41: result-variable -> producing-call guard fact. Conservative
+    // intersection at joins: an entry survives only when both incoming
+    // paths carry the identical fact. Nothing populates it unless the
+    // pointer-output contract profile is enabled.
+    std::map<StorageId, PendingOutGuard> pending_out_guards;
 
     bool operator==(const FlowState &other) const {
         return storages == other.storages && objects == other.objects && borrows == other.borrows &&
                allocation_generations == other.allocation_generations &&
-               widened_allocation_sites == other.widened_allocation_sites;
+               widened_allocation_sites == other.widened_allocation_sites &&
+               pending_out_guards == other.pending_out_guards;
     }
 };
 
@@ -962,6 +1038,14 @@ FlowState joinFlow(const FlowState &a, const FlowState &b) {
             result.storages[entry.first] = joinBinding(StorageBinding{}, entry.second);
         }
     }
+    // #41: conservative intersection of pending out-owner guards -- an entry
+    // survives a join only when every incoming path carries the same fact.
+    for (const auto &entry : a.pending_out_guards) {
+        const auto it = b.pending_out_guards.find(entry.first);
+        if (it != b.pending_out_guards.end() && it->second == entry.second) {
+            result.pending_out_guards[entry.first] = entry.second;
+        }
+    }
     return result;
 }
 
@@ -981,10 +1065,12 @@ struct AnnotationReviewFacts {
 class FlowAnalyzer {
 public:
     FlowAnalyzer(ASTContext &context, Collector &collector, const SummaryStore &summaries,
-                 bool cand1_profile, const AnnotationReviewFacts &annotation_review)
+                 bool cand1_profile, const AnnotationReviewFacts &annotation_review,
+                 bool pointer_output_contracts)
         : context_(context), source_manager_(context.getSourceManager()),
           collector_(collector), summaries_(summaries), cand1_profile_(cand1_profile),
-          annotation_review_(annotation_review) {}
+          annotation_review_(annotation_review),
+          pointer_output_contracts_(cand1_profile && pointer_output_contracts) {}
 
     // The fail-closed obligation kind for a call to a symbol whose
     // declaration annotations were not accepted by a review manifest.
@@ -1009,6 +1095,7 @@ public:
         collectAllocationSites(body);
         collectLoopAllocations(body, false);
         collectUnevaluated(body);
+        collectPointerOutputFacts(body);
 
         std::unique_ptr<CFG> cfg =
             CFG::buildCFG(&function, const_cast<Stmt *>(body), &context_, CFG::BuildOptions());
@@ -1964,6 +2051,14 @@ private:
             }
             return; // genuinely untracked storage: outside the current P0 heap scope
         }
+        // #41 [F8]: the produced-maybe mark is tested BEFORE the
+        // relation-silence paths -- a use of an unrefined maybe-produced
+        // binding is the fail-closed unrefined-out-owner-use obligation,
+        // never the silent null-deref path.
+        if (pointer_output_contracts_ && binding->produced_maybe) {
+            emitUnsupported({"unrefined-out-owner-use", "", location(access_loc)});
+            return;
+        }
         if (binding->object_id == kUnknownObjectId ||
             (binding->object_id == kNullObjectId &&
              binding->relation == PointerRelation::Unknown)) {
@@ -2041,6 +2136,13 @@ private:
             return;
         }
         StorageBinding &binding = it->second;
+        // #41 [F8]: the mark is tested BEFORE the free(NULL) no-op path --
+        // destroying an unrefined maybe-produced binding is the
+        // unrefined-out-owner-use obligation.
+        if (pointer_output_contracts_ && binding.produced_maybe) {
+            emitUnsupported({"unrefined-out-owner-use", "", location(call.getExprLoc())});
+            return;
+        }
         if (binding.object_id == kNullObjectId &&
             binding.relation == PointerRelation::Null) {
             return; // definitely NULL storage
@@ -2351,6 +2453,415 @@ private:
         object->second.destruction_storage.clear();
     }
 
+    // ------------------------------------------------------------------
+    // #41: produces_out_owner flow machinery
+    // ------------------------------------------------------------------
+
+    // Per-function pre-pass (plan sections 2.2/2.6). Walks the body in
+    // preorder so a produces call is recorded before the escape walk can
+    // reach its out-slot AddrOf child, and collects:
+    //  - locals whose address is taken anywhere other than as the out-slot
+    //    argument of a produces call (address-escape refusal),
+    //  - which local storage receives each call's result (pending-guard
+    //    recording; deterministic, no AST-parent queries),
+    //  - produces calls lexically inside a loop (loop refusal; the
+    //    back-edge-joined destination pre-state leaves the allowed set).
+    void collectPointerOutputFacts(const Stmt *body) {
+        escaped_addr_locals_.clear();
+        out_slot_locals_.clear();
+        call_result_storages_.clear();
+        produce_slot_addrs_.clear();
+        loop_scoped_calls_.clear();
+        if (!pointer_output_contracts_) return;
+        collectPointerOutputFactsWalk(body, 0);
+    }
+
+    void collectPointerOutputFactsWalk(const Stmt *stmt, unsigned loop_depth) {
+        if (stmt == nullptr) return;
+        if (const auto *binary = dyn_cast<BinaryOperator>(stmt)) {
+            if (binary->getOpcode() == clang::BO_Assign) {
+                if (const CallExpr *call = asCall(binary->getRHS())) {
+                    if (const auto storage = storageFor(binary->getLHS()))
+                        call_result_storages_[call] = *storage;
+                }
+            }
+        } else if (const auto *decl_stmt = dyn_cast<DeclStmt>(stmt)) {
+            for (const clang::Decl *decl : decl_stmt->decls()) {
+                const auto *var = dyn_cast<VarDecl>(decl);
+                if (var != nullptr && var->hasInit()) {
+                    if (const CallExpr *call = asCall(var->getInit())) {
+                        if (var->hasLocalStorage() && !isa<ParmVarDecl>(var))
+                            call_result_storages_[call] =
+                                StorageId{StorageKind::LocalVariable, var, {}, -1};
+                    }
+                }
+            }
+        } else if (const auto *call = dyn_cast<CallExpr>(stmt)) {
+            if (loop_depth > 0) loop_scoped_calls_.insert(call);
+            const FunctionSummary *summary = summaryFor(*call);
+            if (summary != nullptr && summary->out_owner &&
+                summary->out_owner->param < call->getNumArgs()) {
+                const Expr *arg = call->getArg(summary->out_owner->param)->IgnoreParens();
+                const auto *addr = dyn_cast<UnaryOperator>(arg);
+                if (addr != nullptr && addr->getOpcode() == clang::UO_AddrOf) {
+                    const auto *ref = dyn_cast<DeclRefExpr>(addr->getSubExpr()->IgnoreParens());
+                    const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+                    if (var != nullptr && var->hasLocalStorage() && !isa<ParmVarDecl>(var)) {
+                        produce_slot_addrs_.insert(addr);
+                        out_slot_locals_.insert(var);
+                    }
+                }
+            }
+        } else if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
+            if (unary->getOpcode() == clang::UO_AddrOf &&
+                produce_slot_addrs_.count(unary) == 0) {
+                const auto *ref = dyn_cast<DeclRefExpr>(unary->getSubExpr()->IgnoreParens());
+                const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+                if (var != nullptr && var->hasLocalStorage() && !isa<ParmVarDecl>(var))
+                    escaped_addr_locals_.insert(var);
+            }
+        }
+        const unsigned child_depth =
+            loop_depth + ((isa<WhileStmt>(stmt) || isa<ForStmt>(stmt) || isa<DoStmt>(stmt))
+                              ? 1u
+                              : 0u);
+        for (const Stmt *child : stmt->children())
+            collectPointerOutputFactsWalk(child, child_depth);
+    }
+
+    // Syntactic destination storage of a produces call's out-slot
+    // argument (AddrOf of a function-local scalar variable), independent
+    // of flow state. Parens are transparent; casts are not.
+    std::optional<StorageId> destStorageForProduceCall(const CallExpr &call,
+                                                       const OutOwnerContract &effect) const {
+        if (effect.param >= call.getNumArgs()) return std::nullopt;
+        const Expr *arg = call.getArg(effect.param)->IgnoreParens();
+        const auto *addr = dyn_cast<UnaryOperator>(arg);
+        if (addr == nullptr || addr->getOpcode() != clang::UO_AddrOf) return std::nullopt;
+        const auto *ref = dyn_cast<DeclRefExpr>(addr->getSubExpr()->IgnoreParens());
+        const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+        if (var == nullptr || !var->hasLocalStorage() || isa<ParmVarDecl>(var))
+            return std::nullopt;
+        return StorageId{StorageKind::LocalVariable, var, {}, -1};
+    }
+
+    // True when the expression mentions the variable anywhere in its
+    // subexpression tree (as a value or through its address).
+    bool exprMentionsVar(const Expr *expr, const VarDecl *var) const {
+        if (expr == nullptr) return false;
+        if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+            if (ref->getDecl() == var) return true;
+        }
+        for (const Stmt *child : expr->children()) {
+            const auto *child_expr = dyn_cast<Expr>(child);
+            if (child_expr != nullptr && exprMentionsVar(child_expr, var)) return true;
+        }
+        return false;
+    }
+
+    // The produces_out_owner call-site acceptance predicate (plan section
+    // 2.2). Returns the destination storage when the call is accepted;
+    // nullopt keeps today's fail-closed obligation (the refusal falls
+    // through to the ordinary unknown-call path, byte-identical to v1).
+    std::optional<StorageId> acceptsOutOwnerProduce(const CallExpr &call,
+                                                    const OutOwnerContract &effect,
+                                                    const FlowState &state) const {
+        const FunctionDecl *callee = call.getDirectCallee();
+        if (callee == nullptr) return std::nullopt; // indirect callee
+        if (callee->isVariadic()) return std::nullopt; // variadic callee
+        if (callee->getNameAsString().find("realloc") != std::string::npos)
+            return std::nullopt; // in-place production is a different transport
+        if (loop_scoped_calls_.count(&call) != 0) return std::nullopt; // 2.2.3
+        const auto dest = destStorageForProduceCall(call, effect);
+        if (!dest) return std::nullopt;
+        // The destination address must not be taken anywhere else in the
+        // function (plan 2.2.4, caller-side alias-join hazard).
+        if (dest->root != nullptr && escaped_addr_locals_.count(dest->root) != 0)
+            return std::nullopt;
+        // `dest = f(&dest)` / `T *dest = f(&dest)`: the slot is both
+        // destination and result; refuse.
+        const auto result = call_result_storages_.find(&call);
+        if (result != call_result_storages_.end() && result->second == *dest)
+            return std::nullopt;
+        // Destination pre-state: absent, Null, Moved, or MaybeMoved for
+        // write: always; exactly Null for write: on_success (the failure
+        // edge must never read an unrepresentable slot value).
+        const auto binding = state.storages.find(*dest);
+        if (binding != state.storages.end()) {
+            const PointerRelation relation = binding->second.relation;
+            const bool allowed = relation == PointerRelation::Null ||
+                                 relation == PointerRelation::Moved ||
+                                 relation == PointerRelation::MaybeMoved;
+            if (!allowed) return std::nullopt;
+            if (effect.write_on_success && relation != PointerRelation::Null)
+                return std::nullopt;
+        } else if (effect.write_on_success) {
+            return std::nullopt; // uninitialized destination
+        }
+        return dest;
+    }
+
+    // Applies an accepted produce: binds the destination to a fresh
+    // produced object through the existing allocation-site machinery
+    // (loop produces never reach here, so generation widening is moot,
+    // but the same site-id identity rules apply). write:always +
+    // nullable:false is immediately usable; every other combination
+    // carries the produced-maybe mark, so any use before a recognized
+    // refinement is the fail-closed unrefined-out-owner-use obligation.
+    void applyOutOwnerProduce(const CallExpr &call, const OutOwnerContract &effect,
+                              const StorageId &dest, FlowState &state) {
+        const unsigned object_id = objectIdForAllocation(&call);
+        if (object_id == kUnknownObjectId) {
+            state.storages[dest] = {kUnknownObjectId, PointerRelation::Unknown,
+                                    location(call.getExprLoc()), true};
+            markUnsupported(call, "allocation-object-id-exhausted");
+            return;
+        }
+        const bool immediately_usable = !effect.write_on_success && !effect.nullable;
+        state.storages[dest] = {object_id,
+                                immediately_usable ? PointerRelation::Owner
+                                                   : PointerRelation::MaybeNull,
+                                location(call.getExprLoc()), !immediately_usable};
+        auto &object = state.objects[object_id];
+        object.state = ObjectState::Owned;
+        object.allocation = location(call.getExprLoc());
+        bound_objects_.insert(object_id);
+        // Stale guards that referenced this destination die here: a second
+        // produce into the same slot invalidates earlier result guards.
+        for (auto it = state.pending_out_guards.begin(); it != state.pending_out_guards.end();) {
+            if (it->second.dest == dest) it = state.pending_out_guards.erase(it);
+            else ++it;
+        }
+    }
+
+    // Strips parentheses, implicit casts, and leading `!` operators,
+    // tracking negation parity (`!!x` is `x` in C). Explicit casts are not
+    // stripped: a cast subject is an unrecognized form.
+    static const Expr *normalizeGuardCondition(const Expr *expr, bool &negated) {
+        while (expr != nullptr) {
+            expr = expr->IgnoreParenImpCasts();
+            if (expr == nullptr) break;
+            if (const auto *unary = dyn_cast<UnaryOperator>(expr)) {
+                if (unary->getOpcode() == clang::UO_LNot) {
+                    negated = !negated;
+                    expr = unary->getSubExpr();
+                    continue;
+                }
+            }
+            break;
+        }
+        return expr;
+    }
+
+    // Success/failure refinement by the guard's result polarity (C1/C3,
+    // plan section 2.4). `this_eq` is true when `subject == K` holds on
+    // this branch edge (truthiness is the K = 0, `!=` degenerate form).
+    void refineByGuardPolarity(FlowState &state, const StorageId &dest,
+                               bool success_nonzero, bool this_eq, bool K_zero) const {
+        const auto binding = state.storages.find(dest);
+        if (binding == state.storages.end() || !binding->second.produced_maybe) return;
+        const bool zero = !success_nonzero;
+        bool is_success, is_failure;
+        if (this_eq) {
+            is_success = zero == K_zero;
+            is_failure = !is_success;
+        } else {
+            is_success = !zero && K_zero;
+            is_failure = zero && K_zero;
+        }
+        if (is_success && binding->second.object_id != kNullObjectId &&
+            binding->second.object_id != kUnknownObjectId) {
+            state.storages[dest] = {binding->second.object_id, PointerRelation::Owner,
+                                    binding->second.relation_location, false};
+        } else if (is_failure) {
+            // The failure edge keeps the pre-call Null binding and carries
+            // the produced-maybe mark (F8): a use here is unrefined, never
+            // the silent null-deref / free(NULL) path.
+            state.storages[dest] = {kNullObjectId, PointerRelation::Null,
+                                    binding->second.relation_location, true};
+        }
+        // Neither: the edge asserts nothing about the polarity; leave the
+        // binding untouched (fail closed).
+    }
+
+    // C4 null-check refinement of a maybe-produced destination: the
+    // non-null edge promotes to Owner and clears the mark; the null edge
+    // pins Null and keeps the mark.
+    void refineByDestNullCheck(FlowState &state, const StorageId &dest,
+                               bool non_null_edge) const {
+        const auto binding = state.storages.find(dest);
+        if (binding == state.storages.end() || !binding->second.produced_maybe) return;
+        if (non_null_edge) {
+            if (binding->second.object_id != kNullObjectId &&
+                binding->second.object_id != kUnknownObjectId) {
+                state.storages[dest] = {binding->second.object_id, PointerRelation::Owner,
+                                        binding->second.relation_location, false};
+            }
+        } else {
+            state.storages[dest] = {kNullObjectId, PointerRelation::Null,
+                                    binding->second.relation_location, true};
+        }
+    }
+
+    // Plan section 2.4: refines one branch edge of a recognized
+    // single-form out-owner guard. The whole-condition rule [F3]:
+    // compounds and unrecognized forms refine nothing -- neither
+    // partially nor compositionally.
+    void applyOutOwnerRefinement(const Expr *cond, bool true_edge, FlowState &state) const {
+        if (!pointer_output_contracts_) return;
+        bool negated = false;
+        const Expr *subject = normalizeGuardCondition(cond, negated);
+        if (subject == nullptr) return;
+        const bool subject_true = true_edge != negated;
+
+        // Comparison against a constant: `subject == K` / `!= K`. A NULL
+        // comparand is the K = 0 form. Truthiness is `subject != 0`.
+        bool eq_form = false;
+        bool has_constant = false;
+        bool K_zero = true;
+        const Expr *guard_subject = subject;
+        if (const auto *binary = dyn_cast<BinaryOperator>(subject)) {
+            const clang::BinaryOperatorKind opcode = binary->getOpcode();
+            if (opcode == clang::BO_EQ || opcode == clang::BO_NE) {
+                eq_form = opcode == clang::BO_EQ;
+                if (isNullConstant(binary->getRHS())) {
+                    has_constant = true;
+                    K_zero = true;
+                } else if (auto constant = binary->getRHS()->getIntegerConstantExpr(context_)) {
+                    has_constant = true;
+                    K_zero = constant->isZero();
+                } else {
+                    return; // non-constant comparand: unrecognized
+                }
+                guard_subject = binary->getLHS()->IgnoreParenImpCasts();
+            } else if (opcode == clang::BO_Assign) {
+                // C2 truthiness (`if ((r = call))`): the assignment reduces
+                // to its left-hand side; the call element was processed by
+                // the block transfer, so the pending entry exists.
+                guard_subject = binary->getLHS()->IgnoreParenImpCasts();
+            } else {
+                return; // relational and other operators never refine [R18]
+            }
+        }
+        // On this branch edge, does `subject == K` hold? Truthiness is the
+        // K = 0, `!=` degenerate form: the subject being truthy means
+        // `subject != 0`, so the negation parity folds into this_eq.
+        const bool this_eq = has_constant ? (subject_true ? eq_form : !eq_form)
+                                          : !subject_true;
+
+        // C2: an embedded assignment in the condition reduces to its
+        // left-hand side (the assignment was already processed by the
+        // block transfer, so the pending entry exists).
+        if (const auto *assign = dyn_cast<BinaryOperator>(guard_subject)) {
+            if (assign->getOpcode() != clang::BO_Assign) return;
+            guard_subject = assign->getLHS();
+        }
+        guard_subject = guard_subject->IgnoreParenImpCasts();
+        if (const auto *inner = dyn_cast<UnaryOperator>(guard_subject)) {
+            if (inner->getOpcode() == clang::UO_LNot) return; // only !! was normalized
+        }
+
+        if (const auto *call = dyn_cast<CallExpr>(guard_subject)) {
+            // C1: the produces call directly in the condition. Routed by
+            // RETURN polarity only -- a call expression is never a C4
+            // destination null-check [F1].
+            const FunctionSummary *summary = summaryFor(*call);
+            if (summary == nullptr || !summary->out_owner) return;
+            const auto dest = destStorageForProduceCall(*call, *summary->out_owner);
+            if (!dest) return;
+            refineByGuardPolarity(state, *dest, summary->out_owner->success_nonzero,
+                                  this_eq, K_zero);
+            return;
+        }
+        if (const auto *ref = dyn_cast<DeclRefExpr>(guard_subject)) {
+            const auto storage = storageFor(ref);
+            if (!storage) return;
+            // C3 first: a pending result guard (a variable holding the
+            // call result is a result subject, not a destination subject).
+            const auto pending = state.pending_out_guards.find(*storage);
+            if (pending != state.pending_out_guards.end()) {
+                refineByGuardPolarity(state, pending->second.dest,
+                                      pending->second.success_nonzero, this_eq, K_zero);
+                return;
+            }
+            // C4: null-check of a maybe-produced destination. Only a bare
+            // DeclRefExpr subject, and only against NULL/0.
+            if (!K_zero) return;
+            refineByDestNullCheck(state, *storage, subject_true != eq_form);
+            return;
+        }
+    }
+
+    // The condition of a branch terminator, when the terminator is one of
+    // the recognized loop/branch statements.
+    static const Expr *terminatorCondition(const Stmt *terminator) {
+        if (const auto *if_stmt = dyn_cast<IfStmt>(terminator)) return if_stmt->getCond();
+        if (const auto *while_stmt = dyn_cast<WhileStmt>(terminator)) return while_stmt->getCond();
+        if (const auto *for_stmt = dyn_cast<ForStmt>(terminator)) return for_stmt->getCond();
+        if (const auto *do_stmt = dyn_cast<DoStmt>(terminator)) return do_stmt->getCond();
+        return nullptr;
+    }
+
+    // #41: any use of a still-marked maybe-produced binding as a call
+    // argument is the fail-closed unrefined-out-owner-use obligation
+    // (plan 2.3, transfer/pass-to-unknown-call uses). The accepted
+    // produce's own out-slot argument is the defining write, not a use.
+    void noteUnrefinedOutOwnerUsesInArgs(const CallExpr &call, const FlowState &state,
+                                         const OutOwnerContract *skip_effect) {
+        if (!pointer_output_contracts_) return;
+        for (const auto &entry : state.storages) {
+            if (!entry.second.produced_maybe || entry.first.root == nullptr) continue;
+            for (unsigned i = 0; i < call.getNumArgs(); ++i) {
+                if (skip_effect != nullptr && i == skip_effect->param) continue;
+                if (exprMentionsVar(call.getArg(i), entry.first.root)) {
+                    emitUnsupported({"unrefined-out-owner-use", "",
+                                     location(call.getExprLoc())});
+                    break;
+                }
+            }
+        }
+    }
+
+    // #41: kill rule (b) -- pending guards whose destination (or its
+    // address) appears in this call's arguments die here. The accepted
+    // produce's own out-slot argument is exempt.
+    void killPendingGuardsInCall(const CallExpr &call, FlowState &state,
+                                 const OutOwnerContract *skip_effect,
+                                 const std::optional<StorageId> &accepted_dest) const {
+        if (!pointer_output_contracts_ || state.pending_out_guards.empty()) return;
+        for (auto it = state.pending_out_guards.begin(); it != state.pending_out_guards.end();) {
+            const VarDecl *dest_var = it->second.dest.root;
+            bool killed = false;
+            for (unsigned i = 0; i < call.getNumArgs() && !killed; ++i) {
+                if (skip_effect != nullptr && i == skip_effect->param) continue;
+                if (dest_var != nullptr && exprMentionsVar(call.getArg(i), dest_var))
+                    killed = true;
+            }
+            if (!killed && accepted_dest && it->second.dest == *accepted_dest) killed = true;
+            it = killed ? state.pending_out_guards.erase(it) : std::next(it);
+        }
+    }
+
+    // #41: kill rule (a) -- reassignment of the result variable or any
+    // write to the destination storage.
+    // #41: kill rule (a) -- reassignment of the result variable or any
+    // write to the destination storage. `exempt_call` spares the entry
+    // recorded by that very call (a C2 embedded assignment's own RHS).
+    void killPendingGuardsForWrite(const StorageId &storage, FlowState &state,
+                                   const CallExpr *exempt_call = nullptr) const {
+        if (!pointer_output_contracts_ || state.pending_out_guards.empty()) return;
+        for (auto it = state.pending_out_guards.begin(); it != state.pending_out_guards.end();) {
+            if (storage == it->first || storage == it->second.dest) {
+                if (it->second.call != nullptr && it->second.call == exempt_call) {
+                    ++it;
+                    continue;
+                }
+                it = state.pending_out_guards.erase(it);
+            }
+            else ++it;
+        }
+    }
+
     void handleCall(const CallExpr &call, FlowState &state) {
         const auto is_nonlocal_control = [this, &call]() {
             static const char *names[] = {"setjmp", "_setjmp", "sigsetjmp",
@@ -2371,7 +2882,24 @@ private:
         if (isAllocatorCall(call)) {
             return;
         }
-        if (const FunctionSummary *summary = summaryFor(call)) {
+        // #41: produces_out_owner handling. The acceptance predicate runs
+        // first; a refused call skips the contract branch entirely and
+        // falls through to the ordinary unknown-call path, so its rows are
+        // byte-identical to a run without the feature (v1 matrix identity).
+        const FunctionSummary *summary = summaryFor(call);
+        const OutOwnerContract *out_effect = nullptr;
+        std::optional<StorageId> accepted_dest;
+        if (pointer_output_contracts_ && summary != nullptr && summary->out_owner) {
+            out_effect = &*summary->out_owner;
+            accepted_dest = acceptsOutOwnerProduce(call, *out_effect, state);
+        }
+        // Only an accepted produce's own out-slot argument is exempt from
+        // the argument scan; a refused call's out-slot pass is an ordinary
+        // escape of the destination address.
+        const OutOwnerContract *skip_effect = accepted_dest ? out_effect : nullptr;
+        killPendingGuardsInCall(call, state, skip_effect, accepted_dest);
+        noteUnrefinedOutOwnerUsesInArgs(call, state, skip_effect);
+        if (summary && (!out_effect || accepted_dest)) {
             if (summary->conflict) {
                 markContractConflict(call, *summary);
                 return;
@@ -2425,6 +2953,24 @@ private:
                         retention += ":indirect";
                     markUnsupported(call, retention);
                     if (emitting_) collector_.noteUnsupportedBorrow();
+                }
+            }
+            // #41: apply the accepted produce after the sibling parameter
+            // effects, then record the pending result guard when the call's
+            // result flows into a function-local variable (C2/C3). The
+            // result variable's address must not be taken anywhere in the
+            // function: a callee could overwrite the stored result and the
+            // guard would no longer testify about the call.
+            if (out_effect != nullptr && accepted_dest) {
+                applyOutOwnerProduce(call, *out_effect, *accepted_dest, state);
+                const auto result = call_result_storages_.find(&call);
+                if (out_effect->write_on_success && result != call_result_storages_.end() &&
+                    result->second.kind == StorageKind::LocalVariable &&
+                    (result->second.root == nullptr ||
+                     escaped_addr_locals_.count(result->second.root) == 0)) {
+                    state.pending_out_guards[result->second] = {*accepted_dest,
+                                                                out_effect->success_nonzero,
+                                                                &call};
                 }
             }
             return;
@@ -2781,6 +3327,14 @@ private:
         const Expr *lhs = binary.getLHS();
         const Expr *rhs = binary.getRHS();
         const auto lhs_storage = storageFor(lhs);
+        // #41 kill rule (a): any write to a pending guard's result
+        // variable or destination storage kills the guard entry. Placed
+        // before every early return so compound assignments are covered.
+        // Exemption: a C2 embedded-assignment guard (`(r = f(&out)) == 0`)
+        // is materialized by the CFG as the call element followed by the
+        // assignment element, so this assignment's own RHS call already
+        // recorded the entry; that entry survives to the branch refinement.
+        if (lhs_storage) killPendingGuardsForWrite(*lhs_storage, state, asCall(rhs));
         const VarDecl *var = resolveVar(lhs);
         const bool lhs_is_pointer =
             lhs->getType()->isPointerType() ||
@@ -3456,17 +4010,35 @@ private:
             }
             out_states[block_id] = out;
 
+            // #41: per-edge refinement for recognized single-form out-owner
+            // guards (plan 2.4). Applied to the edge state derived from this
+            // block's out state, before the successor join. Loop
+            // terminators clear pending guard entries from both out-edges
+            // AFTER the per-edge refinement (kill rule (c)): a guard
+            // established before a loop may refine the loop's own condition
+            // edges, but never survives into the body or past the loop.
+            const Stmt *terminator = block->getTerminatorStmt();
+            const Expr *terminator_cond =
+                terminator != nullptr ? terminatorCondition(terminator) : nullptr;
+            const bool loop_terminator = terminator != nullptr &&
+                (isa<WhileStmt>(terminator) || isa<ForStmt>(terminator) ||
+                 isa<DoStmt>(terminator));
+            unsigned edge_index = 0;
             for (CFGBlock::const_succ_iterator si = block->succ_begin();
-                 si != block->succ_end(); ++si) {
+                 si != block->succ_end(); ++si, ++edge_index) {
                 const CFGBlock *successor = *si;
                 if (successor == nullptr) {
                     continue;
                 }
                 const unsigned sid = successor->getBlockID();
                 FlowState joined = out;
+                if (terminator_cond != nullptr) {
+                    applyOutOwnerRefinement(terminator_cond, edge_index == 0, joined);
+                }
+                if (loop_terminator) joined.pending_out_guards.clear();
                 const auto existing = in_states.find(sid);
                 if (existing != in_states.end()) {
-                    joined = joinFlow(existing->second, out);
+                    joined = joinFlow(existing->second, joined);
                     if (joined == existing->second) {
                         continue;
                     }
@@ -3552,6 +4124,28 @@ private:
     bool cand1_profile_ = false;
     const AnnotationReviewFacts &annotation_review_;
     const FunctionSummary *current_summary_ = nullptr;
+    // #41: the pointer-output contract profile (cand1 only). Every
+    // produces_out_owner behavior below is gated on this flag; with it off
+    // the analyzer is bit-identical to the v1 rule set.
+    bool pointer_output_contracts_ = false;
+    // #41: per-function pre-pass result -- locals whose address is taken
+    // anywhere other than as the out-slot argument of a produces call.
+    std::set<const VarDecl *> escaped_addr_locals_;
+    // #41: locals used as the out-slot argument of a produces call.
+    std::set<const VarDecl *> out_slot_locals_;
+    // #41: per-function pre-pass result -- for every assignment or
+    // declaration initializer whose right-hand side is a call, the local
+    // storage that receives the call's result. Deterministic
+    // (AST-parent-free) recording of where a produces call's result lands.
+    std::map<const CallExpr *, StorageId> call_result_storages_;
+    // #41: the AddrOf expressions that are the out-slot argument of a
+    // produces call (excluded from the escape walk).
+    std::set<const Stmt *> produce_slot_addrs_;
+    // #41: produces calls lexically inside a loop (While/For/Do) -- the
+    // back-edge-joined destination pre-state leaves the allowed set, and
+    // the syntactic refusal also keeps the worklist fixed point free of
+    // accept-then-refuse oscillation (v1 row identity for loop shapes).
+    std::set<const CallExpr *> loop_scoped_calls_;
 };
 
 // Process one statement/expression node exactly once per block transfer.
@@ -3569,6 +4163,17 @@ void FlowAnalyzer::processStmt(const Stmt *stmt, FlowState &state,
     if (const auto *expr = dyn_cast<Expr>(stmt); expr && isExplicitMove(expr)) {
         noteOwnershipUnsupported(*stmt, "standalone-move");
         return;
+    }
+
+    // #41 kill rule (a), increment/decrement form: `r++` overwrites a
+    // pending guard's result variable.
+    if (const auto *unary = dyn_cast<UnaryOperator>(stmt)) {
+        const clang::UnaryOperatorKind opcode = unary->getOpcode();
+        if (opcode == clang::UO_PreInc || opcode == clang::UO_PostInc ||
+            opcode == clang::UO_PreDec || opcode == clang::UO_PostDec) {
+            if (const auto storage = storageFor(unary->getSubExpr()))
+                killPendingGuardsForWrite(*storage, state);
+        }
     }
 
     if (const auto *decl_stmt = dyn_cast<DeclStmt>(stmt)) {
@@ -4152,8 +4757,10 @@ private:
 
 class TranslationUnitVisitor : public RecursiveASTVisitor<TranslationUnitVisitor> {
 public:
-    TranslationUnitVisitor(ASTContext &context, Collector &collector, bool cand1_profile)
-        : context_(context), collector_(collector), cand1_profile_(cand1_profile) {}
+    TranslationUnitVisitor(ASTContext &context, Collector &collector, bool cand1_profile,
+                           bool pointer_output_contracts)
+        : context_(context), collector_(collector), cand1_profile_(cand1_profile),
+          pointer_output_contracts_(pointer_output_contracts) {}
 
     void prepare() {
         const SourceManager &source_manager = context_.getSourceManager();
@@ -4206,8 +4813,13 @@ public:
     void loadContracts() {
         if (ContractFile.empty()) return;
         std::map<std::string, ContractSummary> parsed;
+        // #41: produces_out_owner and its output: block parse only under
+        // the pointer-output contract profile; a bundle using the v2
+        // vocabulary without the feature is an invalid trusted contract
+        // (fail-closed exit 2, never a silent degradation).
         if (!parseSymbolFactsFile(ContractFile.getValue(),
-                                  "schema: cand.api-contract/v1", parsed)) {
+                                  "schema: cand.api-contract/v1", parsed,
+                                  pointer_output_contracts_)) {
             collector_.noteContractError();
             return;
         }
@@ -4414,7 +5026,8 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
     // lookup. Returns false on any malformed input; the caller reports the
     // contract error.
     bool parseSymbolFactsFile(const std::string &path, const llvm::StringLiteral schema_line,
-                              std::map<std::string, ContractSummary> &out) {
+                              std::map<std::string, ContractSummary> &out,
+                              bool allow_out_owner = false) {
         std::ifstream input(path);
         if (!input) return false;
         std::string line, symbol;
@@ -4428,6 +5041,16 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
         bool schema_seen = false, name_seen = false, version_seen = false;
         bool symbols_seen = false, kind_seen = false;
         bool in_platform = false, in_notes_block = false;
+        // #41 out-owner parse state. `await_output` enforces that the
+        // mandatory output: block directly follows effect:
+        // produces_out_owner; the block accepts exactly write/success/
+        // nullable at indent 10 with success required iff write:
+        // on_success. A bare nullable: at the legacy indent-6 position is
+        // hard-rejected for symbols that carry a produces_out_owner param.
+        bool await_output = false, in_output = false;
+        bool out_write_seen = false, out_success_seen = false, out_nullable_seen = false;
+        bool legacy_nullable_seen = false;
+        std::optional<OutOwnerContract> parsed_out;
         const auto parseUnsigned = [](const std::string &text, unsigned &value) {
             std::size_t end = 0;
             try {
@@ -4437,7 +5060,7 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                 return true;
             } catch (...) { return false; }
         };
-        auto finish = [&]() {
+        const auto finish = [&]() {
             if (!in_symbol || symbol.empty()) return true;
             if (!kind_seen) return false;
             if (seen_param_indices.size() != seen_param_effects.size()) return false;
@@ -4445,6 +5068,24 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                 !contract.return_borrow_arg) return false;
             if (contract.return_effect && *contract.return_effect != ReturnEffect::BorrowFromArg &&
                 contract.return_borrow_arg) return false;
+            if (await_output) return false;
+            if (in_output) {
+                // EOF directly inside the output: block: the block is
+                // complete only under the same rules as the dedent close
+                // (write mandatory; success required iff write:
+                // on_success). An EOF right after effect:
+                // produces_out_owner (await_output) is still a
+                // missing-output error.
+                if (!out_write_seen) return false;
+                if (parsed_out && parsed_out->write_on_success != out_success_seen) return false;
+                in_output = false;
+            }
+            if (parsed_out) {
+                if (!out_write_seen) return false;
+                if (parsed_out->write_on_success != out_success_seen) return false;
+                if (legacy_nullable_seen) return false;
+                contract.out_owner = parsed_out;
+            }
             out[symbol] = contract;
             return true;
         };
@@ -4457,6 +5098,40 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
             if (t.empty() || t[0] == '#') continue;
             if (in_notes_block && indent >= 6) continue;
             in_notes_block = false;
+            // #41: the output: block must directly follow effect:
+            // produces_out_owner and accepts exactly write/success/nullable
+            // at indent 10; success is required iff write: on_success.
+            if (await_output) {
+                if (indent != 8 || t != "output:") { return false; }
+                await_output = false;
+                in_output = true;
+                continue;
+            }
+            if (in_output) {
+                if (indent == 10) {
+                    if (t.rfind("write:", 0) == 0) {
+                        const std::string v = trim(t.substr(6));
+                        if (out_write_seen || (v != "always" && v != "on_success")) return false;
+                        out_write_seen = true;
+                        if (parsed_out) parsed_out->write_on_success = v == "on_success";
+                    } else if (t.rfind("success:", 0) == 0) {
+                        const std::string v = trim(t.substr(8));
+                        if (out_success_seen || (v != "zero" && v != "nonzero")) return false;
+                        out_success_seen = true;
+                        if (parsed_out) parsed_out->success_nonzero = v == "nonzero";
+                    } else if (t.rfind("nullable:", 0) == 0) {
+                        const std::string v = trim(t.substr(9));
+                        if (out_nullable_seen || (v != "true" && v != "false")) return false;
+                        out_nullable_seen = true;
+                        if (parsed_out) parsed_out->nullable = v == "true";
+                    } else { return false; }
+                    continue;
+                }
+                if (indent > 8) { return false; }
+                if (!out_write_seen) return false;
+                if (parsed_out && parsed_out->write_on_success != out_success_seen) return false;
+                in_output = false;
+            }
             if (!in_symbol) {
                 if (t.rfind("schema:", 0) == 0) {
                     if (indent != 0 || schema_seen || t != schema_line) { return false; }
@@ -4488,6 +5163,10 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                     contract = ContractSummary{};
                     last_index.reset(); return_seen.reset(); kind_seen = false;
                     seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
+                    await_output = in_output = false;
+                    out_write_seen = out_success_seen = out_nullable_seen = false;
+                    legacy_nullable_seen = false;
+                    parsed_out.reset();
                     if (!in_symbol || !seen_symbols.insert(symbol).second) { return false; }
                     continue;
                 }
@@ -4510,6 +5189,10 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                 symbol = trim(t.substr(t.find(':') + 1)); in_symbol = !symbol.empty(); contract = ContractSummary{}; last_index.reset(); return_seen.reset();
                 seen_param_indices.clear(); seen_param_effects.clear(); borrow_index_seen = false;
                 kind_seen = false;
+                await_output = in_output = false;
+                out_write_seen = out_success_seen = out_nullable_seen = false;
+                legacy_nullable_seen = false;
+                parsed_out.reset();
                 if (!in_symbol) { return false; }
                 if (!seen_symbols.insert(symbol).second) { return false; }
                 continue;
@@ -4551,6 +5234,18 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                 else if (v == "destroys") effect = ParamEffect::Destroy;
                 else if (v == "no_ownership_effect") effect = ParamEffect::None;
                 else if (v == "unknown") effect = ParamEffect::Unknown;
+                else if (v == "produces_out_owner") {
+                    // #41: profile-gated vocabulary; the mandatory output:
+                    // block must follow immediately and at most one
+                    // out-owner parameter may appear per contract.
+                    if (!allow_out_owner || parsed_out) { return false; }
+                    OutOwnerContract owner;
+                    owner.param = *last_index;
+                    parsed_out = owner;
+                    contract.params[*last_index].reset();
+                    await_output = true;
+                    continue;
+                }
                 else { return false; }
                 contract.params[*last_index] = effect;
             } else if (t == "kind: function") {
@@ -4575,6 +5270,11 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
                 if (indent != 6 && indent != 8) { return false; }
             } else if (t.rfind("nullable:", 0) == 0) {
                 if (indent != 6) { return false; }
+                // #41: the legacy indent-6 nullable: key stays
+                // accepted-and-ignored for non-produces symbols but is
+                // hard-rejected for symbols with a produces_out_owner
+                // parameter (the output nullability lives in output:).
+                legacy_nullable_seen = true;
                 continue;
             } else if (t.find(':') != std::string::npos) {
                 return false;
@@ -4602,12 +5302,49 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
             collector_.noteContractError();
             return;
         }
+        // #41: produces_out_owner application guards. The declared
+        // parameter type must be a pointer to a single-level pointer
+        // (T **/void **); T ***, function-pointer, and array shapes are
+        // invalid trusted contracts. A symbol with no visible TU
+        // declaration has no type evidence and never receives the effect
+        // (fail closed); a symbol with a visible same-TU body never
+        // receives it either (contract-body conflict, fail closed).
+        if (contract.out_owner) {
+            if (!decl) {
+                contract.out_owner.reset();
+            } else if (contract.out_owner->param >= decl->param_size()) {
+                collector_.noteContractError();
+                return;
+            } else {
+                const clang::QualType param_type =
+                    decl->getParamDecl(contract.out_owner->param)->getType().getCanonicalType();
+                bool single_level_slot = false;
+                if (const auto *outer = param_type->getAs<clang::PointerType>()) {
+                    if (const auto *inner = outer->getPointeeType()->getAs<clang::PointerType>()) {
+                        const clang::QualType value = inner->getPointeeType();
+                        single_level_slot = !value->isPointerType() && !value->isArrayType() &&
+                                            !value->isFunctionType();
+                    }
+                }
+                if (!single_level_slot) {
+                    collector_.noteContractError();
+                    return;
+                }
+                if (decl->hasBody()) contract.out_owner.reset();
+            }
+        }
         FunctionSummary external;
         external.function = decl;
         external.origin = SummaryOrigin::ExternalTrusted;
         external.return_effect = contract.return_effect.value_or(
             decl && decl->getReturnType()->isPointerType() ? ReturnEffect::Unknown : ReturnEffect::None);
         external.return_borrow_arg = contract.return_borrow_arg;
+        external.out_owner = contract.out_owner;
+        // The produces parameter itself is modelled by the out-owner
+        // machinery, not an unknown effect: an accepted produce must not
+        // report its own out slot as an unknown tracked-pointer argument.
+        if (external.out_owner)
+            external.params[external.out_owner->param] = ParamEffect::None;
         const unsigned parameter_count = decl ? decl->param_size() :
             static_cast<unsigned>(contract.params.size());
         external.params.assign(parameter_count, ParamEffect::Unknown);
@@ -4724,7 +5461,7 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_, pointer_output_contracts_);
         analyzer.analyze(*function);
         return true;
     }
@@ -4741,7 +5478,7 @@ bool annotationSummaryMatchesContract(const FunctionSummary &annotation,
         if (!context_.getSourceManager().isWrittenInMainFile(loc)) {
             return true;
         }
-        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_);
+        FlowAnalyzer analyzer(context_, collector_, summaries_, cand1_profile_, annotation_review_, pointer_output_contracts_);
         analyzer.analyzeGlobal(*var);
         return true;
     }
@@ -4752,12 +5489,15 @@ private:
     SummaryStore summaries_;
     AnnotationReviewFacts annotation_review_;
     bool cand1_profile_ = false;
+    bool pointer_output_contracts_ = false;
 };
 
 class CandConsumer : public ASTConsumer {
 public:
-    CandConsumer(ASTContext &context, Collector &collector, bool cand1_profile)
-        : visitor_(context, collector, cand1_profile), collector_(collector) {}
+    CandConsumer(ASTContext &context, Collector &collector, bool cand1_profile,
+                 bool pointer_output_contracts)
+        : visitor_(context, collector, cand1_profile, pointer_output_contracts),
+          collector_(collector) {}
 
     void HandleTranslationUnit(ASTContext &context) override {
         if (context.getDiagnostics().hasErrorOccurred()) {
@@ -4774,31 +5514,37 @@ private:
 
 class CandAction : public clang::ASTFrontendAction {
 public:
-    CandAction(Collector &collector, bool cand1_profile)
-        : collector_(collector), cand1_profile_(cand1_profile) {}
+    CandAction(Collector &collector, bool cand1_profile, bool pointer_output_contracts)
+        : collector_(collector), cand1_profile_(cand1_profile),
+          pointer_output_contracts_(pointer_output_contracts) {}
 
     std::unique_ptr<ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler,
                                                    llvm::StringRef) override {
-        return std::make_unique<CandConsumer>(compiler.getASTContext(), collector_, cand1_profile_);
+        return std::make_unique<CandConsumer>(compiler.getASTContext(), collector_,
+                                               cand1_profile_, pointer_output_contracts_);
     }
 
 private:
     Collector &collector_;
     bool cand1_profile_ = false;
+    bool pointer_output_contracts_ = false;
 };
 
 class CandActionFactory : public clang::tooling::FrontendActionFactory {
 public:
-    CandActionFactory(Collector &collector, bool cand1_profile)
-        : collector_(collector), cand1_profile_(cand1_profile) {}
+    CandActionFactory(Collector &collector, bool cand1_profile, bool pointer_output_contracts)
+        : collector_(collector), cand1_profile_(cand1_profile),
+          pointer_output_contracts_(pointer_output_contracts) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<CandAction>(collector_, cand1_profile_);
+        return std::make_unique<CandAction>(collector_, cand1_profile_,
+                                            pointer_output_contracts_);
     }
 
 private:
     Collector &collector_;
     bool cand1_profile_ = false;
+    bool pointer_output_contracts_ = false;
 };
 
 struct AgentPolicyState {
@@ -4821,6 +5567,9 @@ bool canEmitCand1Pass(const Collector &collector, const AgentPolicyState &state,
     if (collector.hasFindings() || collector.hasUnsupported() ||
         collector.hasFrontendError() || collector.hasContractError() ||
         collector.unsupportedTransportCount() != 0) return false;
+    // #41 [R4/F9]: the pointer-output rule set is cand1/v1.1-draft; it is
+    // a measurement profile, never a C&1 pass authority.
+    if (collector.pointerOutputContracts()) return false;
     if (!evidence_bound || state.policy_failed || state.review_required ||
         state.delta.weakened || state.delta.review_required) return false;
     if (!state.toolchain_supported) return false;
@@ -5177,7 +5926,11 @@ llvm::json::Object buildEvidence(const Collector &collector,
         if (auto value = counts->getInteger("unsupported_transport_operations")) coverage["unsupported_transport_operations"] = *value;
     }
     coverage["ownership_rule_set"] = "p1-unique-ownership-v1";
-    coverage["transport_rule_set"] = "cand1-pointer-transport-v1";
+    // #41: the evidence transport rule set follows the effective rule set
+    // (the embedded semantic report already carries cand1/v1.1-draft).
+    coverage["transport_rule_set"] = collector.pointerOutputContracts()
+                                         ? "cand1-pointer-transport-v2"
+                                         : "cand1-pointer-transport-v1";
     if (const auto *borrows = analysis.getObject("borrow_analysis")) {
         llvm::json::Object borrow_copy;
         for (const auto &entry : *borrows) borrow_copy[entry.first] = entry.second;
@@ -5829,6 +6582,13 @@ int main(int argc, const char **argv) {
         llvm::errs() << "cand: unsupported safety level; supported values are p0-temporal-lifecycle and experimental cand1\n";
         return 2;
     }
+    // #41 [A2]: the CLI modifier is non-authoritative and cand1-only. The
+    // usage error fires immediately after option parsing, before any
+    // policy load, so it can never pollute policy_failed accounting.
+    if (PointerOutputContracts && SafetyLevel != "cand1") {
+        llvm::errs() << "cand: --pointer-output-contracts requires --level=cand1\n";
+        return 2;
+    }
     if (AgentMode) {
         ProfileName = "generated";
         OutputFormat = "json";
@@ -5846,6 +6606,19 @@ int main(int argc, const char **argv) {
         }
         (void)loadAgentPolicy(agent_state);
         if (SafetyLevel == "cand1") validateSupportedToolchain(agent_state);
+        // #41 [F11]: in agent mode the policy features block is the sole
+        // rule-set authority for the pointer-output contracts. The CLI
+        // modifier is a request reconciled against it: enabling the
+        // modifier without the policy feature is a fail-policy condition
+        // (never a silent downgrade), while the policy feature alone
+        // enables it (never a silent upgrade from the modifier's absence).
+        if (SafetyLevel == "cand1" && PointerOutputContracts &&
+            !agent_state.policy.pointer_output_contracts.value_or(false)) {
+            agent_state.policy_failed = true;
+            agent_state.policy_errors.push_back(
+                "--pointer-output-contracts requires features.pointer_output_contracts "
+                "in the effective policy");
+        }
         if (weaker_profile_requested) {
             agent_state.policy_failed = true;
             agent_state.policy_errors.push_back("--agent cannot be combined with a weaker/non-generated profile");
@@ -5906,8 +6679,18 @@ int main(int argc, const char **argv) {
         new FrontendErrorTracker(llvm::errs(), diagnostic_options, frontend_errors));
 
     Collector collector;
-    collector.setProfile(SafetyLevel);
-    CandActionFactory factory(collector, SafetyLevel == "cand1");
+    // #41 [F11]: agent mode derives the feature from the policy features
+    // block (cand1 runs only); a non-agent run derives it from the CLI
+    // modifier. A feature-enabled p0 run never happens (the usage check
+    // above exits first for the modifier path; the policy feature is only
+    // consulted at cand1).
+    const bool pointer_output_enabled =
+        AgentMode
+            ? (SafetyLevel == "cand1" &&
+               agent_state.policy.pointer_output_contracts.value_or(false))
+            : static_cast<bool>(PointerOutputContracts);
+    collector.setProfile(SafetyLevel, pointer_output_enabled);
+    CandActionFactory factory(collector, SafetyLevel == "cand1", pointer_output_enabled);
     const int tool_result = tool.run(&factory);
     if (tool_result != 0) {
         // Tool/compilation failure is a distinct outcome from a C& FAIL:
