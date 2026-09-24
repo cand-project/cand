@@ -21,14 +21,18 @@ must stay comparable with):
 - LOC accounting is the original baseline's method: per-file physical
   lines via `wc -l`, summed into verdict buckets by per-TU verdict class;
 - the function universe comes from Clang AST main-file definition ranges
-  (imported from external_boundary_experiment.py: ast_for/functions_of/
-  states_for); it must equal cand's own coverage.functions_analyzed for
+  (imported from external_boundary_experiment.py: ast_for/functions_of);
+  it must equal cand's own coverage.functions_analyzed for
   the corpus run, and any mismatch is recorded prominently, not hidden.
   Macro-expansion-location definitions (start line 0: curl's
   curl_easy_setopt_err_* typecheck helpers, libgit2's git_hashmap/
   git_hashset template instantiations) are excluded from the universe —
   cand does not count them as analyzed functions and their 0-0 ranges
-  cannot contain rows, so keeping them would only inflate CLEAR;
+  cannot contain rows, so keeping them would only inflate CLEAR.
+  Functions are keyed by (file, name): distinct static functions that
+  share a name across files are separate functions (cand counts them
+  per TU), so a name-level metric would merge rows from unrelated
+  bodies and make the universe check incomparable;
 - a function is CLEAR when no obligation and no finding maps inside its
   body (range containment); gained/lost CLEAR sets and added/removed
   obligation sets are exact key-set diffs, never ad-hoc attribution;
@@ -396,6 +400,11 @@ def main() -> int:
     # ---- function universe (AST main-file definition ranges) ----------
     byfile = collections.defaultdict(list)
     allfns = set()
+
+    def fn_key(src, name):
+        """Canonical function key: (file, name) rendered as a string."""
+        return f"{src}::{name}"
+
     skipped_ast = []
     for f in files:
         tree = ext_exp.ast_for(root, f, Path(ast_dir), args.include,
@@ -414,16 +423,53 @@ def main() -> int:
             if s == 0:
                 continue
             byfile[src].append((s, e, n))
-            allfns.add(n)
+            # Key functions by (file, name): distinct static functions
+            # that share a name across files are separate functions
+            # (cand's coverage.functions_analyzed counts them per TU),
+            # and a name-level metric would merge them.
+            allfns.add(fn_key(src, n))
     for f in byfile:
         byfile[f].sort()
 
     def containing_fn(path, line):
-        """Function name whose body contains (path, line), or None."""
-        for s, e, n in byfile.get(path, ()):
+        """(file, name) key of the function containing (path, line), or None."""
+        if not path:
+            return None
+        fp = os.path.realpath(path)
+        for s, e, n in byfile.get(fp, ()):
             if s <= line <= e:
-                return n
+                return fn_key(fp, n)
         return None
+
+    def states_for_pairs(corpus_json_path):
+        """CLEAR/BLOCKED per (file, function), same range-containment
+        method as external_boundary_experiment.states_for but keyed on
+        (file, name): distinct static functions sharing a name across
+        files are separate functions, and a name-level metric would
+        merge rows from unrelated bodies."""
+        d = json.load(open(corpus_json_path))
+        blocked = set()
+        unmapped = 0
+        for o in d["unsupported"]:
+            loc = o["primary_location"]
+            fp = os.path.realpath(loc["file"])
+            hit = None
+            for s, e, n in byfile.get(fp, []):
+                if s <= loc["line"] <= e:
+                    hit = fn_key(fp, n)
+                    break
+            if hit:
+                blocked.add(hit)
+            else:
+                unmapped += 1
+        for f in d.get("findings", []):
+            loc = f.get("primary_location", f.get("location", {}))
+            fp = os.path.realpath(loc["file"])
+            for s, e, n in byfile.get(fp, []):
+                if s <= loc["line"] <= e:
+                    blocked.add(fn_key(fp, n))
+                    break
+        return d, allfns - blocked, blocked, unmapped
 
     time_method = None
     time_caveat = None
@@ -486,8 +532,8 @@ def main() -> int:
             entry["unmapped_kinds"] = sorted(unmapped)
 
             if allfns:
-                _, clear, blocked, unmapped_ob = ext_exp.states_for(
-                    corpus_json, byfile, allfns)
+                _, clear, blocked, unmapped_ob = states_for_pairs(
+                    corpus_json)
                 entry["clear_functions"] = sorted(clear)
                 entry["blocked_functions"] = sorted(blocked)
                 entry["clear_count"] = len(clear)
@@ -751,8 +797,10 @@ def main() -> int:
         for v in violations:
             print(f"  config {v['config']} vs {v['vs']}: "
                   f"lost_clear={v['lost_clear']} "
-                  f"added_obligations_at_new_locations="
-                  f"{v['added_obligations_at_new_locations']}", file=sys.stderr)
+                  f"added_obligations_in_clear_functions="
+                  f"{v['added_obligations_in_clear_functions']} "
+                  f"added_findings_in_clear_functions="
+                  f"{v['added_findings_in_clear_functions']}", file=sys.stderr)
         return 1
     if not_computable:
         print(f"NOTE: regression guard not computable for {not_computable} "
