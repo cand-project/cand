@@ -4,6 +4,29 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Milestone #36: E2 post-adoption re-measurement of the real-world pilot matrix
+
+- `scripts/pilots/realworld_e2.py`: committed, reproducible
+  B0/E2/E2+ runner for the nine real-world pilots (extends the
+  `external_boundary_experiment.py` method). Per-TU verdicts use an
+  agent-equivalent acceptance predicate on non-agent cand1 JSON runs;
+  the function universe comes from Clang AST main-file ranges keyed
+  per (file, function), with macro-expansion-location definitions
+  excluded and macro-invocation-line obligations counted as unmapped;
+  obligations map through the 12-slot #36 cause taxonomy; a
+  function-level regression guard fails the run on lost CLEAR or on
+  obligations/findings added inside baseline-CLEAR functions.
+- `docs/pilots/CAND1-REAL-WORLD-BASELINE.md` gains the post-adoption
+  re-measurement section: the B0/E2/E2+ matrix for the eight measured
+  pilots (jemalloc remains the blocked non-claim), fully attributed
+  deltas against the original baseline, adjudicated guard events, the
+  SQLite canonical-vs-amalgamation gap measurement, and the
+  next-milestone Pareto ranking (allocator function-pointer dispatch,
+  project-internal cross-TU summaries, the `strcmp` bundle gap,
+  `__builtin_expect`/`__errno_location`, cursor-advance and
+  pointer-output borrow idioms). False PASS count across all 24 corpus
+  runs: 0.
+
 ### Milestone #41: bounded pointer-output `produces_out_owner` contracts (ADR-0030)
 
 - `produces_out_owner` contracts gain a mandatory `output:` block
