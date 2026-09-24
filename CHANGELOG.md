@@ -4,6 +4,38 @@ All notable project changes are recorded here.
 
 ## Unreleased
 
+### Contracts: string/memory bundle gap closure (#74, measured in #36)
+
+- `strcmp` was missing from `contracts/bundles/libc-string.yaml`
+  (it is in neither the symbol list nor the deliberate-exclusion list
+  of `contracts/evidence/libc-string.md`) — a genuine omission, unlike
+  the reviewed exclusions. Added with the strncmp claim class
+  (ISO C11 7.24.4.2; params 0,1 borrow; scalar return).
+- Same-pass family audit of the measured E2 long tail added the other
+  symbols that fit an existing reviewed claim class exactly:
+  `strrchr`/`strstr`/`strpbrk` (interior borrowed return from param 0,
+  the strchr class), `strspn`/`strcspn` (scalar-return borrows),
+  `strlcpy` (POSIX.1-2024, bounded write within the call, the strncpy
+  class, scalar return) in libc-string 1.1.0, and `memrchr` (the
+  memchr class) in libc-memory 1.1.0.
+- `strsep` and `strtok_r` joined the `check_bundles.py` exclusion
+  table (pointer-to-pointer state output), and `strtoll` was added to
+  the existing strtol/strtoul entry; the excluded-symbols fixture now
+  pins `strtok_r` as uncontracted.
+- New conformance fixtures: `strsearch_borrowed_return_safe.c`
+  (positive: interior returns used alive, plus strlcpy) and
+  `strsearch_borrowed_return_uaf.c` (adversarial: use-after-free
+  through every new interior-return symbol must still FAIL);
+  `libc_conformance_safe.c` covers the scalar-return additions;
+  every positive fixture stays INCOMPLETE without contracts.
+- Measured effect (libgit2 `checkout.c`, old vs new merged bundle):
+  14 obligations removed (8 `:strcmp` rows plus 6 adjacent
+  summary-branch rows from the same call sites), 0 added, findings
+  unchanged — consistent with the 104 `strcmp` rows measured across
+  the eight #36 pilots at E2. `strerror` stays excluded (151 measured
+  rows; needs a reviewed static-storage return class, recorded as
+  demand in the evidence file).
+
 ### Milestone #36: E2 post-adoption re-measurement of the real-world pilot matrix
 
 - `scripts/pilots/realworld_e2.py`: committed, reproducible

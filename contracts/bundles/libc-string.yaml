@@ -1,15 +1,17 @@
 schema: cand.api-contract/v1
 name: cand-libc-string
-version: "1.0.0"
+version: "1.1.0"
 
 # Reviewed string-inspection bundle (ISO C11 7.24).
 #
 # Trusted claim per symbol: identical to the libc-memory bundle. Pointer
-# arguments are read (and for strncpy also written) only within the call's
-# lifetime; by-value scalar positions (characters, lengths) are
-# no_ownership_effect because the C type system forbids passing a pointer
-# there. strchr returns an interior borrowed pointer into its first
-# argument or NULL; strncpy returns its first argument.
+# arguments are read (and for strncpy/strlcpy also written) only within
+# the call's lifetime; by-value scalar positions (characters, lengths)
+# are no_ownership_effect because the C type system forbids passing a
+# pointer there. strchr, strrchr, strstr, strpbrk, and strncpy return an
+# interior borrowed pointer into their first argument (strrchr, strstr,
+# strpbrk) or exactly their first argument (strncpy); strcmp, strspn,
+# strcspn, and strlcpy return scalars.
 #
 # Deliberately excluded (see contracts/evidence/libc-string.md): strcat,
 # strcpy, strdup, strtok, and every function whose return or parameter
@@ -43,6 +45,46 @@ symbols:
       ownership: borrowed
       lifetime:
         from_param: 0
+  - symbol: strrchr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: no_ownership_effect
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strstr
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strpbrk
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+    returns:
+      ownership: borrowed
+      lifetime:
+        from_param: 0
+  - symbol: strcmp
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
   - symbol: strncmp
     kind: function
     params:
@@ -52,6 +94,20 @@ symbols:
         effect: borrow
       - index: 2
         effect: no_ownership_effect
+  - symbol: strspn
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+  - symbol: strcspn
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
   - symbol: strncpy
     kind: function
     params:
@@ -65,6 +121,15 @@ symbols:
       ownership: borrowed
       lifetime:
         from_param: 0
+  - symbol: strlcpy
+    kind: function
+    params:
+      - index: 0
+        effect: borrow
+      - index: 1
+        effect: borrow
+      - index: 2
+        effect: no_ownership_effect
   - symbol: strcasecmp
     kind: function
     params:
