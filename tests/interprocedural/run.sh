@@ -362,7 +362,6 @@ check_po_unrefined() { # converted but unrefined use of a maybe-produced binding
   grep -Fq '"result": "incomplete"' <<<"$po_output" || { echo "unexpected result for $1"; exit 1; }
   grep -Fq '"pointer_output_contracts": true' <<<"$po_output" || { echo "missing feature field for $1"; exit 1; }
   grep -Fq '"unrefined-out-owner-use"' <<<"$po_output" || { echo "missing unrefined-out-owner-use row for $1"; exit 1; }
-  grep -Fq '"unknown-call-with-pointer-output"' <<<"$po_output" && { echo "pointer-output row not converted for $1"; exit 1; }
   grep -Fq '"findings": []' <<<"$po_output" || { echo "unrefined use must stay INCOMPLETE for $1"; exit 1; }
 }
 check_po_refused() { # refused call keeps today's obligation
@@ -413,10 +412,10 @@ PO=tests/interprocedural
 PO_MAIN="--contracts=$PO/pointer_output.yaml"
 PO_REF="--contracts=$PO/pointer_output_refusals.yaml"
 # Conversion: write:always (absent and null pre-states), C1-C4 in
-# if/while/for/do forms, ==/!= and truthiness polarity, !! and
+# if/while/for forms, ==/!= and truthiness polarity, !! and
 # parenthesis normalization, compound-then-recognized ordering, the
-# F1 subject-discipline pair, complete-per-iteration loops, and the
-# leak-silence pin (ordinary-lattice consistency with owned returns).
+# F1 subject-discipline pair, and the leak-silence pin
+# (ordinary-lattice consistency with owned returns).
 check_po_converted $PO/pointer_output_write_always.c $PO_MAIN
 check_po_converted $PO/pointer_output_write_always_maybe_c4.c $PO_MAIN
 check_po_converted $PO/pointer_output_c1_eq.c $PO_MAIN
@@ -428,23 +427,23 @@ check_po_converted $PO/pointer_output_c3_eq.c $PO_MAIN
 check_po_converted $PO/pointer_output_c3_truth.c $PO_MAIN
 check_po_converted $PO/pointer_output_c4_truth.c $PO_MAIN
 check_po_converted $PO/pointer_output_c4_ne.c $PO_MAIN
-check_po_converted $PO/pointer_output_while_c1.c $PO_MAIN
+check_po_converted $PO/pointer_output_while_c3.c $PO_MAIN
 check_po_converted $PO/pointer_output_for_c3.c $PO_MAIN
-check_po_converted $PO/pointer_output_do_c4.c $PO_MAIN
 check_po_converted $PO/pointer_output_double_bang.c $PO_MAIN
 check_po_converted $PO/pointer_output_parens.c $PO_MAIN
 check_po_converted $PO/pointer_output_compound_then_recognized.c $PO_MAIN
 check_po_converted $PO/pointer_output_f1_call_cond.c $PO_MAIN
 check_po_converted $PO/pointer_output_f1_dest_guard.c $PO_MAIN
-check_po_converted $PO/pointer_output_loop_complete.c $PO_MAIN
 check_po_converted $PO/pointer_output_leak_silent.c $PO_MAIN
 # Unrefined use of a maybe-produced binding (including the failure
-# edge and the F1 polarity-confusion shape) is the new fail-closed
+# edge, the F1 polarity-confusion shape, and a guard whose pending
+# entry was killed by an intervening call) is the new fail-closed
 # INCOMPLETE obligation.
 check_po_unrefined $PO/pointer_output_unrefined_deref.c $PO_MAIN
 check_po_unrefined $PO/pointer_output_unrefined_free.c $PO_MAIN
 check_po_unrefined $PO/pointer_output_failure_edge_deref.c $PO_MAIN
 check_po_unrefined $PO/pointer_output_f1_polarity_confusion.c $PO_MAIN
+check_po_unrefined $PO/pointer_output_guard_after_call.c $PO_MAIN
 # Temporal defects on produced objects FAIL; sibling parameter effects
 # keep the existing trust model; overwrite keeps today's
 # tracked-owner-overwrite row.
@@ -468,6 +467,12 @@ check_po_refused $PO/pointer_output_pre_state_owner.c $PO_MAIN
 check_po_refused $PO/pointer_output_non_null_init.c $PO_MAIN
 check_po_refused $PO/pointer_output_address_escape.c $PO_MAIN
 check_po_refused $PO/pointer_output_loop_carried_live.c $PO_MAIN
+# Produces inside loops: the back-edge-joined pre-state is MaybeNull or
+# Unknown even when each iteration fully consumes the object, so the
+# acceptance predicate refuses the call [2.2.3/R9].
+check_po_refused $PO/pointer_output_while_c1.c $PO_MAIN
+check_po_refused $PO/pointer_output_do_c4.c $PO_MAIN
+check_po_refused $PO/pointer_output_loop_complete.c $PO_MAIN
 check_po_refused $PO/pointer_output_variadic_callee.c $PO_REF
 check_po_refused $PO/pointer_output_realloc_name.c $PO_REF
 for po_fixture in pointer_output_dest_param pointer_output_dest_global \
@@ -475,7 +480,8 @@ for po_fixture in pointer_output_dest_param pointer_output_dest_global \
   pointer_output_dest_element pointer_output_dest_nested \
   pointer_output_dest_cast pointer_output_pre_state_owner \
   pointer_output_non_null_init pointer_output_address_escape \
-  pointer_output_loop_carried_live; do
+  pointer_output_loop_carried_live pointer_output_while_c1 \
+  pointer_output_do_c4 pointer_output_loop_complete; do
   check_po_v1_matrix "$PO/$po_fixture.c" "$PO/pointer_output.yaml"
 done
 check_po_v1_matrix "$PO/pointer_output_variadic_callee.c" "$PO/pointer_output_refusals.yaml"

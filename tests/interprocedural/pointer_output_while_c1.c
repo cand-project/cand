@@ -1,6 +1,8 @@
-/* #41 Gate B: C1 in a while condition; the body consumes the produced
- * object each iteration, so the back-edge slot state is Moved (an
- * allowed produce pre-state). */
+/* #41 Gate B [2.2.3/R9]: a produce in a loop condition sees the
+ * back-edge-joined pre-state (Null joined with the previous iteration's
+ * binding is MaybeNull) -- not in {absent, Null, Moved/MaybeMoved} -- so
+ * the call keeps today's obligation even though each iteration fully
+ * consumes the object. */
 #include <stdlib.h>
 extern int po_nonzero(int **out);
 int main(void) {
