@@ -319,17 +319,24 @@ check incomplete tests/interprocedural/cursor_advance_roundtrip_incomplete.c
 check incomplete tests/interprocedural/destroy_of_interior_incomplete.c
 check incomplete tests/interprocedural/move_of_interior_incomplete.c
 # Area R: borrowed-local escapes through an undeclared return (B003).
-check fail tests/interprocedural/borrowed_local_return_safe.c --contracts="$merged"
+# Post-S4c: the summary-side origin dataflow resolves the helper's
+# return to BorrowFromArg(0), so the safe shapes flip fail -> pass; the
+# uaf_detect twin stays fail but now carries the real caller-side
+# detection (B001/B002 borrow-lifetime findings) instead of B003; the
+# three incomplete twins pin that only a machine-verified singleton
+# resolves (two-param join, loop-carried fixpoint, NULL over two
+# params).
+check pass tests/interprocedural/borrowed_local_return_safe.c --contracts="$merged"
 check fail tests/interprocedural/borrowed_local_return_uaf_detect.c --contracts="$merged"
 check incomplete tests/interprocedural/borrowed_local_two_params_incomplete.c
 check incomplete tests/interprocedural/borrowed_local_loop_carried_incomplete.c
 check incomplete tests/interprocedural/borrowed_local_two_param_null_incomplete.c
-check fail tests/interprocedural/seeknewline_shape_safe.c --contracts="$merged"
-check fail tests/interprocedural/find_eol_char_shape_safe.c --contracts="$merged"
-# Same-TU local-copy chain without contracts: today FAIL (B003) -- the
-# plan's pass-or-incomplete prediction was wrong (see the S3 report);
-# the b0 delta flips this to pass after Area R.
-check fail tests/interprocedural/borrowed_local_chain_b0_safe.c
+check pass tests/interprocedural/seeknewline_shape_safe.c --contracts="$merged"
+check pass tests/interprocedural/find_eol_char_shape_safe.c --contracts="$merged"
+# Same-TU local-copy chain without contracts: the b0 local-copy chain
+# delta (`t = helper(p); ...; return t;`) now resolves through the call
+# transfer plus the DeclRef fallback, so this flips fail -> pass.
+check pass tests/interprocedural/borrowed_local_chain_b0_safe.c
 
 # Milestone #39: reviewed declaration-site annotation propagation.
 # Candidate-only annotations (no review manifest) never gain PASS
