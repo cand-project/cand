@@ -79,6 +79,13 @@ annotations and zero trusted contracts, and no upstream build was changed.
 | libevent | `d82464a2` | 80,949 | 100 | 37,035 | 279 | 0 | 36,542 | unknown external call | 0 | 0 | 4.46 s | not run; ordinary CTest suite completed | 0 | No | semantic stress |
 | jemalloc | `84286c27` | 76,725 | 232 | 5,421 | 0 | 0 | 0 | generated-header/tool error | 0 | 0 | 0.85 s | blocked with upstream autoconf prerequisite | 0 | No | explicit non-claim |
 
+This table is the original zero-annotation record on the baseline tool
+(`7a6f4b6`). Its post-adoption refresh — the same nine pilots
+re-measured as B0/E2/E2+ on `c4429f5` with the reviewed #58 contract
+library — is the "Post-adoption re-measurement (E2/E2+)" section below
+(function-level obligations/CLEAR/findings matrix with the
+regression-guard column and attributed deltas against this table).
+
 ## Zero-annotation measurements
 
 | Project / scope | Analyzed files | Analyzed LOC | PASS | FAIL | INCOMPLETE | Tool errors | Runtime | Peak RSS | Coverage | Decidable |
@@ -194,6 +201,196 @@ No confirmed temporal defect was found in the executed baseline/test work, so
 the false-PASS response procedure was not triggered. Confirmed false PASS
 count: 0. Any future sanitizer-confirmed temporal violation receiving C&1
 PASS stops the pilot and follows `docs/CAND1-FALSE-PASS-RESPONSE.md`.
+
+## Post-adoption re-measurement (E2/E2+, milestone #36)
+
+After the adoption program (#58–#71) landed, the pilot matrix above was
+re-measured on the protected main HEAD `c4429f5` (PR #71; verifier binary
+SHA-256 `dd9b74ad910d57e5…`, tree-identical to the reviewed `226d3eb`).
+This section is the post-adoption record; the tables above are unchanged
+history and are never silently replaced — every delta is attributed below.
+Committed harness: `scripts/pilots/realworld_e2.py` (method, invariants,
+and the regression-guard semantics are documented in its docstring).
+
+Three configurations per pilot, identical scopes and flags:
+
+- **B0** — zero annotations, zero trusted contracts (replicates this
+  baseline's condition on the current tool);
+- **E2** — the reviewed #58 contract library (libc/posix bundles, 26
+  symbols; merged bundle SHA-256 `86746ee8849172e7…`);
+- **E2+** — E2 plus a measurement-only pointer-output contract bundle
+  (8 symbols; SHA-256 `597d1e085e1b9411…`; `/tmp` only, never committed)
+  enabled with `--pointer-output-contracts`.
+
+### Method deltas vs the original baseline runs (all recorded, none hidden)
+
+- Per-TU verdicts use an agent-equivalent acceptance predicate on
+  non-agent `--level=cand1 --format=json` runs (fail = findings;
+  pass = no findings and no unsupported; incomplete = otherwise).
+  Equivalence with the original generated-policy machinery was verified
+  empirically on four hiredis TUs (exact match on all four).
+- Function-level CLEAR is keyed per (file, function) and computed from
+  Clang AST main-file ranges; macro-expansion-location definitions
+  (start line 0) are excluded and obligations that land at macro
+  invocation lines outside real ranges are counted as unmapped, never
+  dropped (full accounting in the runner docstring).
+- Scopes are the original ones where recoverable exactly (zlib 15 files
+  9,722 LOC; hiredis 7 files 5,509; libgit2 first-40-sorted 27,911) and
+  published reconstructions otherwise: curl first-40 23,522 vs 23,118
+  (+404, +1.7%); libevent 30-file 37,162 vs 37,035 (+127, excluding the
+  seven platform files the Linux build does not compile); SQLite
+  canonical core-20 102,589 vs 97,127; Redis staged 40-file 89,864 vs
+  106,156 (original lists lost with the disposable runners; the SDS
+  stage matches exactly at 2,907).
+- The regression guard fails the run on lost CLEAR or on obligations or
+  findings added inside baseline-CLEAR functions. Guard events are
+  adjudicated, never exempted.
+
+### E2 matrix (function-level, guard baseline = B0)
+
+| Pilot | LOC | Functions (AST / cand) | B0 obligations / CLEAR / findings | E2 | E2+ | Guard |
+|---|---:|---:|---|---|---|---|
+| zlib | 9,722 | 159 / 159 | 1,023 / 49 / 2 | 911 / 51 / 2 | 911 / 51 / 2 | PASS |
+| hiredis | 5,509 | 181 / 181 | 1,031 / 13 / 0 | 886 / 20 / 1 | 889 / 20 / 1 | PASS |
+| libgit2 | 27,911 | 942 / 1,055 | 6,071 / 71 / 0 | 5,711 / 87 / 0 | 5,737 / 87 / 0 | PASS |
+| curl | 23,522 | 549 / 549 | 3,450 / 56 / 0 | 3,315 / 69 / 0 | 3,315 / 69 / 0 | PASS |
+| libevent | 37,162 | 1,176 / 1,204 | 5,318 / 150 / 0 | 4,846 / 164 / 3 | 4,848 / 164 / 3 | VIOLATION (adjudicated) |
+| Redis staged | 89,864 | 2,518 / 2,518 | 20,930 / 270 / 2 | 20,058 / 320 / 2 | 20,058 / 320 / 2 | PASS |
+| SQLite canonical | 102,589 | 1,496 / 1,496 | 14,515 / 193 / 0 | 14,001 / 205 / 0 | 14,002 / 205 / 0 | PASS |
+| SQLite amalgamation (regenerated) | 270,757 | 2,628 / 2,631 | 14,243 / 399 / 0 | 13,287 / 425 / 0 | 13,287 / 425 / 0 | VIOLATION (adjudicated) |
+| jemalloc sample | 5,421 | — | blocked (no `autoconf`, no shipped `configure`): retained as the explicit non-claim, unchanged from this baseline ||||
+
+Unmapped obligations are recorded per configuration in the runner JSON
+and never enter CLEAR: macro-invocation-line rows in libgit2 and
+libevent, and three file-scope global-initializer rows in the SQLite
+amalgamation. Excluded macro-location functions can never be counted
+CLEAR, so the exclusion direction is conservative. The SQLite
+amalgamation row is a **regenerated** artifact, not the original: the upstream regeneration
+procedure (lemon, mkkeywordhash, vdbe-compress, mksqlite3c.tcl; fully
+documented in the campaign record) produced 270,757 lines, SHA-256
+`3621916c8a7f7fa4…`, which does not verify against the original
+270,758 / `f5f945c6…` (one-line difference, unattributed; the original
+artifact is unrecoverable). The amalgamation *condition* — a single
+self-contained TU — was therefore measured on the labeled regenerated
+artifact.
+
+Redis notes: the ordinary upstream Clang build passed (TLS off,
+jemalloc default); the analysis include set is the build's own
+(`src/Makefile`), recorded in the JSON; one documented flag-remediation
+pass after the first run (missing dependency include paths, artifacts
+kept). The two Redis findings (below) are identical across
+B0/E2/E2+.
+
+Redis staged components (40-file reconstruction; the SDS stage matches
+the original exactly at 2,907 LOC, later stages are the documented
+reconstruction):
+
+| Stage | Files | LOC | B0 obl / CLEAR | E2 obl / CLEAR | Findings |
+|---|---:|---:|---|---|---:|
+| SDS | 2 | 2,907 | 375 / 16 | 320 / 23 | 2 |
+| dict/hash | 6 | 12,337 | 1,805 / 40 | 1,734 / 51 | 0 |
+| object/value | 10 | 23,732 | 6,918 / 49 | 6,802 / 52 | 0 |
+| client/network | 7 | 8,829 | 2,094 / 16 | 1,952 / 24 | 0 |
+| broader core | 15 | 42,059 | 9,738 / 149 | 9,250 / 170 | 0 |
+
+Every stage gains CLEAR under E2 (16→23, 40→51, 49→52, 16→24,
+149→170) with zero lost; the two findings are the zmalloc
+output-parameter B003s, confined to the SDS stage.
+
+**SQLite canonical-vs-amalgamation gap (plan hypothesis, measured):**
+per-function obligation density drops ~44% in the amalgamation (B0:
+9.70 obligations/function canonical vs 5.42 amalgam; CLEAR rate 12.9% →
+15.2%), reproducing the #42 direction — same-TU interprocedural
+summaries replace unknown-external rows. The comparison is directional
+(the amalgam's content is a superset including ext/), as in this
+baseline's original experiment.
+
+### Program-level deltas vs this baseline, fully attributed
+
+- hiredis B0 PASS LOC 370 → 280: `alloc.c:48`
+  global-or-static-pointer-storage, introduced by #58 (ad25748).
+- zlib B0 0 → 1,390 FAIL LOC: two CAND-O006 at `gzread.c:666` /
+  `gzwrite.c:720` (free of a borrowed-param-derived pointer in
+  `gzclose_r`/`gzclose_w`), introduced by #58's allocator-core modeling.
+  Fail-closed at the annotation boundary on correct code; not a
+  regression and not a false PASS.
+- hiredis E2 CLEAR 23 (#58-era) → 20: three functions
+  (`redisContextUpdateConnectTimeout`, `…CommandTimeout`, `sds_malloc`)
+  previously CLEAR only via unsound invented `borrow_from_arg` facts for
+  function-pointer allocator dispatch (`hi_malloc`/`s_malloc` through
+  `hiredisAllocFns`); removed by the #64 compound-origin fix (928d9bc).
+- hiredis findings 4 → 1: #64 removed three B003s; `read.c:168`
+  remains (cursor-advance borrow idiom, see guard events).
+- Redis B0 FAIL 0 → 1,308 LOC (one TU): two CAND-B003 at `zmalloc.c:541`
+  and `:568` (`if (usable) *usable = usable_size;` — write through a
+  borrowed output pointer with unclassifiable pointee storage).
+  Bisected across the saved builds: zero findings at `7a6f4b6`,
+  `ad25748`, `ec03ea7`; two from `4627363` (#63/#62 compound-assignment
+  discipline) onward. Correct upstream code, fail-closed direction,
+  pre-existing in B0 (identical across all three configurations).
+- curl and libevent per-TU verdict buckets shifted (curl PASS LOC
+  2,621 → 3,648; libevent 279 → 1,310): attributable to the scope
+  reconstruction deltas above plus ten milestones of diagnostic
+  evolution; the original per-TU records are unrecoverable, so these
+  are aggregate-level attributions only.
+
+### Guard events and adjudications
+
+- **libevent, adjudicated violation**: `evutil_set_tcp_keepalive` lost
+  CLEAR under E2/E2+ via a new `unmodelled-pointer-parameter` at
+  `evutil.c:3211` — `setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on,
+  sizeof(on))`. In B0 the unknown call left `&on` untracked; the
+  reviewed setsockopt contract forces tracking of the address-of-local,
+  which the model cannot classify. Same idiom as hiredis `net.c:248`.
+  Fail-closed precision cost of adoption on correct code; no finding,
+  no false PASS; the guard was not weakened.
+- **SQLite amalgamation, adjudicated violation**: `sqlite3RealSameAsInt`
+  lost CLEAR under E2/E2+ via a new `unmodelled-pointer-parameter` at
+  `sqlite3.c:85990` — `memcmp(&r1, &r2, sizeof(r1))`. In B0 the unknown
+  call left the address-of-local scalars untracked; the reviewed memcmp
+  contract forces tracking. Third independent instance of the same
+  family (after hiredis `net.c:248` and libevent `evutil.c:3211`, both
+  setsockopt). Fail-closed precision cost of adoption on correct code;
+  no finding, no false PASS; the guard was not weakened.
+- **Cursor-advance / pointer-output borrow idioms (correct C,
+  fail-closed findings)**: hiredis `read.c:168` and libevent
+  `buffer.c:1541/1542/1544` (`find_eol_char`): memchr-derived interior
+  pointers returned while the cursor parameter is compound-reassigned;
+  Redis `zmalloc.c:541/568`: writes through borrowed output pointers.
+  All trip the #62/#64 fail-closed borrow-origin discipline on correct
+  upstream code. Multiple independent real-world instances of these
+  idioms warrant a dedicated follow-up issue.
+
+### Cause slots and next-milestone inputs
+
+Aggregate obligations by cause slot, B0 → E2 (Gate A+B pilots):
+unknown external call 12,945 → 11,680 (−1,265: the #58 library working
+as designed); unsupported alias/storage 3,379 → 3,417 (+38:
+contract-forced tracking and kind upgrades); pointer/integer provenance
+415 flat; aggregate transport 51 flat; all other slots ≤ 38. The Gate C
+pilots show the same shape at larger scale (Redis E2: 15,231 unknown
+external call, 4,349 alias/storage, 133 atomics; SQLite canonical E2:
+9,231 / 4,331; SQLite amalgamation E2: 6,866 / 5,635).
+
+Top remaining unmodeled callees at E2: `indirect` (function-pointer
+dispatch, 836 rows across Gate A+B, 197 more in the amalgamation —
+including the allocator fn-ptr wrappers `event_mm_*`, the same family
+that cost hiredis three CLEAR functions in #64), `__builtin_expect`
+(269, Redis), `__errno_location` (112 + 206 + 28), project-internal
+cross-TU callees (`addReply*` 190+187+175 and `sdscatprintf` 155 in
+Redis; `sqlite3ErrorMsg` 153, `sqlite3ExprListAppend` 94,
+`sqlite3PExpr` 90, `sqlite3DbFree` 85 in SQLite; `git__calloc` 72,
+`git_error_set` 67, `Curl_trc_cf_infof` 106, …), and a concrete bundle
+gap: `strcmp` is missing from
+`contracts/bundles/libc-string.yaml` (67 rows across the measured
+pilots; `strncmp` is contracted). Recommended next-milestone ranking:
+allocator function-pointer dispatch first, then project-internal
+cross-TU summaries, then the `strcmp` bundle gap, the
+`__builtin_expect`/`__errno_location` builtins, and the cursor-advance
+and pointer-output borrow idioms.
+
+Confirmed false PASS count across every E2/E2+ run (all eight measured
+pilots, 24 corpus runs; jemalloc blocked-by-prerequisite): **0**.
 
 ## Evidence-backed C&1/v2 candidates
 
