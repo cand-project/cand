@@ -283,6 +283,38 @@ check pass tests/interprocedural/conditional_join_uncond_destroy_safe.c
 check fail tests/interprocedural/conditional_join_uaf_detect.c
 check incomplete tests/interprocedural/conditional_join_branch_conflict_incomplete.c
 
+# Milestone #73 (ADR-0031) borrow-idiom corpus, fixtures-first: every
+# expectation below is the PRE-fix (current main) verdict; the
+# implementation stage flips the *_safe unlock fixtures to pass and the
+# cursor_integer_advance_uaf_detect fixture to fail (B002) afterwards.
+# Contract-using fixtures (setsockopt/memcmp/memchr) run against the same
+# merged reviewed bundles as libc_borrow_bundle_safe.c above.
+# Area A: address-of-parameter at a Borrow-effect argument.
+check incomplete tests/interprocedural/addr_param_scalar_borrow_safe.c --contracts="$merged"
+# Area A pin-pass twins (silent today via findTrackedBinding; must not regress).
+check pass tests/interprocedural/addr_param_pointer_pass.c --contracts="$merged"
+check pass tests/interprocedural/addr_param_tracked_member_pass.c --contracts="$merged"
+# Area C: cursor-advance poisoning (collateral obligation rows).
+check incomplete tests/interprocedural/cursor_integer_advance_use_safe.c
+check incomplete tests/interprocedural/cursor_integer_advance_uaf_detect.c
+check incomplete tests/interprocedural/cursor_variable_delta_rebind_incomplete.c
+check incomplete tests/interprocedural/cursor_two_step_delta_rebind_incomplete.c
+check incomplete tests/interprocedural/cursor_advance_roundtrip_incomplete.c
+check incomplete tests/interprocedural/destroy_of_interior_incomplete.c
+check incomplete tests/interprocedural/move_of_interior_incomplete.c
+# Area R: borrowed-local escapes through an undeclared return (B003).
+check fail tests/interprocedural/borrowed_local_return_safe.c --contracts="$merged"
+check fail tests/interprocedural/borrowed_local_return_uaf_detect.c --contracts="$merged"
+check incomplete tests/interprocedural/borrowed_local_two_params_incomplete.c
+check incomplete tests/interprocedural/borrowed_local_loop_carried_incomplete.c
+check incomplete tests/interprocedural/borrowed_local_two_param_null_incomplete.c
+check fail tests/interprocedural/seeknewline_shape_safe.c --contracts="$merged"
+check fail tests/interprocedural/find_eol_char_shape_safe.c --contracts="$merged"
+# Same-TU local-copy chain without contracts: today FAIL (B003) -- the
+# plan's pass-or-incomplete prediction was wrong (see the S3 report);
+# the b0 delta flips this to pass after Area R.
+check fail tests/interprocedural/borrowed_local_chain_b0_safe.c
+
 # Milestone #39: reviewed declaration-site annotation propagation.
 # Candidate-only annotations (no review manifest) never gain PASS
 # authority: the annotated external boundary stays INCOMPLETE.
